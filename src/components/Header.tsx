@@ -41,12 +41,6 @@ const Header = () => {
             >
               Our Branches
             </Link>
-            <Link
-              to="/staff-login"
-              className="text-sm font-medium text-foreground/80 hover:text-primary transition-colors"
-            >
-              Staff Portal
-            </Link>
             <Link to="/contact">
               <Button variant="default" size="default">
                 Contact Us
@@ -99,13 +93,6 @@ const Header = () => {
                 onClick={() => setIsMenuOpen(false)}
               >
                 Our Branches
-              </Link>
-              <Link
-                to="/staff-login"
-                className="text-sm font-medium text-foreground/80 hover:text-primary transition-colors py-2"
-                onClick={() => setIsMenuOpen(false)}
-              >
-                Staff Portal
               </Link>
               <Link
                 to="/contact"

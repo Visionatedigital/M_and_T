@@ -203,7 +203,7 @@ Always confirm what information you're retrieving before using a tool.`
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-5-mini-2025-08-07',
+        model: 'gpt-4o-mini',
         messages: [systemMessage, ...messages],
         tools: tools,
         tool_choice: "auto",
@@ -241,7 +241,7 @@ Always confirm what information you're retrieving before using a tool.`
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-5-mini-2025-08-07',
+          model: 'gpt-4o-mini',
           messages: conversationMessages,
           max_completion_tokens: 1000,
         }),

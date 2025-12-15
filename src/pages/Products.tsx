@@ -12,11 +12,14 @@ const Products = () => {
       title: "Personal Loans",
       amount: "UGX 100,000 - 150,000,000",
       term: "18 & 24 Months",
+      interestRate: "From 2.5% per month",
       features: [
         "Quick approval process",
         "Minimal documentation required",
         "Flexible repayment options",
         "Competitive interest rates",
+        "No collateral required for small amounts",
+        "Online application available",
       ],
     },
     {
@@ -24,11 +27,14 @@ const Products = () => {
       title: "Civil Servants Loans",
       amount: "UGX 100,000 - 30,000,000",
       term: "3 - 96 Months",
+      interestRate: "From 2.0% per month",
       features: [
         "Designed specifically for government employees",
         "Extended repayment periods up to 96 months",
         "Salary-based loan assessment",
         "Fast disbursement",
+        "Salary deduction option available",
+        "Preferential rates for civil servants",
       ],
     },
     {
@@ -36,11 +42,14 @@ const Products = () => {
       title: "Logbook Finance Loans",
       amount: "UGX 3,000,000 - 50,000,000",
       term: "3 - 18 Months",
+      interestRate: "From 2.8% per month",
       features: [
         "Up to 60% of vehicle value",
         "Keep and use your vehicle",
         "Quick processing in 3 days",
         "Flexible repayment terms",
+        "All vehicle types accepted",
+        "Competitive valuation rates",
       ],
     },
     {
@@ -48,11 +57,74 @@ const Products = () => {
       title: "Small And Medium Enterprise Loans",
       amount: "UGX 100,000 - 150,000,000",
       term: "1 - 36 Months",
+      interestRate: "From 2.2% per month",
       features: [
         "Business growth financing",
         "Working capital support",
         "Equipment and inventory financing",
         "Business advisory services included",
+        "Flexible repayment schedules",
+        "No prepayment penalties",
+      ],
+    },
+    {
+      id: "agriculture",
+      title: "Agriculture Loans",
+      amount: "UGX 500,000 - 50,000,000",
+      term: "6 - 24 Months",
+      interestRate: "From 2.0% per month",
+      features: [
+        "Seasonal financing for farmers",
+        "Crop and livestock financing",
+        "Farm equipment loans",
+        "Flexible repayment aligned with harvest seasons",
+        "Agricultural extension services",
+        "Special rates for cooperatives",
+      ],
+    },
+    {
+      id: "education",
+      title: "Education Loans",
+      amount: "UGX 500,000 - 20,000,000",
+      term: "6 - 48 Months",
+      interestRate: "From 2.3% per month",
+      features: [
+        "School fees financing",
+        "Tuition and accommodation support",
+        "Extended repayment periods",
+        "Deferred payment options",
+        "Support for multiple children",
+        "Quick approval for students",
+      ],
+    },
+    {
+      id: "medical",
+      title: "Medical Emergency Loans",
+      amount: "UGX 200,000 - 10,000,000",
+      term: "3 - 12 Months",
+      interestRate: "From 2.5% per month",
+      features: [
+        "Fast approval for medical emergencies",
+        "Hospital bill financing",
+        "Medical equipment loans",
+        "Same-day disbursement available",
+        "Minimal documentation",
+        "Flexible repayment plans",
+      ],
+    },
+    {
+      id: "asset",
+      title: "Asset Finance",
+      amount: "UGX 1,000,000 - 100,000,000",
+      term: "12 - 60 Months",
+      interestRate: "From 2.0% per month",
+      features: [
+        "Vehicle financing",
+        "Machinery and equipment loans",
+        "Property improvement loans",
+        "Up to 80% financing",
+        "Competitive interest rates",
+        "Asset-based security",
       ],
     },
   ];
@@ -75,7 +147,7 @@ const Products = () => {
         {/* Products Grid */}
         <section className="py-16">
           <div className="container mx-auto px-4">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-6xl mx-auto">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8 max-w-7xl mx-auto">
               {products.map((product) => (
                 <Card
                   key={product.id}
@@ -90,6 +162,9 @@ const Products = () => {
                       </p>
                       <p className="text-base text-muted-foreground">
                         Term: {product.term}
+                      </p>
+                      <p className="text-sm font-medium text-primary">
+                        Interest Rate: {product.interestRate}
                       </p>
                     </div>
                   </CardHeader>

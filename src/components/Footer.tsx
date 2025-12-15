@@ -39,6 +39,11 @@ const Footer = () => {
                   Our Branches
                 </Link>
               </li>
+              <li>
+                <Link to="/staff-login" className="text-sm text-primary-foreground/90 hover:text-primary-foreground transition-colors">
+                  Staff Portal
+                </Link>
+              </li>
             </ul>
           </div>
 
