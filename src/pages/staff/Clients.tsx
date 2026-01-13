@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Users, Search, Plus, Eye, Phone, Mail, MapPin } from "lucide-react";
+import { Users, Search, Plus, Eye, Phone, Mail, MapPin, UserPlus, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface Client {
@@ -26,6 +26,7 @@ interface Client {
 }
 
 const Clients = () => {
+  const location = useLocation();
   const [isLoading, setIsLoading] = useState(true);
   const [clients, setClients] = useState<Client[]>([]);
   const [filteredClients, setFilteredClients] = useState<Client[]>([]);
@@ -40,7 +41,7 @@ const Clients = () => {
 
   useEffect(() => {
     filterClients();
-  }, [clients, searchTerm]);
+  }, [clients, searchTerm, location.pathname]);
 
   const checkAuth = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -146,45 +147,129 @@ const Clients = () => {
                   <h1 className="text-3xl font-bold mb-2">Clients</h1>
                   <p className="text-muted-foreground">Manage client information and history</p>
                 </div>
-                <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Add Client
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Add New Client</DialogTitle>
-                      <DialogDescription>
-                        Create a new client profile
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <div>
-                        <Label>Full Name</Label>
-                        <Input placeholder="Enter full name" />
-                      </div>
-                      <div>
-                        <Label>Email</Label>
-                        <Input type="email" placeholder="Enter email" />
-                      </div>
-                      <div>
-                        <Label>Phone Number</Label>
-                        <Input placeholder="Enter phone number" />
-                      </div>
-                      <div className="flex justify-end gap-2">
-                        <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-                          Cancel
-                        </Button>
-                        <Button>Add Client</Button>
-                      </div>
-                    </div>
-                  </DialogContent>
-                </Dialog>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
+              {/* Navigation Tabs */}
+              <div className="flex gap-2 border-b pb-2">
+                <Button
+                  variant={!location.pathname.includes("/add") && !location.pathname.includes("/history") ? "default" : "ghost"}
+                  onClick={() => navigate("/staff-dashboard/clients")}
+                  className="rounded-b-none"
+                >
+                  <Users className="mr-2 h-4 w-4" />
+                  View Clients
+                </Button>
+                <Button
+                  variant={location.pathname.includes("/add") ? "default" : "ghost"}
+                  onClick={() => navigate("/staff-dashboard/clients/add")}
+                  className="rounded-b-none"
+                >
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Add Client
+                </Button>
+                <Button
+                  variant={location.pathname.includes("/history") ? "default" : "ghost"}
+                  onClick={() => navigate("/staff-dashboard/clients/history")}
+                  className="rounded-b-none"
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  Client History
+                </Button>
+              </div>
+
+              {/* Add Client View */}
+              {location.pathname.includes("/add") ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Add New Client</CardTitle>
+                    <CardDescription>Create a new client profile</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button className="w-full">
+                          <Plus className="mr-2 h-4 w-4" />
+                          Add Client
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Add New Client</DialogTitle>
+                          <DialogDescription>
+                            Create a new client profile
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                          <div>
+                            <Label>Full Name</Label>
+                            <Input placeholder="Enter full name" />
+                          </div>
+                          <div>
+                            <Label>Email</Label>
+                            <Input type="email" placeholder="Enter email" />
+                          </div>
+                          <div>
+                            <Label>Phone Number</Label>
+                            <Input placeholder="Enter phone number" />
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+                              Cancel
+                            </Button>
+                            <Button>Add Client</Button>
+                          </div>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  </CardContent>
+                </Card>
+              ) : location.pathname.includes("/history") ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Client History</CardTitle>
+                    <CardDescription>View client loan history and transactions</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {filteredClients.map((client) => (
+                        <Card key={client.id}>
+                          <CardHeader>
+                            <CardTitle className="text-lg">{client.full_name}</CardTitle>
+                            <CardDescription>
+                              {client.email} {client.phone_number && `• ${client.phone_number}`}
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                              <div>
+                                <div className="text-sm text-muted-foreground">Total Loans</div>
+                                <div className="text-2xl font-bold">{client.total_loans}</div>
+                              </div>
+                              <div>
+                                <div className="text-sm text-muted-foreground">Active Loans</div>
+                                <div className="text-2xl font-bold">{client.active_loans}</div>
+                              </div>
+                              <div>
+                                <div className="text-sm text-muted-foreground">Total Borrowed</div>
+                                <div className="text-2xl font-bold">UGX {client.total_borrowed.toLocaleString()}</div>
+                              </div>
+                              <div>
+                                <div className="text-sm text-muted-foreground">Total Repaid</div>
+                                <div className="text-2xl font-bold">UGX {client.total_repaid.toLocaleString()}</div>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                      {filteredClients.length === 0 && (
+                        <p className="text-center py-8 text-muted-foreground">No client history found</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <>
+                  <div className="grid gap-4 md:grid-cols-3">
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Total Clients</CardTitle>
@@ -295,6 +380,8 @@ const Clients = () => {
                   </Table>
                 </CardContent>
               </Card>
+                </>
+              )}
             </div>
           </main>
         </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { Wallet, Search, TrendingUp, DollarSign, Calendar, Users } from "lucide-react";
+import { Wallet, Search, TrendingUp, DollarSign, Calendar, Users, Eye, FileSpreadsheet, Receipt } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface ActiveLoan {
@@ -33,20 +33,35 @@ interface ActiveLoan {
 }
 
 const ActiveLoans = () => {
+  const location = useLocation();
   const [isLoading, setIsLoading] = useState(true);
   const [loans, setLoans] = useState<ActiveLoan[]>([]);
   const [filteredLoans, setFilteredLoans] = useState<ActiveLoan[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [productFilter, setProductFilter] = useState<string>("all");
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  // Determine filter from URL path
+  const getFilterFromPath = () => {
+    const path = location.pathname;
+    if (path.includes("/schedule")) return "schedule";
+    return "all";
+  };
 
   useEffect(() => {
     checkAuth();
   }, []);
 
+  // Update filter when route changes
+  useEffect(() => {
+    const filter = getFilterFromPath();
+    // For now, we'll keep productFilter separate, but we can add route-based filtering later
+  }, [location.pathname]);
+
   useEffect(() => {
     filterLoans();
-  }, [loans, searchTerm]);
+  }, [loans, searchTerm, productFilter]);
 
   const checkAuth = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -124,7 +139,17 @@ const ActiveLoans = () => {
       );
     }
 
+    if (productFilter !== "all") {
+      filtered = filtered.filter((loan) => loan.loan_product === productFilter);
+    }
+
     setFilteredLoans(filtered);
+  };
+
+  // Get unique loan products for filtering
+  const getUniqueProducts = () => {
+    const products = new Set(loans.map(loan => loan.loan_product));
+    return Array.from(products);
   };
 
   const calculateTotalStats = () => {
@@ -163,12 +188,145 @@ const ActiveLoans = () => {
           <StaffHeader />
           <main className="flex-1 p-4 md:p-8 bg-gradient-to-b from-background to-muted/20">
             <div className="max-w-7xl mx-auto space-y-6">
-              <div>
-                <h1 className="text-3xl font-bold mb-2">Active Loans</h1>
-                <p className="text-muted-foreground">Track active loans and money growth</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-3xl font-bold mb-2">Active Loans</h1>
+                  <p className="text-muted-foreground">Track active loans and money growth</p>
+                </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              {/* Navigation Tabs */}
+              <div className="flex gap-2 border-b pb-2">
+                <Button
+                  variant={!location.pathname.includes("/schedule") ? "default" : "ghost"}
+                  onClick={() => navigate("/staff-dashboard/loans")}
+                  className="rounded-b-none"
+                >
+                  <Wallet className="mr-2 h-4 w-4" />
+                  All Loans
+                </Button>
+                <Button
+                  variant={location.pathname.includes("/schedule") ? "default" : "ghost"}
+                  onClick={() => navigate("/staff-dashboard/loans/schedule")}
+                  className="rounded-b-none"
+                >
+                  <Receipt className="mr-2 h-4 w-4" />
+                  Loan Schedule
+                </Button>
+              </div>
+
+              {/* Product Filter Tabs */}
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  variant={productFilter === "all" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setProductFilter("all")}
+                >
+                  All Products
+                </Button>
+                {getUniqueProducts().map((product) => (
+                  <Button
+                    key={product}
+                    variant={productFilter === product ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setProductFilter(product)}
+                  >
+                    {product}
+                  </Button>
+                ))}
+              </div>
+
+              {/* Schedule View */}
+              {location.pathname.includes("/schedule") ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Loan Repayment Schedule</CardTitle>
+                    <CardDescription>View repayment schedules for all active loans</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {filteredLoans.length === 0 ? (
+                        <p className="text-center py-8 text-muted-foreground">No loans found</p>
+                      ) : (
+                        filteredLoans.map((loan) => {
+                          const monthlyPayment = loan.total_amount / loan.loan_duration_months;
+                          const approvedDate = new Date(loan.approved_at || loan.created_at);
+                          const schedule = [];
+                          
+                          for (let i = 0; i < loan.loan_duration_months; i++) {
+                            const dueDate = new Date(approvedDate);
+                            dueDate.setMonth(dueDate.getMonth() + i + 1);
+                            const isPast = dueDate < new Date();
+                            const isCurrent = dueDate.getMonth() === new Date().getMonth() && 
+                                            dueDate.getFullYear() === new Date().getFullYear();
+                            
+                            schedule.push({
+                              installment: i + 1,
+                              dueDate,
+                              amount: monthlyPayment,
+                              status: isPast ? "paid" : isCurrent ? "due" : "upcoming",
+                            });
+                          }
+
+                          return (
+                            <Card key={loan.id} className="mb-4">
+                              <CardHeader>
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <CardTitle className="text-lg">{loan.full_name}</CardTitle>
+                                    <CardDescription>{loan.loan_product} - UGX {loan.loan_amount.toLocaleString()}</CardDescription>
+                                  </div>
+                                  <Badge variant="outline">{loan.loan_duration_months} months</Badge>
+                                </div>
+                              </CardHeader>
+                              <CardContent>
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow>
+                                      <TableHead>Installment</TableHead>
+                                      <TableHead>Due Date</TableHead>
+                                      <TableHead>Amount</TableHead>
+                                      <TableHead>Status</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {schedule.map((payment) => (
+                                      <TableRow key={payment.installment}>
+                                        <TableCell className="font-medium">{payment.installment}</TableCell>
+                                        <TableCell>{payment.dueDate.toLocaleDateString()}</TableCell>
+                                        <TableCell>UGX {payment.amount.toLocaleString()}</TableCell>
+                                        <TableCell>
+                                          <Badge
+                                            variant={
+                                              payment.status === "paid"
+                                                ? "default"
+                                                : payment.status === "due"
+                                                ? "destructive"
+                                                : "outline"
+                                            }
+                                          >
+                                            {payment.status === "paid"
+                                              ? "Paid"
+                                              : payment.status === "due"
+                                              ? "Due"
+                                              : "Upcoming"}
+                                          </Badge>
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </CardContent>
+                            </Card>
+                          );
+                        })
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Total Principal</CardTitle>
@@ -244,12 +402,13 @@ const ActiveLoans = () => {
                         <TableHead>Remaining</TableHead>
                         <TableHead>Growth</TableHead>
                         <TableHead>Progress</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredLoans.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                          <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                             No active loans found
                           </TableCell>
                         </TableRow>
@@ -274,6 +433,16 @@ const ActiveLoans = () => {
                                   <Progress value={progress} className="w-20" />
                                   <span className="text-sm text-muted-foreground">{progress.toFixed(0)}%</span>
                                 </div>
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => navigate(`/staff-dashboard/loans/details/${loan.id}`)}
+                                >
+                                  <Eye className="h-4 w-4 mr-1" />
+                                  View
+                                </Button>
                               </TableCell>
                             </TableRow>
                           );
@@ -360,6 +529,8 @@ const ActiveLoans = () => {
                   </CardContent>
                 </Card>
               </div>
+                </>
+              )}
             </div>
           </main>
         </div>

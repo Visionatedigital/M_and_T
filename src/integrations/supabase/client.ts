@@ -5,13 +5,17 @@ import type { Database } from './types';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
+// Check if Supabase is in offline/restoring mode
+const isOfflineMode = import.meta.env.VITE_SUPABASE_OFFLINE === 'true' || 
+  (SUPABASE_URL && SUPABASE_URL.includes('placeholder'));
+
 // Validate environment variables
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-  console.error('❌ Supabase configuration missing!');
-  console.error('Please create a .env file with:');
-  console.error('VITE_SUPABASE_URL=https://your-project.supabase.co');
-  console.error('VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-key');
-  console.error('\nGet your credentials from: https://app.supabase.com → Settings → API');
+  console.warn('⚠️ Supabase configuration missing! Running in offline mode.');
+  console.warn('To enable Supabase, create a .env file with:');
+  console.warn('VITE_SUPABASE_URL=https://your-project.supabase.co');
+  console.warn('VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-key');
+  console.warn('\nGet your credentials from: https://app.supabase.com → Settings → API');
 }
 
 // Check if URL is valid format
@@ -30,6 +34,17 @@ export const supabase = createClient<Database>(
       storage: localStorage,
       persistSession: true,
       autoRefreshToken: true,
-    }
+      // Disable auto refresh in offline mode to prevent errors
+      ...(isOfflineMode && { autoRefreshToken: false }),
+    },
+    // Add global error handler
+    global: {
+      headers: {
+        'x-client-info': 'm-t-growth-gateway',
+      },
+    },
   }
 );
+
+// Export offline mode flag for components to use
+export const isSupabaseOffline = isOfflineMode;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
@@ -10,10 +10,11 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Receipt, Search, Plus, DollarSign, Calendar } from "lucide-react";
+import { Receipt, Search, Plus, DollarSign, Calendar, FileSpreadsheet } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const Repayments = () => {
+  const location = useLocation();
   const [isLoading, setIsLoading] = useState(true);
   const [repayments, setRepayments] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -107,7 +108,147 @@ const Repayments = () => {
                 <p className="text-muted-foreground">Track and manage loan repayments</p>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
+              {/* Navigation Tabs */}
+              <div className="flex gap-2 border-b pb-2">
+                <Button
+                  variant={!location.pathname.includes("/add") && !location.pathname.includes("/schedule") ? "default" : "ghost"}
+                  onClick={() => navigate("/staff-dashboard/repayments")}
+                  className="rounded-b-none"
+                >
+                  <Receipt className="mr-2 h-4 w-4" />
+                  View Repayments
+                </Button>
+                <Button
+                  variant={location.pathname.includes("/add") ? "default" : "ghost"}
+                  onClick={() => navigate("/staff-dashboard/repayments/add")}
+                  className="rounded-b-none"
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Repayment
+                </Button>
+                <Button
+                  variant={location.pathname.includes("/schedule") ? "default" : "ghost"}
+                  onClick={() => navigate("/staff-dashboard/repayments/schedule")}
+                  className="rounded-b-none"
+                >
+                  <FileSpreadsheet className="mr-2 h-4 w-4" />
+                  Repayment Schedule
+                </Button>
+              </div>
+
+              {/* Add Repayment View */}
+              {location.pathname.includes("/add") ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Record New Repayment</CardTitle>
+                    <CardDescription>Record a payment for a loan</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button className="w-full">
+                          <Plus className="mr-2 h-4 w-4" />
+                          Record Payment
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Record Payment</DialogTitle>
+                          <DialogDescription>
+                            Record a new repayment for a loan
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                          <div>
+                            <Label>Select Loan</Label>
+                            <Input placeholder="Search for loan..." />
+                          </div>
+                          <div>
+                            <Label>Payment Amount</Label>
+                            <Input type="number" placeholder="Enter amount" />
+                          </div>
+                          <div>
+                            <Label>Payment Date</Label>
+                            <Input type="date" />
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+                              Cancel
+                            </Button>
+                            <Button>Record Payment</Button>
+                          </div>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  </CardContent>
+                </Card>
+              ) : location.pathname.includes("/schedule") ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Repayment Schedule Overview</CardTitle>
+                    <CardDescription>View all repayment schedules grouped by loan</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {repayments
+                        .filter(r => !searchTerm || r.client_name.toLowerCase().includes(searchTerm.toLowerCase()))
+                        .reduce((acc: any, repayment: any) => {
+                          const existing = acc.find((item: any) => item.loan_id === repayment.loan_id);
+                          if (existing) {
+                            existing.payments.push(repayment);
+                          } else {
+                            acc.push({
+                              loan_id: repayment.loan_id,
+                              client_name: repayment.client_name,
+                              payments: [repayment],
+                            });
+                          }
+                          return acc;
+                        }, [])
+                        .map((group: any) => (
+                          <Card key={group.loan_id}>
+                            <CardHeader>
+                              <CardTitle className="text-lg">{group.client_name}</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Due Date</TableHead>
+                                    <TableHead>Amount</TableHead>
+                                    <TableHead>Status</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {group.payments.map((payment: any) => (
+                                    <TableRow key={payment.id}>
+                                      <TableCell>{new Date(payment.due_date).toLocaleDateString()}</TableCell>
+                                      <TableCell>UGX {payment.amount.toLocaleString()}</TableCell>
+                                      <TableCell>
+                                        <span className={`px-2 py-1 rounded text-xs ${
+                                          payment.status === "paid" 
+                                            ? "bg-green-100 text-green-800" 
+                                            : "bg-yellow-100 text-yellow-800"
+                                        }`}>
+                                          {payment.status}
+                                        </span>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      {repayments.length === 0 && (
+                        <p className="text-center py-8 text-muted-foreground">No repayment schedules found</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <>
+                  <div className="grid gap-4 md:grid-cols-3">
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Total Due</CardTitle>
@@ -181,8 +322,19 @@ const Repayments = () => {
                         .filter(r => 
                           !searchTerm || 
                           r.client_name.toLowerCase().includes(searchTerm.toLowerCase())
-                        )
-                        .map((repayment) => (
+                        ).length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                            {searchTerm ? "No repayments found matching your search" : "No repayments found"}
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        repayments
+                          .filter(r => 
+                            !searchTerm || 
+                            r.client_name.toLowerCase().includes(searchTerm.toLowerCase())
+                          )
+                          .map((repayment) => (
                           <TableRow key={repayment.id}>
                             <TableCell className="font-medium">{repayment.client_name}</TableCell>
                             <TableCell>UGX {repayment.amount.toLocaleString()}</TableCell>
@@ -208,11 +360,14 @@ const Repayments = () => {
                               )}
                             </TableCell>
                           </TableRow>
-                        ))}
+                        ))
+                      )}
                     </TableBody>
                   </Table>
                 </CardContent>
               </Card>
+                </>
+              )}
             </div>
           </main>
         </div>

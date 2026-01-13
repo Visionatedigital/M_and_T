@@ -14,6 +14,7 @@ import AskAI from "./pages/AskAI";
 import NotFound from "./pages/NotFound";
 import LoanApplications from "./pages/staff/LoanApplications";
 import ActiveLoans from "./pages/staff/ActiveLoans";
+import LoanDetails from "./pages/staff/LoanDetails";
 import Clients from "./pages/staff/Clients";
 import Repayments from "./pages/staff/Repayments";
 import Reports from "./pages/staff/Reports";
@@ -43,6 +44,9 @@ const App = () => (
           <Route path="/staff-dashboard/applications/approved" element={<LoanApplications />} />
           <Route path="/staff-dashboard/applications/rejected" element={<LoanApplications />} />
           <Route path="/staff-dashboard/loans" element={<ActiveLoans />} />
+          <Route path="/staff-dashboard/loans/schedule" element={<ActiveLoans />} />
+          <Route path="/staff-dashboard/loans/details/:id" element={<LoanDetails />} />
+          <Route path="/staff-dashboard/loans/details" element={<LoanDetails />} />
           <Route path="/staff-dashboard/clients" element={<Clients />} />
           <Route path="/staff-dashboard/clients/add" element={<Clients />} />
           <Route path="/staff-dashboard/clients/history" element={<Clients />} />

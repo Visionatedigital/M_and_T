@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
@@ -34,11 +34,22 @@ interface LoanApplication {
 }
 
 const LoanApplications = () => {
+  const location = useLocation();
   const [isLoading, setIsLoading] = useState(true);
   const [applications, setApplications] = useState<LoanApplication[]>([]);
   const [filteredApplications, setFilteredApplications] = useState<LoanApplication[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  
+  // Determine status filter from URL path
+  const getStatusFromPath = () => {
+    const path = location.pathname;
+    if (path.includes("/pending")) return "pending";
+    if (path.includes("/approved")) return "approved";
+    if (path.includes("/rejected")) return "rejected";
+    return "all";
+  };
+  
+  const [statusFilter, setStatusFilter] = useState<string>(getStatusFromPath());
   const [selectedApplication, setSelectedApplication] = useState<LoanApplication | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isGroupDialogOpen, setIsGroupDialogOpen] = useState(false);
@@ -61,6 +72,12 @@ const LoanApplications = () => {
   useEffect(() => {
     checkAuth();
   }, []);
+
+  // Update status filter when route changes
+  useEffect(() => {
+    const newStatus = getStatusFromPath();
+    setStatusFilter(newStatus);
+  }, [location.pathname]);
 
   useEffect(() => {
     filterApplications();
@@ -115,7 +132,14 @@ const LoanApplications = () => {
     }
 
     if (statusFilter !== "all") {
-      filtered = filtered.filter((app) => app.status === statusFilter);
+      if (statusFilter === "approved") {
+        // Include both approved and disbursed loans
+        filtered = filtered.filter((app) => 
+          app.status === "approved" || app.status === "disbursed"
+        );
+      } else {
+        filtered = filtered.filter((app) => app.status === statusFilter);
+      }
     }
 
     setFilteredApplications(filtered);
@@ -396,6 +420,41 @@ const LoanApplications = () => {
                 </Dialog>
               </div>
 
+              {/* Status Tabs */}
+              <div className="flex gap-2 border-b pb-2">
+                <Button
+                  variant={statusFilter === "all" ? "default" : "ghost"}
+                  onClick={() => navigate("/staff-dashboard/applications")}
+                  className="rounded-b-none"
+                >
+                  All Applications
+                </Button>
+                <Button
+                  variant={statusFilter === "pending" ? "default" : "ghost"}
+                  onClick={() => navigate("/staff-dashboard/applications/pending")}
+                  className="rounded-b-none"
+                >
+                  <Clock className="mr-2 h-4 w-4" />
+                  Pending
+                </Button>
+                <Button
+                  variant={statusFilter === "approved" ? "default" : "ghost"}
+                  onClick={() => navigate("/staff-dashboard/applications/approved")}
+                  className="rounded-b-none"
+                >
+                  <CheckCircle className="mr-2 h-4 w-4" />
+                  Approved
+                </Button>
+                <Button
+                  variant={statusFilter === "rejected" ? "default" : "ghost"}
+                  onClick={() => navigate("/staff-dashboard/applications/rejected")}
+                  className="rounded-b-none"
+                >
+                  <XCircle className="mr-2 h-4 w-4" />
+                  Rejected
+                </Button>
+              </div>
+
               <Card>
                 <CardHeader>
                   <div className="flex items-center justify-between">
@@ -413,7 +472,22 @@ const LoanApplications = () => {
                           className="pl-8 w-64"
                         />
                       </div>
-                      <Select value={statusFilter} onValueChange={setStatusFilter}>
+                      <Select 
+                        value={statusFilter} 
+                        onValueChange={(value) => {
+                          setStatusFilter(value);
+                          // Navigate to the appropriate route
+                          if (value === "pending") {
+                            navigate("/staff-dashboard/applications/pending");
+                          } else if (value === "approved") {
+                            navigate("/staff-dashboard/applications/approved");
+                          } else if (value === "rejected") {
+                            navigate("/staff-dashboard/applications/rejected");
+                          } else {
+                            navigate("/staff-dashboard/applications");
+                          }
+                        }}
+                      >
                         <SelectTrigger className="w-40">
                           <SelectValue placeholder="Filter by status" />
                         </SelectTrigger>
