@@ -1,6 +1,7 @@
+
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -9,65 +10,58 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { FileText, Users, DollarSign, ArrowRight } from "lucide-react";
 import { DisbursementChart } from "@/components/staff/DisbursementChart";
+import { GrowthChart } from "@/components/staff/GrowthChart";
+import { RoiChart } from "@/components/staff/RoiChart";
+import { ForecastChart } from "@/components/staff/ForecastChart";
+import { useUserRole } from "@/hooks/useUserRole";
 
 const StaffDashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [userName, setUserName] = useState("");
-  const [promptText, setPromptText] = useState("");
+  const [stats, setStats] = useState({
+    totalApplications: 0,
+    pendingApplications: 0,
+    activeClients: 0,
+    totalDisbursed: 0,
+    outstandingPortfolio: 0,
+  });
+  const [activities, setActivities] = useState<any[]>([]);
   const navigate = useNavigate();
+  const { role, loading: roleLoading } = useUserRole();
 
   useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
+    const loadDashboardData = async () => {
+      try {
+        const user = await api.auth.getMe();
+        if (!user) {
+          navigate("/staff-login");
+          return;
+        }
+
+        const data = await api.reports.getDashboardStats();
+        setUserName(data.userName);
+        setStats(data.stats);
+        setActivities(data.activities);
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error);
         navigate("/staff-login");
-        return;
+      } finally {
+        setIsLoading(false);
       }
-
-      // Verify user has staff role
-      const { data: roles } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", session.user.id);
-
-      if (!roles || !roles.some(r => r.role === "admin" || r.role === "loan_officer")) {
-        await supabase.auth.signOut();
-        navigate("/staff-login");
-        return;
-      }
-
-      // Fetch user profile for name
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("first_name")
-        .eq("id", session.user.id)
-        .single();
-
-      if (profile) {
-        setUserName(profile.first_name || "");
-      }
-
-      setIsLoading(false);
     };
 
-    checkAuth();
+    loadDashboardData();
   }, [navigate]);
 
-  const handleAskAI = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (promptText.trim()) {
-      navigate("/staff-dashboard/ask-ai", { state: { initialPrompt: promptText } });
-    }
-  };
-
-  if (isLoading) {
+  if (isLoading || roleLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
     );
   }
+
+  const isLoanOfficer = role === 'loan_officer';
 
   return (
     <SidebarProvider>
@@ -84,41 +78,20 @@ const StaffDashboard = () => {
                   </h1>
                   <p className="text-muted-foreground">Welcome to your staff portal</p>
                 </div>
-
-                <form onSubmit={handleAskAI} className="relative">
-                  <div className="glow-box relative rounded-lg p-[2px] bg-gradient-to-r from-primary via-accent to-primary bg-[length:200%_auto] animate-glow">
-                    <div className="bg-background rounded-lg p-4 flex gap-2">
-                      <Input
-                        value={promptText}
-                        onChange={(e) => setPromptText(e.target.value)}
-                        placeholder="Ask AI anything about loans, applications, or get insights..."
-                        className="flex-1 border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
-                      />
-                      <Button 
-                        type="submit" 
-                        disabled={!promptText.trim()}
-                        className="gap-2"
-                      >
-                        Ask AI
-                        <ArrowRight className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </form>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">
-                      Total Applications
+                      {isLoanOfficer ? "My Applications" : "Total Applications"}
                     </CardTitle>
                     <FileText className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">48</div>
+                    <div className="text-2xl font-bold">{stats.totalApplications}</div>
                     <p className="text-xs text-muted-foreground">
-                      +12% from last month
+                      {isLoanOfficer ? "Assigned to you" : "All branch applications"}
                     </p>
                   </CardContent>
                 </Card>
@@ -131,7 +104,7 @@ const StaffDashboard = () => {
                     <FileText className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">12</div>
+                    <div className="text-2xl font-bold">{stats.pendingApplications}</div>
                     <p className="text-xs text-muted-foreground">
                       Requires attention
                     </p>
@@ -141,14 +114,14 @@ const StaffDashboard = () => {
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">
-                      Active Clients
+                      {isLoanOfficer ? "My Active Clients" : "Active Clients"}
                     </CardTitle>
                     <Users className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">2,345</div>
+                    <div className="text-2xl font-bold">{stats.activeClients}</div>
                     <p className="text-xs text-muted-foreground">
-                      +180 this month
+                      {isLoanOfficer ? "Clients in your portfolio" : "Total active clients"}
                     </p>
                   </CardContent>
                 </Card>
@@ -156,20 +129,28 @@ const StaffDashboard = () => {
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">
-                      Total Disbursed
+                      {isLoanOfficer ? "Outstanding Portfolio" : "Total Outstanding Branch Portfolio"}
                     </CardTitle>
                     <DollarSign className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">UGX 45.2M</div>
+                    <div className="text-2xl font-bold">UGX {(stats.outstandingPortfolio / 1000000).toFixed(1)}M</div>
                     <p className="text-xs text-muted-foreground">
-                      +20% from last month
+                      {isLoanOfficer ? "Remaining balance (Principal + Interest)" : "Total branch outstanding balance"}
                     </p>
                   </CardContent>
                 </Card>
               </div>
 
-              <DisbursementChart />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <DisbursementChart />
+                <GrowthChart />
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <RoiChart />
+                <ForecastChart />
+              </div>
 
               <Card>
                 <CardHeader>
@@ -179,9 +160,27 @@ const StaffDashboard = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-muted-foreground">
-                    Activity feed will be displayed here
-                  </p>
+                  <div className="space-y-4">
+                    {activities.length > 0 ? (
+                      activities.map((activity, i) => (
+                        <div key={i} className="flex items-center justify-between border-b pb-2 last:border-0 last:pb-0">
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium">{activity.full_name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Status updated to <span className="capitalize font-semibold">{activity.status.replace('_', ' ')}</span>
+                            </p>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(activity.updated_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-muted-foreground">
+                        No recent activity found
+                      </p>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             </div>
