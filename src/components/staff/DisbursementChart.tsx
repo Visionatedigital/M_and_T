@@ -1,23 +1,37 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { api } from "@/services/api";
+import { useUserRole } from "@/hooks/useUserRole";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 
-// Mock data - replace with real data from your backend
-const data = [
-  { month: "Jan", disbursed: 12.4, repayments: 8.2 },
-  { month: "Feb", disbursed: 29.4, repayments: 15.6 },
-  { month: "Mar", disbursed: 18.2, repayments: 22.1 },
-  { month: "Apr", disbursed: 24.8, repayments: 19.4 },
-  { month: "May", disbursed: 35.1, repayments: 28.3 },
-  { month: "Jun", disbursed: 38.6, repayments: 32.8 },
-  { month: "Jul", disbursed: 45.2, repayments: 38.5 },
-];
+interface ChartData {
+  month: string;
+  disbursed: number;
+  repayments: number;
+}
 
 export const DisbursementChart = () => {
   const [showDisbursed, setShowDisbursed] = useState(true);
   const [showRepayments, setShowRepayments] = useState(true);
+  const [data, setData] = useState<ChartData[]>([]);
+  const { role, isLoanOfficer } = useUserRole();
+
+  useEffect(() => {
+    const fetchChartData = async () => {
+      try {
+        const chartData = await api.reports.getChartData();
+        setData(chartData);
+      } catch (error) {
+        console.error("Error fetching chart data:", error);
+      }
+    };
+
+    if (role) {
+      fetchChartData();
+    }
+  }, [role]);
 
   return (
     <Card>
@@ -45,12 +59,12 @@ export const DisbursementChart = () => {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" className="stroke-muted" opacity={0.3} />
-              <XAxis 
-                dataKey="month" 
+              <XAxis
+                dataKey="month"
                 className="text-xs"
                 stroke="hsl(var(--muted-foreground))"
               />
-              <YAxis 
+              <YAxis
                 className="text-xs"
                 stroke="hsl(var(--muted-foreground))"
                 tickFormatter={(value) => `${value}M`}
@@ -62,6 +76,7 @@ export const DisbursementChart = () => {
                   borderRadius: "6px",
                 }}
                 labelStyle={{ color: "hsl(var(--foreground))" }}
+                formatter={(value: number) => [`UGX ${value.toFixed(2)}M`, ""]}
               />
               {showDisbursed && (
                 <Area
@@ -88,31 +103,31 @@ export const DisbursementChart = () => {
             </AreaChart>
           </ResponsiveContainer>
         </div>
-        
+
         <div className="flex items-center gap-6 pt-4 border-t">
           <div className="flex items-center gap-2">
-            <Checkbox 
+            <Checkbox
               id="disbursed"
               checked={showDisbursed}
               onCheckedChange={(checked) => setShowDisbursed(checked === true)}
             />
-            <Label 
-              htmlFor="disbursed" 
+            <Label
+              htmlFor="disbursed"
               className="flex items-center gap-2 cursor-pointer"
             >
               <div className="w-3 h-3 rounded-full bg-primary" />
               Disbursed
             </Label>
           </div>
-          
+
           <div className="flex items-center gap-2">
-            <Checkbox 
+            <Checkbox
               id="repayments"
               checked={showRepayments}
               onCheckedChange={(checked) => setShowRepayments(checked === true)}
             />
-            <Label 
-              htmlFor="repayments" 
+            <Label
+              htmlFor="repayments"
               className="flex items-center gap-2 cursor-pointer"
             >
               <div className="w-3 h-3 rounded-full bg-accent" />

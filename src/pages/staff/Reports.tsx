@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { BarChart3, DollarSign, Users, TrendingUp } from "lucide-react";
+import { BarChart3, DollarSign, Users, TrendingUp, FileText, FileSpreadsheet, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface LoanStats {
@@ -32,6 +32,8 @@ interface ProductStats {
 const Reports = () => {
   const location = useLocation();
   const [isLoading, setIsLoading] = useState(true);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loanStats, setLoanStats] = useState<LoanStats>({
     totalApplications: 0,
     approvedLoans: 0,
@@ -50,11 +52,38 @@ const Reports = () => {
   });
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [isExportingAI, setIsExportingAI] = useState(false);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+
+  const handleAiExport = async () => {
+    setIsExportingAI(true);
+    try {
+      await api.reports.downloadAiSummaryDocx();
+      toast({ title: "Success", description: "AI Summary downloaded successfully." });
+    } catch (error: any) {
+      toast({ title: "Export Failed", description: error.message, variant: "destructive" });
+    } finally {
+      setIsExportingAI(false);
+    }
+  };
+
+  const handleExcelExport = async () => {
+    setIsExportingExcel(true);
+    try {
+      await api.reports.downloadFinancialExportXlsx();
+      toast({ title: "Success", description: "Financial Report downloaded successfully." });
+    } catch (error: any) {
+      toast({ title: "Export Failed", description: error.message, variant: "destructive" });
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
 
   // Determine active tab from route
   const getActiveTab = () => {
     const path = location.pathname;
-    if (path.includes("/financial")) return "financial";
+    // Financial reports are restricted to admins
+    if (path.includes("/financial") && userRole === "admin") return "financial";
     if (path.includes("/clients")) return "clients";
     return "loans";
   };
@@ -64,97 +93,35 @@ const Reports = () => {
   }, []);
 
   const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    try {
+      const user = await api.auth.getMe();
+      if (user) {
+        setUserRole(user.role);
+        setCurrentUserId(user.id);
+
+        if (user.role === 'loan_officer') {
+          toast({
+            title: "Access Denied",
+            description: "You do not have permission to view reports.",
+            variant: "destructive",
+          });
+          navigate("/staff-dashboard");
+          return;
+        }
+
+        loadReports();
+      }
+    } catch (err) {
       navigate("/staff-login");
-      return;
     }
-    loadReports();
   };
 
   const loadReports = async () => {
     try {
-      // Load all loan applications
-      const { data: loans, error: loansError } = await supabase
-        .from("loan_applications")
-        .select("*");
-
-      if (loansError) throw loansError;
-
-      // Calculate loan statistics
-      const totalApplications = loans?.length || 0;
-      const approvedLoans = loans?.filter(l => l.status === "approved" || l.status === "disbursed").length || 0;
-      const rejectedLoans = loans?.filter(l => l.status === "rejected").length || 0;
-      const pendingLoans = loans?.filter(l => l.status === "pending" || l.status === "under_review").length || 0;
-
-      const approvedLoanAmounts = loans?.filter(l => l.status === "approved" || l.status === "disbursed")
-        .map(l => Number(l.loan_amount)) || [];
-      const totalDisbursed = approvedLoanAmounts.reduce((sum, amt) => sum + amt, 0);
-      const totalInterest = approvedLoanAmounts.reduce((sum, amt) => sum + (amt * 0.30), 0);
-
-      const rejectionRate = totalApplications > 0 ? (rejectedLoans / totalApplications) * 100 : 0;
-      const approvalRate = totalApplications > 0 ? (approvedLoans / totalApplications) * 100 : 0;
-
-      setLoanStats({
-        totalApplications,
-        approvedLoans,
-        rejectedLoans,
-        pendingLoans,
-        totalDisbursed,
-        totalInterest,
-        rejectionRate,
-        approvalRate,
-      });
-
-      // Calculate product statistics
-      const productMap = new Map<string, ProductStats>();
-      loans?.forEach((loan: any) => {
-        const product = loan.loan_product;
-        if (!productMap.has(product)) {
-          productMap.set(product, {
-            product,
-            applications: 0,
-            approved: 0,
-            rejected: 0,
-            totalAmount: 0,
-          });
-        }
-        const stats = productMap.get(product)!;
-        stats.applications++;
-        if (loan.status === "approved" || loan.status === "disbursed") {
-          stats.approved++;
-          stats.totalAmount += Number(loan.loan_amount);
-        } else if (loan.status === "rejected") {
-          stats.rejected++;
-        }
-      });
-
-      setProductStats(Array.from(productMap.values()));
-
-      // Load client statistics
-      const { data: profiles, error: profilesError } = await supabase
-        .from("profiles")
-        .select("id, created_at");
-
-      if (!profilesError && profiles) {
-        const now = new Date();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const newClientsThisMonth = profiles.filter(p => 
-          new Date(p.created_at) >= startOfMonth
-        ).length;
-
-        // Count active clients (those with approved/disbursed loans)
-        const activeClientIds = new Set(
-          loans?.filter(l => l.status === "approved" || l.status === "disbursed")
-            .map(l => l.user_id) || []
-        );
-
-        setClientStats({
-          totalClients: profiles.length,
-          activeClients: activeClientIds.size,
-          newClientsThisMonth,
-        });
-      }
+      const data = await api.reports.getStats();
+      setLoanStats(data.loanStats);
+      setProductStats(data.productStats);
+      setClientStats(data.clientStats);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -182,9 +149,31 @@ const Reports = () => {
           <StaffHeader />
           <main className="flex-1 p-4 md:p-8 bg-gradient-to-b from-background to-muted/20">
             <div className="max-w-7xl mx-auto space-y-6">
-              <div>
-                <h1 className="text-3xl font-bold mb-2">Reports</h1>
-                <p className="text-muted-foreground">View comprehensive reports and analytics</p>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h1 className="text-3xl font-bold mb-2">Reports</h1>
+                  <p className="text-muted-foreground">View comprehensive reports and analytics</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleAiExport}
+                    disabled={isExportingAI}
+                    className="bg-white/50 backdrop-blur-sm border-blue-200 hover:bg-blue-50"
+                  >
+                    {isExportingAI ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4 text-blue-600" />}
+                    AI Summary (Word)
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleExcelExport}
+                    disabled={isExportingExcel}
+                    className="bg-white/50 backdrop-blur-sm border-green-200 hover:bg-green-50"
+                  >
+                    {isExportingExcel ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSpreadsheet className="mr-2 h-4 w-4 text-green-600" />}
+                    Financials (Excel)
+                  </Button>
+                </div>
               </div>
 
               {/* Navigation Tabs */}
@@ -195,16 +184,18 @@ const Reports = () => {
                   className="rounded-b-none"
                 >
                   <BarChart3 className="mr-2 h-4 w-4" />
-                  Loan Reports
+                  {userRole === "loan_officer" ? "My Reports" : "Loan Reports"}
                 </Button>
-                <Button
-                  variant={getActiveTab() === "financial" ? "default" : "ghost"}
-                  onClick={() => navigate("/staff-dashboard/reports/financial")}
-                  className="rounded-b-none"
-                >
-                  <DollarSign className="mr-2 h-4 w-4" />
-                  Financial Reports
-                </Button>
+                {userRole === "admin" && (
+                  <Button
+                    variant={getActiveTab() === "financial" ? "default" : "ghost"}
+                    onClick={() => navigate("/staff-dashboard/reports/financial")}
+                    className="rounded-b-none"
+                  >
+                    <DollarSign className="mr-2 h-4 w-4" />
+                    Financial Reports
+                  </Button>
+                )}
                 <Button
                   variant={getActiveTab() === "clients" ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/reports/clients")}
@@ -221,7 +212,7 @@ const Reports = () => {
                   <div className="grid gap-4 md:grid-cols-3">
                     <Card>
                       <CardHeader>
-                        <CardTitle>Loan Performance</CardTitle>
+                        <CardTitle>{userRole === "loan_officer" ? "My Performance" : "Loan Performance"}</CardTitle>
                       </CardHeader>
                       <CardContent>
                         <div className="space-y-2">
@@ -260,7 +251,7 @@ const Reports = () => {
                       <CardContent>
                         <div className="space-y-2">
                           <div className="flex justify-between">
-                            <span>Total Disbursed:</span>
+                            <span>Total Principal Disbursed:</span>
                             <span className="font-bold">UGX {loanStats.totalDisbursed.toLocaleString()}</span>
                           </div>
                           <div className="flex justify-between">
@@ -270,7 +261,7 @@ const Reports = () => {
                           <div className="flex justify-between pt-2 border-t">
                             <span>Avg Loan Size:</span>
                             <span className="font-bold">
-                              UGX {loanStats.approvedLoans > 0 
+                              UGX {loanStats.approvedLoans > 0
                                 ? (loanStats.totalDisbursed / loanStats.approvedLoans).toLocaleString()
                                 : 0}
                             </span>
@@ -289,8 +280,8 @@ const Reports = () => {
                             <span>Approved:</span>
                             <div className="flex items-center gap-2">
                               <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full bg-green-600" 
+                                <div
+                                  className="h-full bg-green-600"
                                   style={{ width: `${loanStats.approvalRate}%` }}
                                 />
                               </div>
@@ -301,8 +292,8 @@ const Reports = () => {
                             <span>Rejected:</span>
                             <div className="flex items-center gap-2">
                               <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full bg-red-600" 
+                                <div
+                                  className="h-full bg-red-600"
                                   style={{ width: `${loanStats.rejectionRate}%` }}
                                 />
                               </div>
@@ -313,12 +304,12 @@ const Reports = () => {
                             <span>Pending:</span>
                             <div className="flex items-center gap-2">
                               <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full bg-yellow-600" 
-                                  style={{ 
-                                    width: `${loanStats.totalApplications > 0 
-                                      ? (loanStats.pendingLoans / loanStats.totalApplications) * 100 
-                                      : 0}%` 
+                                <div
+                                  className="h-full bg-yellow-600"
+                                  style={{
+                                    width: `${loanStats.totalApplications > 0
+                                      ? (loanStats.pendingLoans / loanStats.totalApplications) * 100
+                                      : 0}%`
                                   }}
                                 />
                               </div>
@@ -343,7 +334,7 @@ const Reports = () => {
                             <TableHead>Applications</TableHead>
                             <TableHead>Approved</TableHead>
                             <TableHead>Rejected</TableHead>
-                            <TableHead>Total Disbursed</TableHead>
+                            <TableHead>Total Principal Disbursed</TableHead>
                             <TableHead>Approval Rate</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -394,7 +385,7 @@ const Reports = () => {
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span>Total Disbursed:</span>
+                            <span>Total Principal Disbursed:</span>
                             <span className="font-bold">UGX {loanStats.totalDisbursed.toLocaleString()}</span>
                           </div>
                           <div className="flex justify-between pt-2 border-t">

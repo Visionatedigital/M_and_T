@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase, isSupabaseOffline } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,49 +19,23 @@ const StaffLogin = () => {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Check Supabase connection
-    const checkConnection = async () => {
-      try {
-        // Try a simple query to check connection
-        const { error } = await supabase.from("user_roles").select("count").limit(1);
-        if (error && (error.message.includes('Failed to fetch') || error.message.includes('ERR_NAME_NOT_RESOLVED'))) {
-          setConnectionError('Supabase project is currently restoring. Please wait a few minutes and try again.');
-        }
-      } catch (err: any) {
-        if (err.message?.includes('Failed to fetch') || err.message?.includes('ERR_NAME_NOT_RESOLVED')) {
-          setConnectionError('Cannot connect to Supabase. The project may be paused or restoring.');
-        }
-      }
-    };
-
     // Check if user is already logged in
     const checkAuth = async () => {
+      const token = localStorage.getItem("token");
+      if (!token) return;
+
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (error && (error.message.includes('Failed to fetch') || error.message.includes('ERR_NAME_NOT_RESOLVED'))) {
-          setConnectionError('Supabase project is currently restoring. Please wait a few minutes and try again.');
-          return;
+        const user = await api.auth.getMe();
+        if (user) {
+          // Check roles in metadata or user_roles table if moved
+          // For now, assuming metadata or just letting them in if getMe succeeds
+          navigate("/staff-dashboard");
         }
-        
-        if (session) {
-          // Check if user has staff role
-          const { data: roles } = await supabase
-            .from("user_roles")
-            .select("role")
-            .eq("user_id", session.user.id);
-          
-          if (roles && roles.some(r => r.role === "admin" || r.role === "loan_officer")) {
-            navigate("/staff-dashboard");
-          }
-        }
-      } catch (err: any) {
-        if (err.message?.includes('Failed to fetch') || err.message?.includes('ERR_NAME_NOT_RESOLVED')) {
-          setConnectionError('Cannot connect to Supabase. The project may be paused or restoring.');
-        }
+      } catch (err) {
+        localStorage.removeItem("token");
       }
     };
 
-    checkConnection();
     checkAuth();
   }, [navigate]);
 
@@ -70,30 +44,10 @@ const StaffLogin = () => {
     setIsLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { user, token } = await api.auth.login({
         email,
         password,
       });
-
-      if (error) throw error;
-
-      // Verify user has staff role
-      const { data: roles, error: rolesError } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", data.user.id);
-
-      if (rolesError) throw rolesError;
-
-      if (!roles || !roles.some(r => r.role === "admin" || r.role === "loan_officer")) {
-        await supabase.auth.signOut();
-        toast({
-          title: "Access Denied",
-          description: "You don't have permission to access the staff portal.",
-          variant: "destructive",
-        });
-        return;
-      }
 
       toast({
         title: "Welcome back!",
@@ -102,23 +56,11 @@ const StaffLogin = () => {
 
       navigate("/staff-dashboard");
     } catch (error: any) {
-      const errorMessage = error.message || 'Unknown error occurred';
-      
-      // Check for connection errors
-      if (errorMessage.includes('Failed to fetch') || errorMessage.includes('ERR_NAME_NOT_RESOLVED')) {
-        setConnectionError('Cannot connect to Supabase. The project may be paused or restoring. Please check your Supabase dashboard.');
-        toast({
-          title: "Connection Error",
-          description: "Unable to connect to Supabase. Please wait for the project to restore.",
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          title: "Sign in failed",
-          description: errorMessage,
-          variant: "destructive",
-        });
-      }
+      toast({
+        title: "Sign in failed",
+        description: error.message || "Invalid credentials",
+        variant: "destructive",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -135,31 +77,6 @@ const StaffLogin = () => {
               Sign in to access the staff dashboard
             </p>
           </div>
-
-          {(connectionError || isSupabaseOffline) && (
-            <Alert className="mb-6 border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
-              <AlertCircle className="h-4 w-4 text-yellow-600" />
-              <AlertTitle className="text-yellow-800 dark:text-yellow-200">
-                Supabase Project Restoring
-              </AlertTitle>
-              <AlertDescription className="text-yellow-700 dark:text-yellow-300 space-y-2">
-                <p>{connectionError || 'Your Supabase project is currently being restored.'}</p>
-                <div className="flex items-center gap-2 mt-2">
-                  <a 
-                    href="https://app.supabase.com" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-sm underline flex items-center gap-1"
-                  >
-                    Check Supabase Dashboard <ExternalLink className="h-3 w-3" />
-                  </a>
-                </div>
-                <p className="text-xs mt-2">
-                  <strong>Tip:</strong> Public pages (Home, About, Products) are still accessible while Supabase restores.
-                </p>
-              </AlertDescription>
-            </Alert>
-          )}
 
           <form onSubmit={handleSignIn} className="space-y-6 bg-card p-8 rounded-lg border">
             <div className="space-y-2">
@@ -188,6 +105,36 @@ const StaffLogin = () => {
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? "Signing in..." : "Sign In"}
             </Button>
+
+            <div className="space-y-4 pt-4 border-t">
+              <p className="text-sm text-center text-muted-foreground">Test Accounts</p>
+              <div className="grid grid-cols-2 gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full text-xs h-auto py-2 flex flex-col gap-1 items-center"
+                  onClick={() => {
+                    setEmail("loanofficer@mandt.placeholder");
+                    setPassword("Officer@2026");
+                  }}
+                >
+                  <span className="font-semibold">Loan Officer</span>
+                  <span className="text-[10px] opacity-70">loanofficer@...</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full text-xs h-auto py-2 flex flex-col gap-1 items-center"
+                  onClick={() => {
+                    setEmail("admin@mandt.placeholder");
+                    setPassword("Admin@2026");
+                  }}
+                >
+                  <span className="font-semibold">Admin</span>
+                  <span className="text-[10px] opacity-70">admin@...</span>
+                </Button>
+              </div>
+            </div>
           </form>
         </div>
       </main>

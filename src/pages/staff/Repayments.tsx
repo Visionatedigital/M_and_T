@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -8,8 +8,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Receipt, Search, Plus, DollarSign, Calendar, FileSpreadsheet } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -21,58 +22,59 @@ const Repayments = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [loans, setLoans] = useState<any[]>([]);
+  const [selectedLoanId, setSelectedLoanId] = useState<string>("");
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [memberBreakdown, setMemberBreakdown] = useState<any[]>([]);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [recordTypeFilter, setRecordTypeFilter] = useState<string>("all");
+
+  useEffect(() => {
+    if (selectedLoanId) {
+      const loan = loans.find(l => l.id === selectedLoanId);
+      if (loan) {
+        // Individual loan member breakdown is now simpler: just the one member
+        setMemberBreakdown([{
+          id: loan.id,
+          name: loan.full_name,
+          amount: (loan.loan_amount / 4).toString() // Default estimate
+        }]);
+      }
+    } else {
+      setMemberBreakdown([]);
+    }
+  }, [selectedLoanId, loans]);
+
+  useEffect(() => {
+    if (memberBreakdown.length > 0) {
+      const total = memberBreakdown.reduce((sum, m) => sum + (parseFloat(m.amount) || 0), 0);
+      setAmount(total.toFixed(0));
+    }
+  }, [memberBreakdown]);
 
   useEffect(() => {
     checkAuth();
   }, []);
 
   const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    try {
+      await api.auth.getMe();
+      loadRepayments();
+    } catch (err) {
       navigate("/staff-login");
-      return;
     }
-    loadRepayments();
   };
 
   const loadRepayments = async () => {
     try {
-      const { data: loans, error } = await supabase
-        .from("loan_applications")
-        .select("*")
-        .in("status", ["approved", "disbursed"])
-        .order("created_at", { ascending: false });
+      const data = await api.repayments.getAll();
 
-      if (error) throw error;
-
-      // Generate repayment schedule from loans
-      const repaymentRecords = (loans || []).flatMap((loan: any) => {
-        const principal = loan.loan_amount;
-        const interest = principal * 0.30;
-        const totalAmount = principal + interest;
-        const monthlyPayment = totalAmount / loan.loan_duration_months;
-        const approvedDate = new Date(loan.approved_at || loan.created_at);
-        
-        const records = [];
-        for (let i = 0; i < loan.loan_duration_months; i++) {
-          const dueDate = new Date(approvedDate);
-          dueDate.setMonth(dueDate.getMonth() + i + 1);
-          const isPaid = new Date() > dueDate;
-          
-          records.push({
-            id: `${loan.id}-${i}`,
-            loan_id: loan.id,
-            client_name: loan.full_name,
-            amount: monthlyPayment,
-            due_date: dueDate.toISOString(),
-            status: isPaid ? "paid" : "pending",
-            payment_date: isPaid ? dueDate.toISOString() : null,
-          });
-        }
-        return records;
-      });
-
-      setRepayments(repaymentRecords);
+      // The backend returns already processed loans with status and calculations
+      setLoans(data);
+      setRepayments(data);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -84,6 +86,93 @@ const Repayments = () => {
     }
   };
 
+  const toggleGroup = (groupId: string) => {
+    const newExpanded = new Set(expandedGroups);
+    if (newExpanded.has(groupId)) {
+      newExpanded.delete(groupId);
+    } else {
+      newExpanded.add(groupId);
+    }
+    setExpandedGroups(newExpanded);
+  };
+
+  const [selectedGroup, setSelectedGroup] = useState<any>(null);
+  const [isGroupDialogOpen, setIsGroupDialogOpen] = useState(false);
+
+  const groupedRepayments = Object.values(
+    repayments
+      .filter(r => {
+        const matchesSearch = !searchTerm ||
+          r.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (r.groups?.group_name && r.groups.group_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          (r.phone_number && r.phone_number.includes(searchTerm));
+
+        const matchesStatus = statusFilter === "all" || r.status === statusFilter;
+
+        const isGroup = !!r.group_id;
+        const matchesType = typeFilter === "all" ||
+          (typeFilter === "group" && isGroup) ||
+          (typeFilter === "individual" && !isGroup);
+
+        return matchesSearch && matchesStatus && matchesType;
+      })
+      .reduce((acc: any, curr) => {
+        const key = curr.group_id || curr.id;
+
+        if (!acc[key]) {
+          acc[key] = {
+            id: key,
+            name: curr.group_id ? curr.groups?.group_name : curr.full_name,
+            isGroup: !!curr.group_id,
+            members: [],
+            totalCollection: 0,
+            totalBalance: 0,
+            installmentAmount: 0,
+            date: curr.nextDueDate,
+            status: "Fully Paid"
+          };
+        }
+
+        acc[key].members.push({
+          id: curr.id,
+          name: curr.full_name,
+          amount: curr.loan_amount,
+          paidAmount: curr.paidAmount,
+          balance: curr.balance,
+          status: curr.status,
+          nin: curr.id_number
+        });
+
+        acc[key].totalCollection += curr.paidAmount;
+        acc[key].totalBalance += curr.balance;
+        acc[key].installmentAmount += curr.installmentAmount;
+
+        // Group status is the "worst" status among members
+        const statusPriority: Record<string, number> = {
+          "Past Maturity": 5,
+          "Due Today": 4,
+          "Missed Repayment": 3,
+          "Active": 2,
+          "Fully Paid": 1
+        };
+
+        if (statusPriority[curr.status] > statusPriority[acc[key].status]) {
+          acc[key].status = curr.status;
+        }
+
+        // Use earliest due date for group
+        if (new Date(curr.nextDueDate) < new Date(acc[key].date)) {
+          acc[key].date = curr.nextDueDate;
+        }
+
+        return acc;
+      }, {})
+  );
+
+  // ... (rest of the component state and handlers)
+
+  // Update groupedRepayments to the final table rendering section
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -92,8 +181,72 @@ const Repayments = () => {
     );
   }
 
-  const totalDue = repayments.filter(r => r.status === "pending").reduce((sum, r) => sum + r.amount, 0);
-  const totalPaid = repayments.filter(r => r.status === "paid").reduce((sum, r) => sum + r.amount, 0);
+  const handleRecordPayment = async () => {
+    if (!selectedLoanId) {
+      toast({
+        title: "Error",
+        description: "Please select a loan.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await api.repayments.create({
+        loan_application_id: selectedLoanId,
+        amount: parseFloat(amount),
+        payment_date: date,
+      });
+
+      toast({
+        title: "Success",
+        description: "Payment recorded successfully.",
+      });
+
+      setIsDialogOpen(false);
+      setIsGroupDialogOpen(false);
+      setAmount("");
+      setSelectedLoanId("");
+      loadRepayments();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleMemberRecord = (memberId: string, memberAmount: number) => {
+    setSelectedLoanId(memberId);
+    setAmount(memberAmount.toString());
+    setIsDialogOpen(true);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  const filteredRepayments = repayments.filter(r => {
+    const matchesSearch = !searchTerm ||
+      r.client_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (r.group_name && r.group_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (r.phone_number && r.phone_number.includes(searchTerm)) ||
+      (r.id_number && r.id_number.toLowerCase().includes(searchTerm.toLowerCase()));
+
+    const matchesType = typeFilter === "all" ||
+      (typeFilter === "group" && r.isGroup) ||
+      (typeFilter === "individual" && !r.isGroup);
+
+    return matchesSearch && matchesType;
+  });
+
+  const totalBalance = filteredRepayments.reduce((sum, r) => sum + r.balance, 0);
+  const totalPaid = filteredRepayments.reduce((sum, r) => sum + r.paid_amount, 0);
 
   return (
     <SidebarProvider>
@@ -103,260 +256,162 @@ const Repayments = () => {
           <StaffHeader />
           <main className="flex-1 p-4 md:p-8 bg-gradient-to-b from-background to-muted/20">
             <div className="max-w-7xl mx-auto space-y-6">
-              <div>
-                <h1 className="text-3xl font-bold mb-2">Repayments</h1>
-                <p className="text-muted-foreground">Track and manage loan repayments</p>
-              </div>
-
-              {/* Navigation Tabs */}
-              <div className="flex gap-2 border-b pb-2">
-                <Button
-                  variant={!location.pathname.includes("/add") && !location.pathname.includes("/schedule") ? "default" : "ghost"}
-                  onClick={() => navigate("/staff-dashboard/repayments")}
-                  className="rounded-b-none"
-                >
-                  <Receipt className="mr-2 h-4 w-4" />
-                  View Repayments
-                </Button>
-                <Button
-                  variant={location.pathname.includes("/add") ? "default" : "ghost"}
-                  onClick={() => navigate("/staff-dashboard/repayments/add")}
-                  className="rounded-b-none"
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Repayment
-                </Button>
-                <Button
-                  variant={location.pathname.includes("/schedule") ? "default" : "ghost"}
-                  onClick={() => navigate("/staff-dashboard/repayments/schedule")}
-                  className="rounded-b-none"
-                >
-                  <FileSpreadsheet className="mr-2 h-4 w-4" />
-                  Repayment Schedule
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-3xl font-bold mb-2">Repayments</h1>
+                  <p className="text-muted-foreground">Monitor and record loan repayments</p>
+                </div>
+                <Button onClick={() => setIsDialogOpen(true)} className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  Record Payment
                 </Button>
               </div>
 
-              {/* Add Repayment View */}
-              {location.pathname.includes("/add") ? (
+              {/* Statistics */}
+              <div className="grid gap-4 md:grid-cols-3">
                 <Card>
-                  <CardHeader>
-                    <CardTitle>Record New Repayment</CardTitle>
-                    <CardDescription>Record a payment for a loan</CardDescription>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Expected Today</CardTitle>
+                    <Calendar className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
-                    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                      <DialogTrigger asChild>
-                        <Button className="w-full">
-                          <Plus className="mr-2 h-4 w-4" />
-                          Record Payment
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Record Payment</DialogTitle>
-                          <DialogDescription>
-                            Record a new repayment for a loan
-                          </DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-4">
-                          <div>
-                            <Label>Select Loan</Label>
-                            <Input placeholder="Search for loan..." />
-                          </div>
-                          <div>
-                            <Label>Payment Amount</Label>
-                            <Input type="number" placeholder="Enter amount" />
-                          </div>
-                          <div>
-                            <Label>Payment Date</Label>
-                            <Input type="date" />
-                          </div>
-                          <div className="flex justify-end gap-2">
-                            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-                              Cancel
-                            </Button>
-                            <Button>Record Payment</Button>
-                          </div>
-                        </div>
-                      </DialogContent>
-                    </Dialog>
-                  </CardContent>
-                </Card>
-              ) : location.pathname.includes("/schedule") ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Repayment Schedule Overview</CardTitle>
-                    <CardDescription>View all repayment schedules grouped by loan</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      {repayments
-                        .filter(r => !searchTerm || r.client_name.toLowerCase().includes(searchTerm.toLowerCase()))
-                        .reduce((acc: any, repayment: any) => {
-                          const existing = acc.find((item: any) => item.loan_id === repayment.loan_id);
-                          if (existing) {
-                            existing.payments.push(repayment);
-                          } else {
-                            acc.push({
-                              loan_id: repayment.loan_id,
-                              client_name: repayment.client_name,
-                              payments: [repayment],
-                            });
-                          }
-                          return acc;
-                        }, [])
-                        .map((group: any) => (
-                          <Card key={group.loan_id}>
-                            <CardHeader>
-                              <CardTitle className="text-lg">{group.client_name}</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <Table>
-                                <TableHeader>
-                                  <TableRow>
-                                    <TableHead>Due Date</TableHead>
-                                    <TableHead>Amount</TableHead>
-                                    <TableHead>Status</TableHead>
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {group.payments.map((payment: any) => (
-                                    <TableRow key={payment.id}>
-                                      <TableCell>{new Date(payment.due_date).toLocaleDateString()}</TableCell>
-                                      <TableCell>UGX {payment.amount.toLocaleString()}</TableCell>
-                                      <TableCell>
-                                        <span className={`px-2 py-1 rounded text-xs ${
-                                          payment.status === "paid" 
-                                            ? "bg-green-100 text-green-800" 
-                                            : "bg-yellow-100 text-yellow-800"
-                                        }`}>
-                                          {payment.status}
-                                        </span>
-                                      </TableCell>
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
-                            </CardContent>
-                          </Card>
-                        ))}
-                      {repayments.length === 0 && (
-                        <p className="text-center py-8 text-muted-foreground">No repayment schedules found</p>
-                      )}
+                    <div className="text-2xl font-bold">
+                      UGX {repayments
+                        .filter(r => new Date(r.nextDueDate).toDateString() === new Date().toDateString())
+                        .reduce((sum, r) => sum + r.installmentAmount, 0)
+                        .toLocaleString()}
                     </div>
                   </CardContent>
                 </Card>
-              ) : (
-                <>
-                  <div className="grid gap-4 md:grid-cols-3">
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Due</CardTitle>
+                    <CardTitle className="text-sm font-medium">Total Collected</CardTitle>
                     <DollarSign className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">UGX {totalDue.toLocaleString()}</div>
-                    <p className="text-xs text-muted-foreground">Pending repayments</p>
+                    <div className="text-2xl font-bold">
+                      UGX {repayments.reduce((sum, r) => sum + r.paidAmount, 0).toLocaleString()}
+                    </div>
                   </CardContent>
                 </Card>
-
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Paid</CardTitle>
-                    <Receipt className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">UGX {totalPaid.toLocaleString()}</div>
-                    <p className="text-xs text-muted-foreground">Collected repayments</p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Collection Rate</CardTitle>
+                    <CardTitle className="text-sm font-medium">Outstanding Balance</CardTitle>
                     <Receipt className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold">
-                      {totalDue + totalPaid > 0 
-                        ? ((totalPaid / (totalDue + totalPaid)) * 100).toFixed(1) 
-                        : 0}%
+                      UGX {repayments.reduce((sum, r) => sum + r.balance, 0).toLocaleString()}
                     </div>
-                    <p className="text-xs text-muted-foreground">Payment collection rate</p>
                   </CardContent>
                 </Card>
               </div>
 
+              {/* Filters */}
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex flex-wrap gap-4">
+                    <div className="flex-1 min-w-[200px]">
+                      <div className="relative">
+                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search clients or groups..."
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          className="pl-8"
+                        />
+                      </div>
+                    </div>
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                      <SelectTrigger className="w-[150px]">
+                        <SelectValue placeholder="Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Status</SelectItem>
+                        <SelectItem value="Active">Active</SelectItem>
+                        <SelectItem value="Past Maturity">Past Maturity</SelectItem>
+                        <SelectItem value="Due Today">Due Today</SelectItem>
+                        <SelectItem value="Missed Repayment">Missed</SelectItem>
+                        <SelectItem value="Fully Paid">Fully Paid</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={typeFilter} onValueChange={setTypeFilter}>
+                      <SelectTrigger className="w-[150px]">
+                        <SelectValue placeholder="Type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Types</SelectItem>
+                        <SelectItem value="individual">Individual</SelectItem>
+                        <SelectItem value="group">Group</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Main List */}
               <Card>
                 <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle>Repayment Schedule</CardTitle>
-                      <CardDescription>View all repayment records</CardDescription>
-                    </div>
-                    <div className="relative">
-                      <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search repayments..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-8 w-64"
-                      />
-                    </div>
-                  </div>
+                  <CardTitle>Repayment Schedule</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Client</TableHead>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>Due Date</TableHead>
+                        <TableHead>Client / Group</TableHead>
+                        <TableHead>Installment</TableHead>
+                        <TableHead>Collected</TableHead>
+                        <TableHead>Balance</TableHead>
+                        <TableHead>Next Due</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead>Payment Date</TableHead>
                         <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {repayments
-                        .filter(r => 
-                          !searchTerm || 
-                          r.client_name.toLowerCase().includes(searchTerm.toLowerCase())
-                        ).length === 0 ? (
+                      {groupedRepayments.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                            {searchTerm ? "No repayments found matching your search" : "No repayments found"}
+                          <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                            No repayments found matching filters.
                           </TableCell>
                         </TableRow>
                       ) : (
-                        repayments
-                          .filter(r => 
-                            !searchTerm || 
-                            r.client_name.toLowerCase().includes(searchTerm.toLowerCase())
-                          )
-                          .map((repayment) => (
-                          <TableRow key={repayment.id}>
-                            <TableCell className="font-medium">{repayment.client_name}</TableCell>
-                            <TableCell>UGX {repayment.amount.toLocaleString()}</TableCell>
-                            <TableCell>{new Date(repayment.due_date).toLocaleDateString()}</TableCell>
+                        groupedRepayments.map((record: any) => (
+                          <TableRow
+                            key={record.id}
+                            className={record.isGroup ? "bg-muted/30 cursor-pointer hover:bg-muted/50" : ""}
+                            onClick={() => {
+                              if (record.isGroup) {
+                                setSelectedGroup(record);
+                                setIsGroupDialogOpen(true);
+                              }
+                            }}
+                          >
+                            <TableCell className="font-medium flex items-center gap-2">
+                              {record.name} {record.isGroup && <span className="text-[10px] bg-primary/10 text-primary px-1 rounded ml-1 font-bold whitespace-nowrap">GROUP</span>}
+                            </TableCell>
+                            <TableCell>UGX {record.installmentAmount.toLocaleString()}</TableCell>
+                            <TableCell>UGX {record.totalCollection.toLocaleString()}</TableCell>
+                            <TableCell>UGX {record.totalBalance.toLocaleString()}</TableCell>
+                            <TableCell>{new Date(record.date).toLocaleDateString()}</TableCell>
                             <TableCell>
-                              <span className={`px-2 py-1 rounded text-xs ${
-                                repayment.status === "paid" 
-                                  ? "bg-green-100 text-green-800" 
-                                  : "bg-yellow-100 text-yellow-800"
-                              }`}>
-                                {repayment.status}
+                              <span className={`px-2 py-1 rounded text-xs whitespace-nowrap ${record.status === "Fully Paid" ? "bg-green-100 text-green-800" :
+                                record.status === "Past Maturity" ? "bg-red-100 text-red-800" :
+                                  record.status === "Missed Repayment" ? "bg-orange-100 text-orange-800" :
+                                    record.status === "Due Today" ? "bg-yellow-100 text-yellow-800" :
+                                      "bg-blue-100 text-blue-800"
+                                }`}>
+                                {record.status}
                               </span>
                             </TableCell>
                             <TableCell>
-                              {repayment.payment_date 
-                                ? new Date(repayment.payment_date).toLocaleDateString()
-                                : "-"
-                              }
-                            </TableCell>
-                            <TableCell>
-                              {repayment.status === "pending" && (
-                                <Button variant="outline" size="sm">Record Payment</Button>
+                              {record.isGroup ? (
+                                <Button variant="ghost" size="sm" onClick={() => { setSelectedGroup(record); setIsGroupDialogOpen(true); }}>
+                                  View
+                                </Button>
+                              ) : (
+                                <Button variant="outline" size="sm" onClick={() => { setSelectedLoanId(record.id); setAmount(record.installmentAmount.toString()); setIsDialogOpen(true); }}>
+                                  Record
+                                </Button>
                               )}
                             </TableCell>
                           </TableRow>
@@ -366,8 +421,84 @@ const Repayments = () => {
                   </Table>
                 </CardContent>
               </Card>
-                </>
-              )}
+
+              {/* Group Dialog */}
+              <Dialog open={isGroupDialogOpen} onOpenChange={setIsGroupDialogOpen}>
+                <DialogContent className="max-w-4xl">
+                  <DialogHeader>
+                    <DialogTitle>{selectedGroup?.name} Members</DialogTitle>
+                    <DialogDescription>Individual breakdown for group loans</DialogDescription>
+                  </DialogHeader>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Member</TableHead>
+                        <TableHead>Installment</TableHead>
+                        <TableHead>Balance</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedGroup?.members.map((m: any) => (
+                        <TableRow key={m.id}>
+                          <TableCell className="font-medium">{m.name}</TableCell>
+                          <TableCell>UGX {(m.amount / 16).toLocaleString()}</TableCell> {/* Assuming weekly installments for groups */}
+                          <TableCell>UGX {m.balance.toLocaleString()}</TableCell>
+                          <TableCell>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${m.status === 'Fully Paid' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                              {m.status}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            {m.balance > 0 && (
+                              <Button size="sm" variant="outline" onClick={() => handleMemberRecord(m.id, m.amount / 16)}>
+                                Record
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </DialogContent>
+              </Dialog>
+
+              {/* Recording Dialog */}
+              <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Record Repayment</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label>Select Client</Label>
+                      <Select value={selectedLoanId} onValueChange={setSelectedLoanId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Search client..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {loans.map(l => (
+                            <SelectItem key={l.id} value={l.id}>{l.full_name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Amount (UGX)</Label>
+                      <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Payment Date</Label>
+                      <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+                    <Button onClick={handleRecordPayment}>Record</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
           </main>
         </div>

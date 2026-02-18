@@ -1,6 +1,7 @@
+import { LoanApplicationForm } from "@/components/loans/LoanApplicationForm";
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -14,7 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { FileText, Users, Plus, Search, CheckCircle, XCircle, Clock, Eye, DollarSign } from "lucide-react";
+import { FileText, Users, Plus, Search, CheckCircle, XCircle, Clock, Eye, DollarSign, Edit } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface LoanApplication {
@@ -30,7 +31,15 @@ interface LoanApplication {
   created_at: string;
   group_id?: string;
   group_name?: string;
-  group_members?: number;
+  group_members?: any; // changed to any to support jsonb
+  loan_category?: string;
+  district?: string;
+  village?: string;
+  business_location?: string;
+  guarantors?: any[];
+  employment_status?: string;
+  employer_name?: string;
+  monthly_income?: number;
 }
 
 const LoanApplications = () => {
@@ -39,7 +48,7 @@ const LoanApplications = () => {
   const [applications, setApplications] = useState<LoanApplication[]>([]);
   const [filteredApplications, setFilteredApplications] = useState<LoanApplication[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  
+
   // Determine status filter from URL path
   const getStatusFromPath = () => {
     const path = location.pathname;
@@ -48,11 +57,13 @@ const LoanApplications = () => {
     if (path.includes("/rejected")) return "rejected";
     return "all";
   };
-  
+
   const [statusFilter, setStatusFilter] = useState<string>(getStatusFromPath());
   const [selectedApplication, setSelectedApplication] = useState<LoanApplication | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isGroupDialogOpen, setIsGroupDialogOpen] = useState(false);
+  const [userRole, setUserRole] = useState<string>("");
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -66,7 +77,7 @@ const LoanApplications = () => {
     loan_amount: "",
     loan_duration_months: "",
     loan_purpose: "",
-    group_members: [{ name: "", email: "", phone: "", id_number: "" }],
+    group_members: [{ name: "", nin: "", dob: "", amount: "" }],
   });
 
   useEffect(() => {
@@ -84,30 +95,22 @@ const LoanApplications = () => {
   }, [applications, searchTerm, statusFilter]);
 
   const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    try {
+      const user = await api.auth.getMe();
+      if (user) {
+        setUserRole(user.role);
+        loadApplications();
+      }
+    } catch (err) {
       navigate("/staff-login");
-      return;
     }
-    loadApplications();
   };
 
   const loadApplications = async () => {
     try {
-      const { data, error } = await supabase
-        .from("loan_applications")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      // Group applications by group_id if they exist
-      const grouped = data?.map((app: any) => ({
-        ...app,
-        group_id: app.group_id || null,
-      })) || [];
-
-      setApplications(grouped);
+      const data = await api.applications.getAll();
+      setApplications(data);
+      setFilteredApplications(data);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -127,6 +130,7 @@ const LoanApplications = () => {
         (app) =>
           app.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
           app.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (app.group_name && app.group_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
           app.phone_number.includes(searchTerm)
       );
     }
@@ -134,7 +138,7 @@ const LoanApplications = () => {
     if (statusFilter !== "all") {
       if (statusFilter === "approved") {
         // Include both approved and disbursed loans
-        filtered = filtered.filter((app) => 
+        filtered = filtered.filter((app) =>
           app.status === "approved" || app.status === "disbursed"
         );
       } else {
@@ -162,12 +166,7 @@ const LoanApplications = () => {
         updateData.reviewed_at = new Date().toISOString();
       }
 
-      const { error } = await supabase
-        .from("loan_applications")
-        .update(updateData)
-        .eq("id", applicationId);
-
-      if (error) throw error;
+      await api.applications.updateStatus(applicationId, newStatus);
 
       toast({
         title: "Success",
@@ -186,11 +185,16 @@ const LoanApplications = () => {
   };
 
   const calculateGroupLoanDetails = (amount: number, duration: number) => {
-    const principal = amount;
+    const principal = parseFloat(amount.toString());
     const interestRate = 0.30; // 30% flat rate
     const totalInterest = principal * interestRate;
     const totalAmount = principal + totalInterest;
+
+    // Group loans have weekly payments (16 weeks for 4 months)
+    const numberOfWeeks = duration * 4; // 4 weeks per month
+    const weeklyPayment = totalAmount / numberOfWeeks;
     const monthlyPayment = totalAmount / duration;
+
     const growthRate = ((totalAmount - principal) / principal) * 100;
 
     return {
@@ -198,6 +202,7 @@ const LoanApplications = () => {
       interestRate: interestRate * 100,
       totalInterest,
       totalAmount,
+      weeklyPayment,
       monthlyPayment,
       growthRate,
     };
@@ -206,10 +211,9 @@ const LoanApplications = () => {
   const handleGroupLoanSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const loanAmount = parseFloat(groupForm.loan_amount);
       const duration = parseInt(groupForm.loan_duration_months);
 
-      if (!loanAmount || !duration) {
+      if (!duration) {
         toast({
           title: "Error",
           description: "Please fill in all required fields",
@@ -218,42 +222,43 @@ const LoanApplications = () => {
         return;
       }
 
-      // Create group loan application
-      const { data: groupLeader, error: leaderError } = await supabase.auth.admin.createUser({
-        email: groupForm.group_leader_email,
-        password: "temp_password_123", // Should be changed on first login
-        user_metadata: {
-          full_name: groupForm.group_leader_name,
-          phone_number: groupForm.group_leader_phone,
-        },
-      });
-
-      if (leaderError && leaderError.message !== "User already registered") {
-        throw leaderError;
+      // Validate that all members have amounts
+      const hasInvalidMembers = groupForm.group_members.some(m => !m.name || !m.amount || parseFloat(m.amount) <= 0);
+      if (hasInvalidMembers) {
+        toast({
+          title: "Error",
+          description: "Please provide name and loan amount for all members",
+          variant: "destructive",
+        });
+        return;
       }
 
-      // Create loan application for group leader
-      const { data: application, error: appError } = await supabase
-        .from("loan_applications")
-        .insert({
-          user_id: groupLeader?.user?.id || "",
-          full_name: groupForm.group_leader_name,
-          email: groupForm.group_leader_email,
-          phone_number: groupForm.group_leader_phone,
-          id_number: groupForm.group_leader_id,
-          loan_product: "Group Loan",
-          loan_amount: loanAmount,
-          loan_duration_months: duration,
-          loan_purpose: groupForm.loan_purpose,
-          status: "pending",
-          date_of_birth: new Date().toISOString(),
-          address: "",
-          employment_status: "Group Member",
-        })
-        .select()
-        .single();
+      // Calculate total loan amount from member amounts
+      const totalLoanAmount = groupForm.group_members.reduce((sum, m) => sum + parseFloat(m.amount), 0);
 
-      if (appError) throw appError;
+      // Prepare member data for loan_purpose
+      const membersData = groupForm.group_members.map(m => ({
+        name: m.name,
+        nin: m.nin || "",
+        dob: m.dob || "",
+        amount: parseFloat(m.amount)
+      }));
+
+      // Prepare application data
+      const applicationData = {
+        full_name: groupForm.group_name || groupForm.group_leader_name,
+        email: groupForm.group_leader_email,
+        phone_number: groupForm.group_leader_phone,
+        id_number: groupForm.group_leader_id,
+        loan_product: "Group Loan",
+        loan_amount: totalLoanAmount,
+        loan_duration_months: duration,
+        loan_purpose: JSON.stringify(membersData),
+        status: "pending",
+        employment_status: "Group Member",
+      };
+
+      await api.applications.create(applicationData);
 
       toast({
         title: "Success",
@@ -271,7 +276,7 @@ const LoanApplications = () => {
         loan_amount: "",
         loan_duration_months: "",
         loan_purpose: "",
-        group_members: [{ name: "", email: "", phone: "", id_number: "" }],
+        group_members: [{ name: "", nin: "", dob: "", amount: "" }],
       });
     } catch (error: any) {
       toast({
@@ -324,98 +329,23 @@ const LoanApplications = () => {
                   <DialogTrigger asChild>
                     <Button>
                       <Plus className="mr-2 h-4 w-4" />
-                      New Group Loan
+                      New Loan
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                  <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
-                      <DialogTitle>Create Group Loan Application</DialogTitle>
+                      <DialogTitle>Create New Loan Application</DialogTitle>
                       <DialogDescription>
-                        Create a new group loan application. Group loans use a 30% flat interest rate.
+                        Create a new loan application.
                       </DialogDescription>
                     </DialogHeader>
-                    <form onSubmit={handleGroupLoanSubmit} className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <Label>Group Name</Label>
-                          <Input
-                            value={groupForm.group_name}
-                            onChange={(e) => setGroupForm({ ...groupForm, group_name: e.target.value })}
-                            required
-                          />
-                        </div>
-                        <div>
-                          <Label>Loan Amount (UGX)</Label>
-                          <Input
-                            type="number"
-                            value={groupForm.loan_amount}
-                            onChange={(e) => setGroupForm({ ...groupForm, loan_amount: e.target.value })}
-                            required
-                          />
-                        </div>
-                        <div>
-                          <Label>Loan Duration (Months)</Label>
-                          <Input
-                            type="number"
-                            value={groupForm.loan_duration_months}
-                            onChange={(e) => setGroupForm({ ...groupForm, loan_duration_months: e.target.value })}
-                            required
-                          />
-                        </div>
-                        <div>
-                          <Label>Loan Purpose</Label>
-                          <Input
-                            value={groupForm.loan_purpose}
-                            onChange={(e) => setGroupForm({ ...groupForm, loan_purpose: e.target.value })}
-                            required
-                          />
-                        </div>
-                      </div>
-                      <div className="border-t pt-4">
-                        <h3 className="font-semibold mb-4">Group Leader Details</h3>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <Label>Full Name</Label>
-                            <Input
-                              value={groupForm.group_leader_name}
-                              onChange={(e) => setGroupForm({ ...groupForm, group_leader_name: e.target.value })}
-                              required
-                            />
-                          </div>
-                          <div>
-                            <Label>Email</Label>
-                            <Input
-                              type="email"
-                              value={groupForm.group_leader_email}
-                              onChange={(e) => setGroupForm({ ...groupForm, group_leader_email: e.target.value })}
-                              required
-                            />
-                          </div>
-                          <div>
-                            <Label>Phone Number</Label>
-                            <Input
-                              value={groupForm.group_leader_phone}
-                              onChange={(e) => setGroupForm({ ...groupForm, group_leader_phone: e.target.value })}
-                              required
-                            />
-                          </div>
-                          <div>
-                            <Label>ID Number</Label>
-                            <Input
-                              value={groupForm.group_leader_id}
-                              onChange={(e) => setGroupForm({ ...groupForm, group_leader_id: e.target.value })}
-                              required
-                            />
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex justify-end gap-2">
-                        <Button type="button" variant="outline" onClick={() => setIsGroupDialogOpen(false)}>
-                          Cancel
-                        </Button>
-                        <Button type="submit">Create Application</Button>
-                      </div>
-                    </form>
+                    <LoanApplicationForm
+                      onSuccess={() => {
+                        setIsGroupDialogOpen(false);
+                        loadApplications();
+                      }}
+                      onCancel={() => setIsGroupDialogOpen(false)}
+                    />
                   </DialogContent>
                 </Dialog>
               </div>
@@ -472,8 +402,8 @@ const LoanApplications = () => {
                           className="pl-8 w-64"
                         />
                       </div>
-                      <Select 
-                        value={statusFilter} 
+                      <Select
+                        value={statusFilter}
                         onValueChange={(value) => {
                           setStatusFilter(value);
                           // Navigate to the appropriate route
@@ -529,6 +459,12 @@ const LoanApplications = () => {
                             <TableCell>
                               <div>
                                 <div className="font-medium">{app.full_name}</div>
+                                {app.group_name && (
+                                  <div className="text-xs font-bold text-primary mt-0.5 flex items-center gap-1">
+                                    <Users className="h-3 w-3" />
+                                    Group: {app.group_name}
+                                  </div>
+                                )}
                                 <div className="text-sm text-muted-foreground">{app.email}</div>
                               </div>
                             </TableCell>
@@ -554,17 +490,31 @@ const LoanApplications = () => {
                                     <Button
                                       variant="ghost"
                                       size="sm"
-                                      onClick={() => handleStatusChange(app.id, "approved")}
+                                      onClick={() => {
+                                        setSelectedApplication(app);
+                                        setIsEditDialogOpen(true);
+                                      }}
                                     >
-                                      <CheckCircle className="h-4 w-4 text-green-600" />
+                                      <Edit className="h-4 w-4 text-blue-600" />
                                     </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleStatusChange(app.id, "rejected")}
-                                    >
-                                      <XCircle className="h-4 w-4 text-red-600" />
-                                    </Button>
+                                    {userRole === "admin" && (
+                                      <>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => handleStatusChange(app.id, "approved")}
+                                        >
+                                          <CheckCircle className="h-4 w-4 text-green-600" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => handleStatusChange(app.id, "rejected")}
+                                        >
+                                          <XCircle className="h-4 w-4 text-red-600" />
+                                        </Button>
+                                      </>
+                                    )}
                                   </>
                                 )}
                               </div>
@@ -601,7 +551,67 @@ const LoanApplications = () => {
                           <Label>Loan Product</Label>
                           <p className="font-medium">{selectedApplication.loan_product}</p>
                         </div>
+                        {selectedApplication.loan_category && (
+                          <div>
+                            <Label>Category</Label>
+                            <p className="font-medium">{selectedApplication.loan_category}</p>
+                          </div>
+                        )}
+                        {selectedApplication.district && (
+                          <div>
+                            <Label>Location</Label>
+                            <p className="font-medium">{selectedApplication.village}, {selectedApplication.district}</p>
+                          </div>
+                        )}
+                        {selectedApplication.group_name && (
+                          <div>
+                            <Label>Group Name</Label>
+                            <p className="font-medium text-primary flex items-center gap-1">
+                              <Users className="h-4 w-4" />
+                              {selectedApplication.group_name}
+                            </p>
+                          </div>
+                        )}
+                        {selectedApplication.business_location && (
+                          <div>
+                            <Label>Business Location</Label>
+                            <p className="font-medium">{selectedApplication.business_location}</p>
+                          </div>
+                        )}
+                        <div>
+                          <Label>Date Applied</Label>
+                          <p className="font-medium">{new Date(selectedApplication.created_at).toLocaleDateString()}</p>
+                        </div>
+                        <div>
+                          <Label>Employment Status</Label>
+                          <p className="font-medium capitalize">{selectedApplication.employment_status || "N/A"}</p>
+                        </div>
+                        {selectedApplication.employer_name && (
+                          <div>
+                            <Label>Employer Name</Label>
+                            <p className="font-medium">{selectedApplication.employer_name}</p>
+                          </div>
+                        )}
+                        {selectedApplication.monthly_income && (
+                          <div>
+                            <Label>Monthly Income</Label>
+                            <p className="font-medium">UGX {selectedApplication.monthly_income.toLocaleString()}</p>
+                          </div>
+                        )}
                       </div>
+
+                      {selectedApplication.guarantors && selectedApplication.guarantors.length > 0 && (
+                        <div className="border-t pt-4">
+                          <h3 className="font-semibold mb-2">Guarantors</h3>
+                          <div className="space-y-2">
+                            {selectedApplication.guarantors.map((g: any, i: number) => (
+                              <div key={i} className="text-sm border p-2 rounded bg-muted/20">
+                                <span className="font-bold">{g.name}</span> - {g.phone} ({g.address})
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       <div className="border-t pt-4">
                         <h3 className="font-semibold mb-4">Loan Calculation (30% Flat Rate)</h3>
                         <div className="grid grid-cols-2 gap-4">
@@ -625,8 +635,14 @@ const LoanApplications = () => {
                           </Card>
                           <Card>
                             <CardContent className="pt-4">
-                              <div className="text-sm text-muted-foreground">Monthly Payment</div>
-                              <div className="text-2xl font-bold">UGX {loanDetails.monthlyPayment.toLocaleString()}</div>
+                              <div className="text-sm text-muted-foreground">
+                                {selectedApplication.loan_product?.includes("Group") ? "Weekly Payment" : "Monthly Payment"}
+                              </div>
+                              <div className="text-2xl font-bold">
+                                UGX {(selectedApplication.loan_product?.includes("Group")
+                                  ? loanDetails.weeklyPayment
+                                  : loanDetails.monthlyPayment).toLocaleString()}
+                              </div>
                             </CardContent>
                           </Card>
                         </div>
@@ -649,7 +665,7 @@ const LoanApplications = () => {
                         <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
                           Close
                         </Button>
-                        {selectedApplication.status === "pending" && (
+                        {selectedApplication.status === "pending" && userRole === "admin" && (
                           <>
                             <Button onClick={() => handleStatusChange(selectedApplication.id, "approved")}>
                               Approve
@@ -661,6 +677,27 @@ const LoanApplications = () => {
                         )}
                       </div>
                     </div>
+                  )}
+                </DialogContent>
+              </Dialog>
+
+              <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>Edit Loan Application</DialogTitle>
+                    <DialogDescription>
+                      Make changes to the application details below.
+                    </DialogDescription>
+                  </DialogHeader>
+                  {selectedApplication && (
+                    <LoanApplicationForm
+                      initialData={selectedApplication}
+                      onSuccess={() => {
+                        setIsEditDialogOpen(false);
+                        loadApplications();
+                      }}
+                      onCancel={() => setIsEditDialogOpen(false)}
+                    />
                   )}
                 </DialogContent>
               </Dialog>

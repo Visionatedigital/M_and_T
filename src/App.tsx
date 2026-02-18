@@ -13,6 +13,7 @@ import StaffDashboard from "./pages/StaffDashboard";
 import AskAI from "./pages/AskAI";
 import NotFound from "./pages/NotFound";
 import LoanApplications from "./pages/staff/LoanApplications";
+import LoanApplicationDetails from "./pages/staff/LoanApplicationDetails";
 import ActiveLoans from "./pages/staff/ActiveLoans";
 import LoanDetails from "./pages/staff/LoanDetails";
 import Clients from "./pages/staff/Clients";
@@ -21,6 +22,8 @@ import Reports from "./pages/staff/Reports";
 import CollateralAssets from "./pages/staff/CollateralAssets";
 import BranchManagement from "./pages/staff/BranchManagement";
 import ProductManagement from "./pages/staff/ProductManagement";
+import { StaffManagement } from "./pages/staff/StaffManagement";
+import ClientDetails from "./pages/staff/ClientDetails";
 
 const queryClient = new QueryClient();
 
@@ -43,13 +46,15 @@ const App = () => (
           <Route path="/staff-dashboard/applications/pending" element={<LoanApplications />} />
           <Route path="/staff-dashboard/applications/approved" element={<LoanApplications />} />
           <Route path="/staff-dashboard/applications/rejected" element={<LoanApplications />} />
+          <Route path="/staff-dashboard/applications/:id" element={<LoanApplicationDetails />} />
+          <Route path="/staff-dashboard/staff" element={<StaffManagement />} />
           <Route path="/staff-dashboard/loans" element={<ActiveLoans />} />
           <Route path="/staff-dashboard/loans/schedule" element={<ActiveLoans />} />
           <Route path="/staff-dashboard/loans/details/:id" element={<LoanDetails />} />
           <Route path="/staff-dashboard/loans/details" element={<LoanDetails />} />
           <Route path="/staff-dashboard/clients" element={<Clients />} />
           <Route path="/staff-dashboard/clients/add" element={<Clients />} />
-          <Route path="/staff-dashboard/clients/history" element={<Clients />} />
+          <Route path="/staff-dashboard/clients/history" element={<ClientDetails />} />
           <Route path="/staff-dashboard/repayments" element={<Repayments />} />
           <Route path="/staff-dashboard/repayments/add" element={<Repayments />} />
           <Route path="/staff-dashboard/repayments/schedule" element={<Repayments />} />

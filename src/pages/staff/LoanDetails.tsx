@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -9,16 +9,16 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { 
-  ArrowLeft, 
-  User, 
-  DollarSign, 
-  Calendar, 
-  TrendingUp, 
-  FileText, 
-  Phone, 
-  Mail, 
-  MapPin, 
+import {
+  ArrowLeft,
+  User,
+  DollarSign,
+  Calendar,
+  TrendingUp,
+  FileText,
+  Phone,
+  Mail,
+  MapPin,
   CreditCard,
   Clock,
   CheckCircle,
@@ -66,7 +66,7 @@ const LoanDetails = () => {
   const [searchParams] = useSearchParams();
   const queryId = searchParams.get("id");
   const id = routeId || queryId;
-  
+
   const [isLoading, setIsLoading] = useState(true);
   const [loan, setLoan] = useState<LoanDetails | null>(null);
   const navigate = useNavigate();
@@ -86,69 +86,19 @@ const LoanDetails = () => {
   }, [id, navigate]);
 
   const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    try {
+      await api.auth.getMe();
+      loadLoanDetails();
+    } catch (err) {
       navigate("/staff-login");
-      return;
     }
-    loadLoanDetails();
   };
 
   const loadLoanDetails = async () => {
     try {
       if (!id) return;
-
-      const { data, error } = await supabase
-        .from("loan_applications")
-        .select("*")
-        .eq("id", id)
-        .single();
-
-      if (error) throw error;
-
-      if (!data) {
-        toast({
-          title: "Not Found",
-          description: "Loan not found",
-          variant: "destructive",
-        });
-        navigate("/staff-dashboard/loans");
-        return;
-      }
-
-      // Calculate loan metrics
-      const principal = data.loan_amount;
-      const interestRate = 0.30; // 30% flat rate
-      const totalInterest = principal * interestRate;
-      const totalAmount = principal + totalInterest;
-      const monthlyPayment = totalAmount / data.loan_duration_months;
-
-      // Calculate time elapsed
-      const approvedDate = new Date(data.approved_at || data.created_at);
-      const now = new Date();
-      const monthsElapsed = Math.floor((now.getTime() - approvedDate.getTime()) / (1000 * 60 * 60 * 24 * 30));
-      const monthsRemaining = Math.max(0, data.loan_duration_months - monthsElapsed);
-
-      // Calculate payments
-      const amountPaid = monthlyPayment * monthsElapsed;
-      const remainingBalance = Math.max(0, totalAmount - amountPaid);
-
-      // Calculate growth
-      const growthRate = ((totalAmount - principal) / principal) * 100;
-
-      const loanDetails: LoanDetails = {
-        ...data,
-        principal,
-        total_amount: totalAmount,
-        amount_paid: amountPaid,
-        remaining_balance: remainingBalance,
-        growth_rate: growthRate,
-        months_elapsed: monthsElapsed,
-        months_remaining: monthsRemaining,
-        monthly_payment: monthlyPayment,
-      };
-
-      setLoan(loanDetails);
+      const data = await api.applications.getById(id);
+      setLoan(data);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -179,14 +129,14 @@ const LoanDetails = () => {
 
     const schedule = [];
     const approvedDate = new Date(loan.approved_at || loan.created_at);
-    
+
     for (let i = 0; i < loan.loan_duration_months; i++) {
       const dueDate = new Date(approvedDate);
       dueDate.setMonth(dueDate.getMonth() + i + 1);
-      
+
       const isPast = dueDate < new Date();
-      const isCurrent = dueDate.getMonth() === new Date().getMonth() && 
-                        dueDate.getFullYear() === new Date().getFullYear();
+      const isCurrent = dueDate.getMonth() === new Date().getMonth() &&
+        dueDate.getFullYear() === new Date().getFullYear();
 
       schedule.push({
         installment: i + 1,
@@ -518,15 +468,15 @@ const LoanDetails = () => {
                                   payment.status === "paid"
                                     ? "default"
                                     : payment.status === "due"
-                                    ? "destructive"
-                                    : "outline"
+                                      ? "destructive"
+                                      : "outline"
                                 }
                               >
                                 {payment.status === "paid"
                                   ? "Paid"
                                   : payment.status === "due"
-                                  ? "Due"
-                                  : "Upcoming"}
+                                    ? "Due"
+                                    : "Upcoming"}
                               </Badge>
                             </TableCell>
                           </TableRow>

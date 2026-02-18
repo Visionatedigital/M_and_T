@@ -19,7 +19,8 @@ router.get('/stats', async (req, res) => {
                 COUNT(*) FILTER (WHERE status IN ('approved', 'disbursed')) as approved_loans,
                 COUNT(*) FILTER (WHERE status = 'rejected') as rejected_loans,
                 COUNT(*) FILTER (WHERE status IN ('pending', 'under_review')) as pending_loans,
-                SUM(CASE WHEN status IN ('approved', 'disbursed') THEN loan_amount ELSE 0 END) as total_disbursed
+                SUM(CASE WHEN status IN ('approved', 'disbursed', 'completed') THEN loan_amount ELSE 0 END) as total_disbursed,
+                (SELECT SUM(amount) FROM repayments) as total_collected
             FROM loan_applications
         `;
         let values = [];
@@ -82,6 +83,7 @@ router.get('/stats', async (req, res) => {
                 rejectedLoans: parseInt(loanStats.rejected_loans),
                 pendingLoans: parseInt(loanStats.pending_loans),
                 totalDisbursed: totalDisbursed,
+                totalPaid: parseFloat(loanStats.total_collected || 0),
                 totalInterest: totalInterest,
                 rejectionRate: loanStats.total_applications > 0 ? (loanStats.rejected_loans / loanStats.total_applications) * 100 : 0,
                 approvalRate: loanStats.total_applications > 0 ? (loanStats.approved_loans / loanStats.total_applications) * 100 : 0,
@@ -124,7 +126,7 @@ router.get('/dashboard-stats', async (req, res) => {
                 COUNT(*) as total_applications,
                 COUNT(*) FILTER (WHERE status IN ('pending', 'under_review')) as pending_applications,
                 COUNT(DISTINCT user_id) FILTER (WHERE status IN ('approved', 'disbursed')) as active_clients,
-                SUM(CASE WHEN status = 'disbursed' THEN loan_amount ELSE 0 END) as total_disbursed
+                SUM(CASE WHEN status IN ('approved', 'disbursed', 'completed') THEN loan_amount ELSE 0 END) as total_disbursed
             FROM loan_applications
             ${filter}
         `;
@@ -137,20 +139,18 @@ router.get('/dashboard-stats', async (req, res) => {
             WITH disbursed_loans AS (
                 SELECT id, (loan_amount * 1.3) as expected_total
                 FROM loan_applications
-                WHERE status = 'disbursed'
+                WHERE status IN ('approved', 'disbursed', 'completed', 'settled')
                 ${role === 'loan_officer' ? 'AND user_id = $1' : ''}
             ),
             total_repayments AS (
-                SELECT loan_application_id, SUM(amount) as total_repaid
+                SELECT SUM(amount) as total_repaid
                 FROM repayments
-                WHERE loan_application_id IN (SELECT id FROM disbursed_loans)
-                GROUP BY loan_application_id
+                ${role === 'loan_officer' ? 'WHERE loan_application_id IN (SELECT id FROM loan_applications WHERE user_id = $1)' : ''}
             )
             SELECT 
                 SUM(d.expected_total) as total_expected,
-                SUM(COALESCE(r.total_repaid, 0)) as total_repaid
+                (SELECT COALESCE(total_repaid, 0) FROM total_repayments) as total_repaid
             FROM disbursed_loans d
-            LEFT JOIN total_repayments r ON d.id = r.loan_application_id
         `;
         const { rows: portfolioRows } = await db.query(portfolioQuery, values);
         const { total_expected, total_repaid } = portfolioRows[0];
@@ -510,7 +510,7 @@ router.get('/roi-stats', async (req, res) => {
                 loan_product,
                 SUM(loan_amount) as total_principal,
                 COUNT(*) as loan_count,
-                SUM(amount_paid) as total_repaid,
+                SUM(r.amount_paid) as total_repaid,
                 SUM(loan_amount * 1.3) as total_expected
             FROM loan_applications
             LEFT JOIN (

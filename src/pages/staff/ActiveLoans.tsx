@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Wallet, Search, TrendingUp, DollarSign, Calendar, Users, Eye, FileSpreadsheet, Receipt } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -30,6 +31,7 @@ interface ActiveLoan {
   growth_rate: number;
   months_elapsed: number;
   months_remaining: number;
+  group_id?: string | null;
 }
 
 const ActiveLoans = () => {
@@ -39,6 +41,8 @@ const ActiveLoans = () => {
   const [filteredLoans, setFilteredLoans] = useState<ActiveLoan[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [productFilter, setProductFilter] = useState<string>("all");
+  const [viewMode, setViewMode] = useState<"list" | "groups">("list");
+  const [selectedGroup, setSelectedGroup] = useState<{ groupId: string, groupName: string, members: ActiveLoan[] } | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -64,59 +68,18 @@ const ActiveLoans = () => {
   }, [loans, searchTerm, productFilter]);
 
   const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    try {
+      await api.auth.getMe();
+      loadActiveLoans();
+    } catch (err) {
       navigate("/staff-login");
-      return;
     }
-    loadActiveLoans();
   };
 
   const loadActiveLoans = async () => {
     try {
-      const { data, error } = await supabase
-        .from("loan_applications")
-        .select("*")
-        .in("status", ["approved", "disbursed"])
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      const processedLoans = (data || []).map((loan: any) => {
-        const principal = loan.loan_amount;
-        const interestRate = 0.30; // 30% flat rate
-        const totalInterest = principal * interestRate;
-        const totalAmount = principal + totalInterest;
-        
-        // Calculate time elapsed
-        const approvedDate = new Date(loan.approved_at || loan.created_at);
-        const now = new Date();
-        const monthsElapsed = Math.floor((now.getTime() - approvedDate.getTime()) / (1000 * 60 * 60 * 24 * 30));
-        const monthsRemaining = Math.max(0, loan.loan_duration_months - monthsElapsed);
-        
-        // Calculate payments (assuming equal monthly payments)
-        const monthlyPayment = totalAmount / loan.loan_duration_months;
-        const amountPaid = monthlyPayment * monthsElapsed;
-        const remainingBalance = Math.max(0, totalAmount - amountPaid);
-        
-        // Calculate growth
-        const growthRate = ((totalAmount - principal) / principal) * 100;
-        const currentGrowth = ((amountPaid - (principal * (monthsElapsed / loan.loan_duration_months))) / principal) * 100;
-
-        return {
-          ...loan,
-          principal,
-          total_amount: totalAmount,
-          amount_paid: amountPaid,
-          remaining_balance: remainingBalance,
-          growth_rate: growthRate,
-          months_elapsed: monthsElapsed,
-          months_remaining: monthsRemaining,
-          current_growth: currentGrowth,
-        };
-      });
-
-      setLoans(processedLoans);
+      const data = await api.applications.getActive();
+      setLoans(data);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -146,10 +109,42 @@ const ActiveLoans = () => {
     setFilteredLoans(filtered);
   };
 
+  const openGroupDialog = (groupId: string, groupName: string, members: ActiveLoan[]) => {
+    setSelectedGroup({ groupId, groupName, members });
+  };
+
   // Get unique loan products for filtering
   const getUniqueProducts = () => {
     const products = new Set(loans.map(loan => loan.loan_product));
     return Array.from(products);
+  };
+
+  // Group loans by group_id, only showing groups with 2+ members
+  const getGroupedLoans = () => {
+    const grouped = new Map<string, typeof filteredLoans>();
+
+    filteredLoans.forEach(loan => {
+      if (loan.group_id) {
+        const existing = grouped.get(loan.group_id) || [];
+        grouped.set(loan.group_id, [...existing, loan]);
+      }
+    });
+
+    // Filter to only groups with 2+ members
+    const groupsWithMultipleMembers = Array.from(grouped.entries())
+      .filter(([_, members]) => members.length >= 2)
+      .map(([groupId, members]) => ({
+        groupId,
+        groupName: (members[0] as any).groups?.group_name || 'Unknown Group',
+        members,
+        totalPrincipal: members.reduce((sum, m) => sum + m.principal, 0),
+        totalPaid: members.reduce((sum, m) => sum + m.amount_paid, 0),
+        totalRemaining: members.reduce((sum, m) => sum + m.remaining_balance, 0),
+        memberCount: members.length,
+      }))
+      .sort((a, b) => b.totalPrincipal - a.totalPrincipal); // Sort by total principal descending
+
+    return groupsWithMultipleMembers;
   };
 
   const calculateTotalStats = () => {
@@ -157,8 +152,8 @@ const ActiveLoans = () => {
     const totalDisbursed = loans.reduce((sum, loan) => sum + loan.total_amount, 0);
     const totalPaid = loans.reduce((sum, loan) => sum + loan.amount_paid, 0);
     const totalRemaining = loans.reduce((sum, loan) => sum + loan.remaining_balance, 0);
-    const avgGrowth = loans.length > 0 
-      ? loans.reduce((sum, loan) => sum + loan.growth_rate, 0) / loans.length 
+    const avgGrowth = loans.length > 0
+      ? loans.reduce((sum, loan) => sum + loan.growth_rate, 0) / loans.length
       : 0;
 
     return {
@@ -216,32 +211,67 @@ const ActiveLoans = () => {
               </div>
 
               {/* Product Filter Tabs */}
-              <div className="flex gap-2 flex-wrap">
-                <Button
-                  variant={productFilter === "all" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setProductFilter("all")}
-                >
-                  All Products
-                </Button>
-                {getUniqueProducts().map((product) => (
+              <div className="flex gap-2 flex-wrap items-center justify-between">
+                <div className="flex gap-2 flex-wrap">
                   <Button
-                    key={product}
-                    variant={productFilter === product ? "default" : "outline"}
+                    variant={productFilter === "all" ? "default" : "outline"}
                     size="sm"
-                    onClick={() => setProductFilter(product)}
+                    onClick={() => setProductFilter("all")}
                   >
-                    {product}
+                    All Products
                   </Button>
-                ))}
+                  {getUniqueProducts().map((product) => (
+                    <Button
+                      key={product}
+                      variant={productFilter === product ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setProductFilter(product)}
+                    >
+                      {product}
+                    </Button>
+                  ))}
+                </div>
+
+                {/* View Mode Toggle */}
+                <div className="flex gap-2">
+                  <Button
+                    variant={viewMode === "list" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setViewMode("list")}
+                  >
+                    <Users className="mr-2 h-4 w-4" />
+                    List View
+                  </Button>
+                  <Button
+                    variant={viewMode === "groups" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setViewMode("groups")}
+                  >
+                    <Users className="mr-2 h-4 w-4" />
+                    Groups View
+                  </Button>
+                </div>
               </div>
 
               {/* Schedule View */}
               {location.pathname.includes("/schedule") ? (
                 <Card>
                   <CardHeader>
-                    <CardTitle>Loan Repayment Schedule</CardTitle>
-                    <CardDescription>View repayment schedules for all active loans</CardDescription>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle>Loan Repayment Schedule</CardTitle>
+                        <CardDescription>View repayment schedules for all active loans</CardDescription>
+                      </div>
+                      <div className="relative">
+                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search schedule..."
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          className="pl-8 w-64"
+                        />
+                      </div>
+                    </div>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
@@ -252,14 +282,14 @@ const ActiveLoans = () => {
                           const monthlyPayment = loan.total_amount / loan.loan_duration_months;
                           const approvedDate = new Date(loan.approved_at || loan.created_at);
                           const schedule = [];
-                          
+
                           for (let i = 0; i < loan.loan_duration_months; i++) {
                             const dueDate = new Date(approvedDate);
                             dueDate.setMonth(dueDate.getMonth() + i + 1);
                             const isPast = dueDate < new Date();
-                            const isCurrent = dueDate.getMonth() === new Date().getMonth() && 
-                                            dueDate.getFullYear() === new Date().getFullYear();
-                            
+                            const isCurrent = dueDate.getMonth() === new Date().getMonth() &&
+                              dueDate.getFullYear() === new Date().getFullYear();
+
                             schedule.push({
                               installment: i + 1,
                               dueDate,
@@ -301,15 +331,15 @@ const ActiveLoans = () => {
                                               payment.status === "paid"
                                                 ? "default"
                                                 : payment.status === "due"
-                                                ? "destructive"
-                                                : "outline"
+                                                  ? "destructive"
+                                                  : "outline"
                                             }
                                           >
                                             {payment.status === "paid"
                                               ? "Paid"
                                               : payment.status === "due"
-                                              ? "Due"
-                                              : "Upcoming"}
+                                                ? "Due"
+                                                : "Upcoming"}
                                           </Badge>
                                         </TableCell>
                                       </TableRow>
@@ -327,214 +357,427 @@ const ActiveLoans = () => {
               ) : (
                 <>
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Principal</CardTitle>
-                    <DollarSign className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">UGX {stats.totalPrincipal.toLocaleString()}</div>
-                    <p className="text-xs text-muted-foreground">Total loan principal</p>
-                  </CardContent>
-                </Card>
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Principle Disbursed</CardTitle>
+                        <DollarSign className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">UGX {stats.totalPrincipal.toLocaleString()}</div>
+                        <p className="text-xs text-muted-foreground">Total principal amount</p>
+                      </CardContent>
+                    </Card>
 
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Disbursed</CardTitle>
-                    <Wallet className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">UGX {stats.totalDisbursed.toLocaleString()}</div>
-                    <p className="text-xs text-muted-foreground">Including 30% interest</p>
-                  </CardContent>
-                </Card>
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Outstanding</CardTitle>
+                        <Wallet className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">UGX {stats.totalRemaining.toLocaleString()}</div>
+                        <p className="text-xs text-muted-foreground">Remaining balance (Principal + Interest)</p>
+                      </CardContent>
+                    </Card>
 
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Paid</CardTitle>
-                    <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">UGX {stats.totalPaid.toLocaleString()}</div>
-                    <p className="text-xs text-muted-foreground">Amount collected</p>
-                  </CardContent>
-                </Card>
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Paid</CardTitle>
+                        <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">UGX {stats.totalPaid.toLocaleString()}</div>
+                        <p className="text-xs text-muted-foreground">Total amount collected</p>
+                      </CardContent>
+                    </Card>
 
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Avg Growth Rate</CardTitle>
-                    <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{stats.avgGrowth.toFixed(2)}%</div>
-                    <p className="text-xs text-muted-foreground">Average money growth</p>
-                  </CardContent>
-                </Card>
-              </div>
-
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle>Active Loans</CardTitle>
-                      <CardDescription>View all active loans and track growth</CardDescription>
-                    </div>
-                    <div className="relative">
-                      <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search loans..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-8 w-64"
-                      />
-                    </div>
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Expected Return</CardTitle>
+                        <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">UGX {stats.totalDisbursed.toLocaleString()}</div>
+                        <p className="text-xs text-muted-foreground">Principal + 30% Interest</p>
+                      </CardContent>
+                    </Card>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Client</TableHead>
-                        <TableHead>Product</TableHead>
-                        <TableHead>Principal</TableHead>
-                        <TableHead>Total Amount</TableHead>
-                        <TableHead>Paid</TableHead>
-                        <TableHead>Remaining</TableHead>
-                        <TableHead>Growth</TableHead>
-                        <TableHead>Progress</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredLoans.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                            No active loans found
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        filteredLoans.map((loan) => {
-                          const progress = (loan.amount_paid / loan.total_amount) * 100;
-                          return (
-                            <TableRow key={loan.id}>
-                              <TableCell className="font-medium">{loan.full_name}</TableCell>
-                              <TableCell>{loan.loan_product}</TableCell>
-                              <TableCell>UGX {loan.principal.toLocaleString()}</TableCell>
-                              <TableCell>UGX {loan.total_amount.toLocaleString()}</TableCell>
-                              <TableCell>UGX {loan.amount_paid.toLocaleString()}</TableCell>
-                              <TableCell>UGX {loan.remaining_balance.toLocaleString()}</TableCell>
-                              <TableCell>
-                                <Badge variant="default" className="bg-green-600">
-                                  {loan.growth_rate.toFixed(2)}%
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-2">
-                                  <Progress value={progress} className="w-20" />
-                                  <span className="text-sm text-muted-foreground">{progress.toFixed(0)}%</span>
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => navigate(`/staff-dashboard/loans/details/${loan.id}`)}
-                                >
-                                  <Eye className="h-4 w-4 mr-1" />
-                                  View
-                                </Button>
+
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle>Active Loans</CardTitle>
+                          <CardDescription>View all active loans and track growth</CardDescription>
+                        </div>
+                        <div className="relative">
+                          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            placeholder="Search loans..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="pl-8 w-64"
+                          />
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Group/Client</TableHead>
+                            <TableHead>Members</TableHead>
+                            <TableHead>Principal</TableHead>
+                            <TableHead>Total Amount</TableHead>
+                            <TableHead>Paid</TableHead>
+                            <TableHead>Remaining</TableHead>
+                            <TableHead>Growth</TableHead>
+                            <TableHead>Progress</TableHead>
+                            <TableHead>Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredLoans.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                                No active loans found
                               </TableCell>
                             </TableRow>
-                          );
-                        })
-                      )}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+                          ) : (
+                            (() => {
+                              // If List View is selected, render all filtered loans directly
+                              if (viewMode === "list") {
+                                // Sort by creation date descending
+                                const sortedLoans = [...filteredLoans].sort((a, b) =>
+                                  new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                                );
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Money Growth Tracking</CardTitle>
-                    <CardDescription>Track how client money grows over time</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      {filteredLoans.slice(0, 5).map((loan) => {
-                        const monthlyGrowth = loan.growth_rate / loan.loan_duration_months;
-                        const currentValue = loan.principal + (loan.principal * (loan.growth_rate / 100) * (loan.months_elapsed / loan.loan_duration_months));
-                        return (
-                          <div key={loan.id} className="border rounded-lg p-4">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="font-medium">{loan.full_name}</div>
-                              <Badge variant="outline">{loan.loan_product}</Badge>
-                            </div>
-                            <div className="space-y-2">
-                              <div className="flex justify-between text-sm">
-                                <span className="text-muted-foreground">Initial Investment:</span>
-                                <span className="font-medium">UGX {loan.principal.toLocaleString()}</span>
+                                return sortedLoans.map((loan) => {
+                                  const progress = (loan.amount_paid / loan.total_amount) * 100;
+                                  return (
+                                    <TableRow key={loan.id}>
+                                      <TableCell className="font-medium">{loan.full_name}</TableCell>
+                                      <TableCell>
+                                        {loan.group_id && (loan as any).groups?.group_name
+                                          ? (loan as any).groups.group_name
+                                          : "-"}
+                                      </TableCell>
+                                      <TableCell>UGX {loan.principal.toLocaleString()}</TableCell>
+                                      <TableCell>UGX {loan.total_amount.toLocaleString()}</TableCell>
+                                      <TableCell>UGX {loan.amount_paid.toLocaleString()}</TableCell>
+                                      <TableCell>UGX {loan.remaining_balance.toLocaleString()}</TableCell>
+                                      <TableCell>
+                                        <Badge variant="default" className="bg-green-600">
+                                          {loan.growth_rate.toFixed(2)}%
+                                        </Badge>
+                                      </TableCell>
+                                      <TableCell>
+                                        <div className="flex items-center gap-2">
+                                          <Progress value={progress} className="w-20" />
+                                          <span className="text-sm text-muted-foreground">{progress.toFixed(0)}%</span>
+                                        </div>
+                                      </TableCell>
+                                      <TableCell>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => navigate(`/staff-dashboard/loans/details/${loan.id}`)}
+                                        >
+                                          <Eye className="h-4 w-4 mr-1" />
+                                          View
+                                        </Button>
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                });
+                              }
+
+                              // Groups View Logic (Default)
+                              // Group loans by group_id
+                              const grouped = new Map<string, typeof filteredLoans>();
+                              const individuals: typeof filteredLoans = [];
+
+                              filteredLoans.forEach(loan => {
+                                if (loan.group_id) {
+                                  const existing = grouped.get(loan.group_id) || [];
+                                  grouped.set(loan.group_id, [...existing, loan]);
+                                } else {
+                                  individuals.push(loan);
+                                }
+                              });
+
+                              // Separate groups with 2+ members from single-member groups
+                              const actualGroups = Array.from(grouped.entries())
+                                .filter(([_, members]) => members.length >= 2)
+                                .map(([groupId, members]) => ({
+                                  groupId,
+                                  groupName: (members[0] as any).groups?.group_name || 'Unknown Group',
+                                  members,
+                                  totalPrincipal: members.reduce((sum, m) => sum + m.principal, 0),
+                                  totalAmount: members.reduce((sum, m) => sum + m.total_amount, 0),
+                                  totalPaid: members.reduce((sum, m) => sum + m.amount_paid, 0),
+                                  totalRemaining: members.reduce((sum, m) => sum + m.remaining_balance, 0),
+                                  memberCount: members.length,
+                                }));
+
+                              const singleMemberGroups = Array.from(grouped.entries())
+                                .filter(([_, members]) => members.length === 1)
+                                .flatMap(([_, members]) => members);
+
+                              const allIndividuals = [...individuals, ...singleMemberGroups];
+
+                              return (
+                                <>
+                                  {/* Render actual groups (2+ members) */}
+                                  {actualGroups.map((group) => {
+                                    const progress = (group.totalPaid / group.totalAmount) * 100;
+
+                                    return (
+                                      <TableRow
+                                        key={group.groupId}
+                                        className="cursor-pointer hover:bg-muted/50 font-medium"
+                                        onClick={() => openGroupDialog(group.groupId, group.groupName, group.members)}
+                                      >
+                                        <TableCell className="font-bold">
+                                          {group.groupName}
+                                        </TableCell>
+                                        <TableCell>
+                                          <Badge variant="secondary">{group.memberCount} members</Badge>
+                                        </TableCell>
+                                        <TableCell>UGX {group.totalPrincipal.toLocaleString()}</TableCell>
+                                        <TableCell>UGX {group.totalAmount.toLocaleString()}</TableCell>
+                                        <TableCell className="text-green-600 font-semibold">UGX {group.totalPaid.toLocaleString()}</TableCell>
+                                        <TableCell>UGX {group.totalRemaining.toLocaleString()}</TableCell>
+                                        <TableCell>
+                                          <Badge variant="default" className="bg-green-600">
+                                            30.00%
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell>
+                                          <div className="flex items-center gap-2">
+                                            <Progress value={progress} className="w-20" />
+                                            <span className="text-sm text-muted-foreground">{progress.toFixed(0)}%</span>
+                                          </div>
+                                        </TableCell>
+                                        <TableCell>
+                                          <Button variant="ghost" size="sm">
+                                            View Members
+                                          </Button>
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+
+                                  {/* Render individual loans (no group or single-member groups) */}
+                                  {allIndividuals.map((loan) => {
+                                    const progress = (loan.amount_paid / loan.total_amount) * 100;
+                                    return (
+                                      <TableRow key={loan.id}>
+                                        <TableCell className="font-medium">{loan.full_name}</TableCell>
+                                        <TableCell>-</TableCell>
+                                        <TableCell>UGX {loan.principal.toLocaleString()}</TableCell>
+                                        <TableCell>UGX {loan.total_amount.toLocaleString()}</TableCell>
+                                        <TableCell>UGX {loan.amount_paid.toLocaleString()}</TableCell>
+                                        <TableCell>UGX {loan.remaining_balance.toLocaleString()}</TableCell>
+                                        <TableCell>
+                                          <Badge variant="default" className="bg-green-600">
+                                            {loan.growth_rate.toFixed(2)}%
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell>
+                                          <div className="flex items-center gap-2">
+                                            <Progress value={progress} className="w-20" />
+                                            <span className="text-sm text-muted-foreground">{progress.toFixed(0)}%</span>
+                                          </div>
+                                        </TableCell>
+                                        <TableCell>
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => navigate(`/staff-dashboard/loans/details/${loan.id}`)}
+                                          >
+                                            <Eye className="h-4 w-4 mr-1" />
+                                            View
+                                          </Button>
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                                </>
+                              );
+                            })()
+                          )}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Money Growth Tracking</CardTitle>
+                        <CardDescription>Track how client money grows over time</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          {filteredLoans.slice(0, 5).map((loan) => {
+                            const monthlyGrowth = loan.growth_rate / loan.loan_duration_months;
+                            const currentValue = loan.principal + (loan.principal * (loan.growth_rate / 100) * (loan.months_elapsed / loan.loan_duration_months));
+                            return (
+                              <div key={loan.id} className="border rounded-lg p-4">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="font-medium">{loan.full_name}</div>
+                                  <Badge variant="outline">{loan.loan_product}</Badge>
+                                </div>
+                                <div className="space-y-2">
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">Initial Investment:</span>
+                                    <span className="font-medium">UGX {loan.principal.toLocaleString()}</span>
+                                  </div>
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">Current Value:</span>
+                                    <span className="font-medium text-green-600">UGX {currentValue.toLocaleString()}</span>
+                                  </div>
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">Projected Return:</span>
+                                    <span className="font-medium text-primary">UGX {loan.total_amount.toLocaleString()}</span>
+                                  </div>
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">Growth Rate:</span>
+                                    <span className="font-medium">{loan.growth_rate.toFixed(2)}%</span>
+                                  </div>
+                                  <Progress value={(loan.months_elapsed / loan.loan_duration_months) * 100} className="mt-2" />
+                                </div>
                               </div>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-muted-foreground">Current Value:</span>
-                                <span className="font-medium text-green-600">UGX {currentValue.toLocaleString()}</span>
-                              </div>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-muted-foreground">Projected Return:</span>
-                                <span className="font-medium text-primary">UGX {loan.total_amount.toLocaleString()}</span>
-                              </div>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-muted-foreground">Growth Rate:</span>
-                                <span className="font-medium">{loan.growth_rate.toFixed(2)}%</span>
-                              </div>
-                              <Progress value={(loan.months_elapsed / loan.loan_duration_months) * 100} className="mt-2" />
-                            </div>
+                            );
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Loan Summary</CardTitle>
+                        <CardDescription>Overview of loan portfolio</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Total Active Loans:</span>
+                            <span className="font-bold">{loans.length}</span>
                           </div>
-                        );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Loan Summary</CardTitle>
-                    <CardDescription>Overview of loan portfolio</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Total Active Loans:</span>
-                        <span className="font-bold">{loans.length}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Total Outstanding:</span>
-                        <span className="font-bold">UGX {stats.totalRemaining.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Collection Rate:</span>
-                        <span className="font-bold">
-                          {stats.totalDisbursed > 0 
-                            ? ((stats.totalPaid / stats.totalDisbursed) * 100).toFixed(2) 
-                            : 0}%
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Average Loan Size:</span>
-                        <span className="font-bold">
-                          UGX {loans.length > 0 ? (stats.totalPrincipal / loans.length).toLocaleString() : 0}
-                        </span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Total Outstanding:</span>
+                            <span className="font-bold">UGX {stats.totalRemaining.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Collection Rate:</span>
+                            <span className="font-bold">
+                              {stats.totalDisbursed > 0
+                                ? ((stats.totalPaid / stats.totalDisbursed) * 100).toFixed(2)
+                                : 0}%
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Average Loan Size:</span>
+                            <span className="font-bold">
+                              UGX {loans.length > 0 ? (stats.totalPrincipal / loans.length).toLocaleString() : 0}
+                            </span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
                 </>
               )}
             </div>
           </main>
         </div>
       </div>
+
+      {/* Group Members Dialog */}
+      <Dialog open={selectedGroup !== null} onOpenChange={(open) => !open && setSelectedGroup(null)}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold">{selectedGroup?.groupName}</DialogTitle>
+            <DialogDescription>
+              Group members and their loan details
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedGroup && (
+            <div className="mt-4">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Member Name</TableHead>
+                    <TableHead>Principal</TableHead>
+                    <TableHead>Total Amount</TableHead>
+                    <TableHead>Paid</TableHead>
+                    <TableHead>Remaining</TableHead>
+                    <TableHead>Progress</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {selectedGroup.members.map((loan) => {
+                    const progress = (loan.amount_paid / loan.total_amount) * 100;
+                    return (
+                      <TableRow key={loan.id}>
+                        <TableCell className="font-medium">{loan.full_name}</TableCell>
+                        <TableCell>UGX {loan.principal.toLocaleString()}</TableCell>
+                        <TableCell>UGX {loan.total_amount.toLocaleString()}</TableCell>
+                        <TableCell className="text-green-600">UGX {loan.amount_paid.toLocaleString()}</TableCell>
+                        <TableCell>UGX {loan.remaining_balance.toLocaleString()}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Progress value={progress} className="w-20" />
+                            <span className="text-sm text-muted-foreground">{progress.toFixed(0)}%</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedGroup(null);
+                              navigate(`/staff-dashboard/loans/details/${loan.id}`);
+                            }}
+                          >
+                            <Eye className="h-4 w-4 mr-1" />
+                            View
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+
+              {/* Group Summary */}
+              <div className="mt-6 grid grid-cols-3 gap-4 p-4 bg-muted rounded-lg">
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Principal</p>
+                  <p className="text-lg font-bold">
+                    UGX {selectedGroup.members.reduce((sum, m) => sum + m.principal, 0).toLocaleString()}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Paid</p>
+                  <p className="text-lg font-bold text-green-600">
+                    UGX {selectedGroup.members.reduce((sum, m) => sum + m.amount_paid, 0).toLocaleString()}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Remaining</p>
+                  <p className="text-lg font-bold">
+                    UGX {selectedGroup.members.reduce((sum, m) => sum + m.remaining_balance, 0).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </SidebarProvider>
   );
 };

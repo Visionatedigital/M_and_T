@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -38,62 +38,18 @@ const CollateralAssets = () => {
   }, []);
 
   const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    try {
+      await api.auth.getMe();
+      loadCollateral();
+    } catch (err) {
       navigate("/staff-login");
-      return;
     }
-    loadCollateral();
   };
 
   const loadCollateral = async () => {
     try {
-      // Load collateral
-      const { data: collateralData, error: collateralError } = await supabase
-        .from("collateral")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (collateralError) throw collateralError;
-
-      // Load insurance data
-      const { data: insuranceData, error: insuranceError } = await supabase
-        .from("collateral_insurance")
-        .select("collateral_id, status")
-        .eq("status", "active");
-
-      if (insuranceError) throw insuranceError;
-
-      // Load loan applications to get client names
-      const loanIds = (collateralData || [])
-        .map(c => c.loan_application_id)
-        .filter(Boolean) as string[];
-
-      let loanData: any[] = [];
-      if (loanIds.length > 0) {
-        const { data: loans, error: loansError } = await supabase
-          .from("loan_applications")
-          .select("id, full_name")
-          .in("id", loanIds);
-
-        if (!loansError && loans) {
-          loanData = loans;
-        }
-      }
-
-      // Enrich collateral data
-      const enrichedCollateral = (collateralData || []).map((item: any) => {
-        const loan = loanData.find(l => l.id === item.loan_application_id);
-        const hasInsurance = insuranceData?.some(i => i.collateral_id === item.id) || false;
-
-        return {
-          ...item,
-          loan_client_name: loan?.full_name || "N/A",
-          has_insurance: hasInsurance,
-        };
-      });
-
-      setCollateral(enrichedCollateral);
+      const data = await api.collateral.getAll();
+      setCollateral(data);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -180,7 +136,7 @@ const CollateralAssets = () => {
                             <TableCell className="font-medium">{item.type}</TableCell>
                             <TableCell>UGX {item.estimated_value.toLocaleString()}</TableCell>
                             <TableCell>
-                              {item.current_value 
+                              {item.current_value
                                 ? `UGX ${item.current_value.toLocaleString()}`
                                 : <span className="text-muted-foreground">Not valued</span>
                               }
@@ -238,122 +194,117 @@ const CollateralAssets = () => {
                 </Card>
               ) : (
                 <>
-                  <div className="flex items-center justify-end mb-4">
-                    <Button>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Add Collateral
-                    </Button>
-                  </div>
+                  {/* Manual entry removed in favor of automated registration from Loan Applications */}
 
                   <div className="grid gap-4 md:grid-cols-3">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Collateral</CardTitle>
-                    <Shield className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{collateral.length}</div>
-                    <p className="text-xs text-muted-foreground">
-                      {collateral.filter(c => c.status === "active").length} active
-                    </p>
-                  </CardContent>
-                </Card>
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Collateral</CardTitle>
+                        <Shield className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">{collateral.length}</div>
+                        <p className="text-xs text-muted-foreground">
+                          {collateral.filter(c => c.status === "active").length} active
+                        </p>
+                      </CardContent>
+                    </Card>
 
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Value</CardTitle>
-                    <Shield className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      UGX {collateral.reduce((sum, c) => sum + (c.current_value || c.estimated_value), 0).toLocaleString()}
-                    </div>
-                    <p className="text-xs text-muted-foreground">Total collateral value</p>
-                  </CardContent>
-                </Card>
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Value</CardTitle>
+                        <Shield className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">
+                          UGX {collateral.reduce((sum, c) => sum + (c.current_value || c.estimated_value), 0).toLocaleString()}
+                        </div>
+                        <p className="text-xs text-muted-foreground">Total collateral value</p>
+                      </CardContent>
+                    </Card>
 
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Insured Assets</CardTitle>
-                    <Shield className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {collateral.filter(c => c.has_insurance).length}
-                    </div>
-                    <p className="text-xs text-muted-foreground">With active insurance</p>
-                  </CardContent>
-                </Card>
-              </div>
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Insured Assets</CardTitle>
+                        <Shield className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">
+                          {collateral.filter(c => c.has_insurance).length}
+                        </div>
+                        <p className="text-xs text-muted-foreground">With active insurance</p>
+                      </CardContent>
+                    </Card>
+                  </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Collateral Register</CardTitle>
-                  <CardDescription>View all collateral and assets</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Description</TableHead>
-                        <TableHead>Client</TableHead>
-                        <TableHead>Estimated Value</TableHead>
-                        <TableHead>Current Value</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Insurance</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {collateral.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                            No collateral registered yet
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        collateral.map((item) => (
-                          <TableRow key={item.id}>
-                            <TableCell className="font-medium">{item.type}</TableCell>
-                            <TableCell>
-                              <div className="max-w-xs">
-                                <p className="truncate">{item.description}</p>
-                                {item.registration_number && (
-                                  <p className="text-xs text-muted-foreground">
-                                    Reg: {item.registration_number}
-                                  </p>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell>{item.loan_client_name}</TableCell>
-                            <TableCell>UGX {item.estimated_value.toLocaleString()}</TableCell>
-                            <TableCell>
-                              {item.current_value 
-                                ? `UGX ${item.current_value.toLocaleString()}`
-                                : <span className="text-muted-foreground">-</span>
-                              }
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant={item.status === "active" ? "default" : "secondary"}>
-                                {item.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              {item.has_insurance ? (
-                                <Badge variant="default" className="bg-green-600">
-                                  Insured
-                                </Badge>
-                              ) : (
-                                <Badge variant="outline">Not Insured</Badge>
-                              )}
-                            </TableCell>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Collateral Register</CardTitle>
+                      <CardDescription>View all collateral and assets</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Type</TableHead>
+                            <TableHead>Description</TableHead>
+                            <TableHead>Client</TableHead>
+                            <TableHead>Estimated Value</TableHead>
+                            <TableHead>Current Value</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Insurance</TableHead>
                           </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+                        </TableHeader>
+                        <TableBody>
+                          {collateral.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                                No collateral registered yet
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            collateral.map((item) => (
+                              <TableRow key={item.id}>
+                                <TableCell className="font-medium">{item.type}</TableCell>
+                                <TableCell>
+                                  <div className="max-w-xs">
+                                    <p className="truncate">{item.description}</p>
+                                    {item.registration_number && (
+                                      <p className="text-xs text-muted-foreground">
+                                        Reg: {item.registration_number}
+                                      </p>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell>{item.loan_client_name}</TableCell>
+                                <TableCell>UGX {item.estimated_value.toLocaleString()}</TableCell>
+                                <TableCell>
+                                  {item.current_value
+                                    ? `UGX ${item.current_value.toLocaleString()}`
+                                    : <span className="text-muted-foreground">-</span>
+                                  }
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant={item.status === "active" ? "default" : "secondary"}>
+                                    {item.status}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  {item.has_insurance ? (
+                                    <Badge variant="default" className="bg-green-600">
+                                      Insured
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline">Not Insured</Badge>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
                 </>
               )}
             </div>

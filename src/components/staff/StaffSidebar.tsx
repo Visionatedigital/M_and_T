@@ -1,8 +1,8 @@
-import { 
-  LayoutDashboard, 
-  FileText, 
-  Users, 
-  DollarSign, 
+import {
+  LayoutDashboard,
+  FileText,
+  Users,
+  DollarSign,
   BarChart3,
   Settings,
   ChevronDown,
@@ -42,11 +42,7 @@ const menuItems = [
     icon: LayoutDashboard,
     url: "/staff-dashboard",
   },
-  {
-    title: "Ask AI",
-    icon: Sparkles,
-    url: "/staff-dashboard/ask-ai",
-  },
+
   {
     title: "Loan Applications",
     icon: FileText,
@@ -71,7 +67,6 @@ const menuItems = [
     icon: Users,
     items: [
       { title: "View Clients", url: "/staff-dashboard/clients", icon: Users },
-      { title: "Add Client", url: "/staff-dashboard/clients/add", icon: UserPlus },
       { title: "Client History", url: "/staff-dashboard/clients/history", icon: FileText },
     ],
   },
@@ -125,15 +120,47 @@ const menuItems = [
     icon: Settings,
     url: "/staff-dashboard/settings",
   },
+  {
+    title: "Staff Management",
+    icon: Users,
+    url: "/staff-dashboard/staff",
+  },
 ];
+
+import { useUserRole } from "@/hooks/useUserRole";
 
 export function StaffSidebar() {
   const { state } = useSidebar();
   const location = useLocation();
+  const { role, loading } = useUserRole();
   const isCollapsed = state === "collapsed";
 
+  if (loading) return null; // or a skeleton
+
+  // Filter menu items based on role
+  const filteredMenuItems = menuItems.map(item => {
+    // If it's a loan officer, we might need to filter internal items
+    if (role === 'loan_officer') {
+      const restrictedTitles = ['Branch Management', 'Product Management', 'Settings', 'Reports', 'Staff Management'];
+      if (restrictedTitles.includes(item.title)) return null;
+
+      // Filter sub-items
+      if (item.items) {
+        const filteredSubItems = item.items.filter(subItem => {
+          // Hide sensitive reports
+          if (item.title === 'Reports' && subItem.title === 'Financial Reports') return false;
+          // Hide advanced client analytics if needed
+          if (item.title === 'Clients' && subItem.title === 'Client History') return false;
+          return true;
+        });
+        return { ...item, items: filteredSubItems };
+      }
+    }
+    return item;
+  }).filter(item => item !== null);
+
   const isActive = (url: string) => location.pathname === url;
-  const isGroupActive = (items?: { url: string }[]) => 
+  const isGroupActive = (items?: { url: string }[]) =>
     items?.some(item => location.pathname === item.url);
 
   return (
@@ -148,7 +175,7 @@ export function StaffSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {menuItems.map((item) => (
+              {filteredMenuItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   {item.items ? (
                     <Collapsible

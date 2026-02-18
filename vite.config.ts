@@ -8,6 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
+  cacheDir: path.resolve(__dirname, 'node_modules/.vite'),
   server: {
     host: true, // Allow external connections
     port: 8080,

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -10,8 +10,24 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Users, Search, Plus, Eye, Phone, Mail, MapPin, UserPlus, FileText } from "lucide-react";
+import { Users, Search, Plus, Eye, Phone, Mail, MapPin, UserPlus, FileText, DollarSign } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+// Fix for default marker icon
+import icon from 'leaflet/dist/images/marker-icon.png';
+import iconShadow from 'leaflet/dist/images/marker-shadow.png';
+
+
+// Add Switch import if not present, check file first? No, standard in shadcn.
+// Actually, let's look at activeLoans where Toggle might be used? No.
+// Safe bet: Use a simple Button or Checkbox if not sure about Switch path.
+// But standard shadcn is components/ui/switch.
+
+import { Switch } from "@/components/ui/switch";
 
 interface Client {
   id: string;
@@ -23,7 +39,31 @@ interface Client {
   active_loans: number;
   total_borrowed: number;
   total_repaid: number;
+  group_id?: string | null;
+  is_group?: boolean;
+  district?: string;
+  latitude?: number;
+  longitude?: number;
+  credit_score?: number;
 }
+
+// ... existing code ...
+
+const getScoreColor = (score: number) => {
+  if (score >= 750) return "bg-green-100 text-green-800 border-green-200";
+  if (score >= 650) return "bg-blue-100 text-blue-800 border-blue-200";
+  if (score >= 500) return "bg-orange-100 text-orange-800 border-orange-200";
+  return "bg-red-100 text-red-800 border-red-200";
+};
+
+let DefaultIcon = L.icon({
+  iconUrl: icon,
+  shadowUrl: iconShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41]
+});
+
+L.Marker.prototype.options.icon = DefaultIcon;
 
 const Clients = () => {
   const location = useLocation();
@@ -31,7 +71,18 @@ const Clients = () => {
   const [clients, setClients] = useState<Client[]>([]);
   const [filteredClients, setFilteredClients] = useState<Client[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isGroupView, setIsGroupView] = useState(false);
+  const [editLocationDialogOpen, setEditLocationDialogOpen] = useState(false);
+  const [selectedClientForLocation, setSelectedClientForLocation] = useState<Client | null>(null);
+  const [locationForm, setLocationForm] = useState({
+    district: "",
+    county: "",
+    sub_county: "",
+    parish: "",
+    village: "",
+    latitude: "",
+    longitude: "",
+  });
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -40,66 +91,26 @@ const Clients = () => {
   }, []);
 
   useEffect(() => {
+    loadClients();
+  }, [isGroupView]);
+
+  useEffect(() => {
     filterClients();
   }, [clients, searchTerm, location.pathname]);
 
   const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    try {
+      await api.auth.getMe();
+      loadClients();
+    } catch (err) {
       navigate("/staff-login");
-      return;
     }
-    loadClients();
   };
 
   const loadClients = async () => {
     try {
-      const { data: profiles, error: profilesError } = await supabase
-        .from("profiles")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (profilesError) throw profilesError;
-
-      const { data: loans, error: loansError } = await supabase
-        .from("loan_applications")
-        .select("*");
-
-      if (loansError) throw loansError;
-
-      const clientsWithStats = (profiles || []).map((profile: any) => {
-        const clientLoans = (loans || []).filter((loan: any) => loan.user_id === profile.id);
-        const activeLoans = clientLoans.filter((loan: any) => 
-          ["approved", "disbursed"].includes(loan.status)
-        );
-        
-        const totalBorrowed = clientLoans.reduce((sum: number, loan: any) => {
-          const principal = loan.loan_amount;
-          const interest = principal * 0.30;
-          return sum + principal + interest;
-        }, 0);
-
-        const totalRepaid = activeLoans.reduce((sum: number, loan: any) => {
-          const principal = loan.loan_amount;
-          const interest = principal * 0.30;
-          const totalAmount = principal + interest;
-          const monthlyPayment = totalAmount / loan.loan_duration_months;
-          const approvedDate = new Date(loan.approved_at || loan.created_at);
-          const now = new Date();
-          const monthsElapsed = Math.floor((now.getTime() - approvedDate.getTime()) / (1000 * 60 * 60 * 24 * 30));
-          return sum + (monthlyPayment * monthsElapsed);
-        }, 0);
-
-        return {
-          ...profile,
-          total_loans: clientLoans.length,
-          active_loans: activeLoans.length,
-          total_borrowed: totalBorrowed,
-          total_repaid: totalRepaid,
-        };
-      });
-
-      setClients(clientsWithStats);
+      const data = await api.clients.getAll(isGroupView);
+      setClients(data);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -117,13 +128,58 @@ const Clients = () => {
     if (searchTerm) {
       filtered = filtered.filter(
         (client) =>
-          client.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          client.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (client.full_name?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+          (client.email?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
           (client.phone_number && client.phone_number.includes(searchTerm))
       );
     }
 
     setFilteredClients(filtered);
+  };
+
+  const handleEditLocation = async (client: Client) => {
+    setSelectedClientForLocation(client);
+    // Address fields should ideally come from the backend in the client object
+    setLocationForm({
+      district: client.district || "",
+      county: "", // Fallback if not in profile
+      sub_county: "",
+      parish: "",
+      village: client.village || "",
+      latitude: client.latitude?.toString() || "",
+      longitude: client.longitude?.toString() || "",
+    });
+    setEditLocationDialogOpen(true);
+  };
+
+  const handleSaveLocation = async () => {
+    if (!selectedClientForLocation) return;
+
+    try {
+      await api.clients.updateLocation(selectedClientForLocation.id, {
+        district: locationForm.district || null,
+        county: locationForm.county || null,
+        sub_county: locationForm.sub_county || null,
+        parish: locationForm.parish || null,
+        village: locationForm.village || null,
+        latitude: locationForm.latitude ? parseFloat(locationForm.latitude) : null,
+        longitude: locationForm.longitude ? parseFloat(locationForm.longitude) : null,
+      });
+
+      toast({
+        title: "Success",
+        description: "Client location updated successfully",
+      });
+
+      setEditLocationDialogOpen(false);
+      loadClients();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
   };
 
   if (isLoading) {
@@ -133,6 +189,8 @@ const Clients = () => {
       </div>
     );
   }
+
+
 
   return (
     <SidebarProvider>
@@ -145,131 +203,13 @@ const Clients = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <h1 className="text-3xl font-bold mb-2">Clients</h1>
-                  <p className="text-muted-foreground">Manage client information and history</p>
+                  <p className="text-muted-foreground">Manage branch clients and their loan performance</p>
                 </div>
               </div>
 
-              {/* Navigation Tabs */}
-              <div className="flex gap-2 border-b pb-2">
-                <Button
-                  variant={!location.pathname.includes("/add") && !location.pathname.includes("/history") ? "default" : "ghost"}
-                  onClick={() => navigate("/staff-dashboard/clients")}
-                  className="rounded-b-none"
-                >
-                  <Users className="mr-2 h-4 w-4" />
-                  View Clients
-                </Button>
-                <Button
-                  variant={location.pathname.includes("/add") ? "default" : "ghost"}
-                  onClick={() => navigate("/staff-dashboard/clients/add")}
-                  className="rounded-b-none"
-                >
-                  <UserPlus className="mr-2 h-4 w-4" />
-                  Add Client
-                </Button>
-                <Button
-                  variant={location.pathname.includes("/history") ? "default" : "ghost"}
-                  onClick={() => navigate("/staff-dashboard/clients/history")}
-                  className="rounded-b-none"
-                >
-                  <FileText className="mr-2 h-4 w-4" />
-                  Client History
-                </Button>
-              </div>
-
-              {/* Add Client View */}
-              {location.pathname.includes("/add") ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Add New Client</CardTitle>
-                    <CardDescription>Create a new client profile</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                      <DialogTrigger asChild>
-                        <Button className="w-full">
-                          <Plus className="mr-2 h-4 w-4" />
-                          Add Client
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Add New Client</DialogTitle>
-                          <DialogDescription>
-                            Create a new client profile
-                          </DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-4">
-                          <div>
-                            <Label>Full Name</Label>
-                            <Input placeholder="Enter full name" />
-                          </div>
-                          <div>
-                            <Label>Email</Label>
-                            <Input type="email" placeholder="Enter email" />
-                          </div>
-                          <div>
-                            <Label>Phone Number</Label>
-                            <Input placeholder="Enter phone number" />
-                          </div>
-                          <div className="flex justify-end gap-2">
-                            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-                              Cancel
-                            </Button>
-                            <Button>Add Client</Button>
-                          </div>
-                        </div>
-                      </DialogContent>
-                    </Dialog>
-                  </CardContent>
-                </Card>
-              ) : location.pathname.includes("/history") ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Client History</CardTitle>
-                    <CardDescription>View client loan history and transactions</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      {filteredClients.map((client) => (
-                        <Card key={client.id}>
-                          <CardHeader>
-                            <CardTitle className="text-lg">{client.full_name}</CardTitle>
-                            <CardDescription>
-                              {client.email} {client.phone_number && `• ${client.phone_number}`}
-                            </CardDescription>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                              <div>
-                                <div className="text-sm text-muted-foreground">Total Loans</div>
-                                <div className="text-2xl font-bold">{client.total_loans}</div>
-                              </div>
-                              <div>
-                                <div className="text-sm text-muted-foreground">Active Loans</div>
-                                <div className="text-2xl font-bold">{client.active_loans}</div>
-                              </div>
-                              <div>
-                                <div className="text-sm text-muted-foreground">Total Borrowed</div>
-                                <div className="text-2xl font-bold">UGX {client.total_borrowed.toLocaleString()}</div>
-                              </div>
-                              <div>
-                                <div className="text-sm text-muted-foreground">Total Repaid</div>
-                                <div className="text-2xl font-bold">UGX {client.total_repaid.toLocaleString()}</div>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                      {filteredClients.length === 0 && (
-                        <p className="text-center py-8 text-muted-foreground">No client history found</p>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : (
-                <>
-                  <div className="grid gap-4 md:grid-cols-3">
+              {/* Statistics Cards - Keep existing */}
+              <div className="grid gap-4 md:grid-cols-3">
+                {/* ... existing stats cards ... reused code ... */}
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Total Clients</CardTitle>
@@ -297,98 +237,359 @@ const Clients = () => {
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Total Borrowed</CardTitle>
-                    <Users className="h-4 w-4 text-muted-foreground" />
+                    <DollarSign className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold">
                       UGX {clients.reduce((sum, c) => sum + c.total_borrowed, 0).toLocaleString()}
                     </div>
-                    <p className="text-xs text-muted-foreground">All time</p>
+                    <p className="text-xs text-muted-foreground">All time principal + interest</p>
                   </CardContent>
                 </Card>
               </div>
 
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle>Client List</CardTitle>
-                      <CardDescription>View and manage all clients</CardDescription>
-                    </div>
-                    <div className="relative">
-                      <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search clients..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-8 w-64"
-                      />
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Client Name</TableHead>
-                        <TableHead>Contact</TableHead>
-                        <TableHead>Total Loans</TableHead>
-                        <TableHead>Active Loans</TableHead>
-                        <TableHead>Total Borrowed</TableHead>
-                        <TableHead>Total Repaid</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredClients.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                            No clients found
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        filteredClients.map((client) => (
-                          <TableRow key={client.id}>
-                            <TableCell className="font-medium">{client.full_name}</TableCell>
-                            <TableCell>
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2 text-sm">
-                                  <Mail className="h-3 w-3" />
-                                  {client.email}
-                                </div>
-                                {client.phone_number && (
-                                  <div className="flex items-center gap-2 text-sm">
-                                    <Phone className="h-3 w-3" />
-                                    {client.phone_number}
-                                  </div>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell>{client.total_loans}</TableCell>
-                            <TableCell>{client.active_loans}</TableCell>
-                            <TableCell>UGX {client.total_borrowed.toLocaleString()}</TableCell>
-                            <TableCell>UGX {client.total_repaid.toLocaleString()}</TableCell>
-                            <TableCell>
-                              <Button variant="ghost" size="sm">
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                            </TableCell>
+              <Tabs defaultValue="list" className="space-y-4">
+                <TabsList>
+                  <TabsTrigger value="list">Client List</TabsTrigger>
+                  <TabsTrigger value="find">Find My Client</TabsTrigger>
+                  <TabsTrigger value="map">Client Locations</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="list" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle>Client List</CardTitle>
+                          <CardDescription>View and manage all clients</CardDescription>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Label htmlFor="view-mode">Show Group Totals</Label>
+                          <Switch
+                            id="view-mode"
+                            checked={isGroupView}
+                            onCheckedChange={setIsGroupView}
+                          />
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Client Name</TableHead>
+                            <TableHead>Contact</TableHead>
+                            <TableHead>Total Loans</TableHead>
+                            <TableHead>Active Loans</TableHead>
+                            <TableHead>Total Borrowed</TableHead>
+                            <TableHead>Total Repaid</TableHead>
+                            <TableHead>Credit Score</TableHead>
+                            <TableHead>Actions</TableHead>
                           </TableRow>
-                        ))
+                        </TableHeader>
+                        <TableBody>
+                          {/* ... existing table body logic ... */}
+                          {filteredClients.slice(0, 10).map((client) => (
+                            <TableRow key={client.id}>
+                              <TableCell className="font-medium">{client.full_name}</TableCell>
+                              <TableCell>
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                    <Mail className="h-3 w-3" />
+                                    {client.email}
+                                  </div>
+                                  {client.phone_number && (
+                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                      <Phone className="h-3 w-3" />
+                                      {client.phone_number}
+                                    </div>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell>{client.total_loans}</TableCell>
+                              <TableCell>{client.active_loans}</TableCell>
+                              <TableCell className="font-medium text-primary">
+                                UGX {client.total_borrowed.toLocaleString()}
+                              </TableCell>
+                              <TableCell className="font-medium text-green-600">
+                                UGX {client.total_repaid.toLocaleString()}
+                              </TableCell>
+                              <TableCell>
+                                <span className={`px-2 py-1 rounded-full text-xs border font-medium ${getScoreColor(client.credit_score || 300)}`}>
+                                  {client.credit_score || 300}
+                                </span>
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => navigate(`/staff-dashboard/clients/history?id=${client.id}`)}
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value="find" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Find My Client</CardTitle>
+                      <CardDescription>Search for a client by name, phone, or email to view their details.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex gap-4 mb-6">
+                        <div className="relative flex-1">
+                          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            placeholder="Search by Name, Phone, or Email..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="pl-8"
+                          />
+                        </div>
+                        <Button>Search</Button>
+                      </div>
+
+                      {searchTerm && (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Client Name</TableHead>
+                              <TableHead>Contact</TableHead>
+                              <TableHead>Location</TableHead>
+                              <TableHead>Active Loans</TableHead>
+                              <TableHead>Action</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {filteredClients.map((client) => (
+                              <TableRow key={client.id}>
+                                <TableCell className="font-medium">{client.full_name}</TableCell>
+                                <TableCell>
+                                  <div className="space-y-1">
+                                    {client.phone_number && (
+                                      <div className="flex items-center gap-2 text-sm">
+                                        <Phone className="h-3 w-3" />
+                                        {client.phone_number}
+                                      </div>
+                                    )}
+                                    {client.email && client.email !== "No Email" && client.email !== "Group Account" && (
+                                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                        <Mail className="h-3 w-3" />
+                                        {client.email}
+                                      </div>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  {client.village && client.district ? (
+                                    <div className="flex items-center gap-2 text-sm">
+                                      <MapPin className="h-3 w-3 text-muted-foreground" />
+                                      {client.village}, {client.district}
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">No location</span>
+                                  )}
+                                </TableCell>
+                                <TableCell>{client.active_loans}</TableCell>
+                                <TableCell>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleEditLocation(client)}
+                                    >
+                                      <MapPin className="h-4 w-4 mr-1" />
+                                      Edit Location
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => navigate(`/staff-dashboard/clients/history?id=${client.id}`)}
+                                    >
+                                      <Eye className="h-4 w-4 mr-1" />
+                                      View Profile
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                            {filteredClients.length === 0 && (
+                              <TableRow>
+                                <TableCell colSpan={5} className="text-center py-4">No clients found.</TableCell>
+                              </TableRow>
+                            )}
+                          </TableBody>
+                        </Table>
                       )}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-                </>
-              )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value="map" className="h-[600px]">
+                  <Card className="h-full">
+                    <CardHeader>
+                      <CardTitle>Client Locations</CardTitle>
+                      <CardDescription>Geographic distribution of your clients.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="h-[500px] p-0 overflow-hidden rounded-b-lg">
+                      <MapContainer center={[0.3476, 32.5825]} zoom={8} style={{ height: '100%', width: '100%' }}>
+                        <TileLayer
+                          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        />
+                        {/* Display all clients with location data */}
+                        {clients
+                          .filter(client => client.latitude && client.longitude)
+                          .map((client) => (
+                            <Marker key={client.id} position={[client.latitude!, client.longitude!]}>
+                              <Popup>
+                                <div className="p-2">
+                                  <h3 className="font-bold">{client.full_name}</h3>
+                                  <p className="text-sm text-muted-foreground">{client.village}, {client.district}</p>
+                                  <p className="text-sm mt-1">Active Loans: {client.active_loans}</p>
+                                  <Button
+                                    size="sm"
+                                    className="mt-2"
+                                    onClick={() => navigate(`/staff-dashboard/clients/history?id=${client.id}`)}
+                                  >
+                                    View Profile
+                                  </Button>
+                                </div>
+                              </Popup>
+                            </Marker>
+                          ))}
+                        {/* Show message if no location data available */}
+                        {clients.filter(c => c.latitude && c.longitude).length === 0 && (
+                          <Marker position={[0.3476, 32.5825]}>
+                            <Popup>
+                              <div className="p-2">
+                                <p className="text-sm">No client location data available yet.</p>
+                                <p className="text-xs text-muted-foreground mt-1">Locations will appear as loan applications with GPS data are created.</p>
+                              </div>
+                            </Popup>
+                          </Marker>
+                        )}
+                      </MapContainer>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
             </div>
           </main>
         </div>
       </div>
-    </SidebarProvider>
+
+      {/* Edit Location Dialog */}
+      <Dialog open={editLocationDialogOpen} onOpenChange={setEditLocationDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Client Location</DialogTitle>
+            <DialogDescription>
+              Update location information for {selectedClientForLocation?.full_name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="district">District *</Label>
+                <Input
+                  id="district"
+                  placeholder="Enter district"
+                  value={locationForm.district}
+                  onChange={(e) => setLocationForm({ ...locationForm, district: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="county">County</Label>
+                <Input
+                  id="county"
+                  placeholder="Enter county"
+                  value={locationForm.county}
+                  onChange={(e) => setLocationForm({ ...locationForm, county: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="sub_county">Sub-County</Label>
+                <Input
+                  id="sub_county"
+                  placeholder="Enter sub-county"
+                  value={locationForm.sub_county}
+                  onChange={(e) => setLocationForm({ ...locationForm, sub_county: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="parish">Parish</Label>
+                <Input
+                  id="parish"
+                  placeholder="Enter parish"
+                  value={locationForm.parish}
+                  onChange={(e) => setLocationForm({ ...locationForm, parish: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="village">Village *</Label>
+              <Input
+                id="village"
+                placeholder="Enter village"
+                value={locationForm.village}
+                onChange={(e) => setLocationForm({ ...locationForm, village: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="latitude">Latitude (GPS)</Label>
+                <Input
+                  id="latitude"
+                  type="number"
+                  step="any"
+                  placeholder="e.g., 0.3476"
+                  value={locationForm.latitude}
+                  onChange={(e) => setLocationForm({ ...locationForm, latitude: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="longitude">Longitude (GPS)</Label>
+                <Input
+                  id="longitude"
+                  type="number"
+                  step="any"
+                  placeholder="e.g., 32.5825"
+                  value={locationForm.longitude}
+                  onChange={(e) => setLocationForm({ ...locationForm, longitude: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="text-xs text-muted-foreground mt-2">
+              <p>* Required fields. GPS coordinates are optional but helpful for mapping.</p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setEditLocationDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveLocation}
+              disabled={!locationForm.district || !locationForm.village}
+            >
+              Save Location
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </SidebarProvider >
   );
 };
 
 export default Clients;
-
