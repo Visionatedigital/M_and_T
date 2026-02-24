@@ -12,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 
@@ -20,7 +21,12 @@ export function StaffHeader() {
   const { toast } = useToast();
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+      await api.auth.logout();
+    } catch (e) {
+      console.warn("Sign out error:", e);
+    }
     toast({
       title: "Signed out",
       description: "You have been signed out successfully.",
@@ -31,7 +37,7 @@ export function StaffHeader() {
   return (
     <header className="h-16 border-b bg-background flex items-center px-4 gap-4 sticky top-0 z-50">
       <SidebarTrigger className="text-foreground" />
-      
+
       <div className="flex-1 max-w-md">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -46,8 +52,8 @@ export function StaffHeader() {
       <div className="flex items-center gap-2 ml-auto">
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5" />
-          <Badge 
-            variant="destructive" 
+          <Badge
+            variant="destructive"
             className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
           >
             3
@@ -56,8 +62,8 @@ export function StaffHeader() {
 
         <Button variant="ghost" size="icon" className="relative">
           <MessageSquare className="h-5 w-5" />
-          <Badge 
-            variant="destructive" 
+          <Badge
+            variant="destructive"
             className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
           >
             5

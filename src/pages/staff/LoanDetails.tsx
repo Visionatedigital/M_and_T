@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, isSupabaseOffline } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -9,16 +10,16 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { 
-  ArrowLeft, 
-  User, 
-  DollarSign, 
-  Calendar, 
-  TrendingUp, 
-  FileText, 
-  Phone, 
-  Mail, 
-  MapPin, 
+import {
+  ArrowLeft,
+  User,
+  DollarSign,
+  Calendar,
+  TrendingUp,
+  FileText,
+  Phone,
+  Mail,
+  MapPin,
   CreditCard,
   Clock,
   CheckCircle,
@@ -66,7 +67,7 @@ const LoanDetails = () => {
   const [searchParams] = useSearchParams();
   const queryId = searchParams.get("id");
   const id = routeId || queryId;
-  
+
   const [isLoading, setIsLoading] = useState(true);
   const [loan, setLoan] = useState<LoanDetails | null>(null);
   const navigate = useNavigate();
@@ -86,25 +87,65 @@ const LoanDetails = () => {
   }, [id, navigate]);
 
   const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    try {
+      // 1. If offline mode, prioritize local check
+      if (isSupabaseOffline) {
+        try {
+          const user = await api.auth.getMe();
+          if (user) {
+            loadLoanDetails();
+            return;
+          }
+        } catch (e) {
+          console.warn("No local session found");
+        }
+        navigate("/staff-login");
+        return;
+      }
+
+      // 2. Online mode: Try Supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        loadLoanDetails();
+        return;
+      }
+
       navigate("/staff-login");
-      return;
+    } catch (error) {
+      console.error("Auth check failed:", error);
+      // Fallback for offline mode if Supabase fails
+      if (isSupabaseOffline) {
+        try {
+          const user = await api.auth.getMe();
+          if (user) {
+            loadLoanDetails();
+            return;
+          }
+        } catch (e) { }
+      }
+      navigate("/staff-login");
     }
-    loadLoanDetails();
   };
 
   const loadLoanDetails = async () => {
     try {
       if (!id) return;
 
-      const { data, error } = await supabase
-        .from("loan_applications")
-        .select("*")
-        .eq("id", id)
-        .single();
+      let data = null;
 
-      if (error) throw error;
+      if (isSupabaseOffline) {
+        console.log("🛠️ Loading loan details from local API...");
+        data = await api.applications.getById(id);
+      } else {
+        const { data: supabaseData, error } = await supabase
+          .from("loan_applications")
+          .select("*")
+          .eq("id", id)
+          .single();
+
+        if (error) throw error;
+        data = supabaseData;
+      }
 
       if (!data) {
         toast({
@@ -117,24 +158,22 @@ const LoanDetails = () => {
       }
 
       // Calculate loan metrics
-      const principal = data.loan_amount;
-      const interestRate = 0.30; // 30% flat rate
+      const principal = Number(data.loan_amount) || 0;
+      const interestRate = 0.20; // 20% default rate
       const totalInterest = principal * interestRate;
       const totalAmount = principal + totalInterest;
-      const monthlyPayment = totalAmount / data.loan_duration_months;
+      const duration = Number(data.loan_duration_months) || 12;
+      const monthlyPayment = totalAmount / duration;
 
-      // Calculate time elapsed
       const approvedDate = new Date(data.approved_at || data.created_at);
       const now = new Date();
       const monthsElapsed = Math.floor((now.getTime() - approvedDate.getTime()) / (1000 * 60 * 60 * 24 * 30));
-      const monthsRemaining = Math.max(0, data.loan_duration_months - monthsElapsed);
+      const monthsRemaining = Math.max(0, duration - monthsElapsed);
 
-      // Calculate payments
-      const amountPaid = monthlyPayment * monthsElapsed;
+      const amountPaid = monthlyPayment * Math.min(monthsElapsed, duration);
       const remainingBalance = Math.max(0, totalAmount - amountPaid);
 
-      // Calculate growth
-      const growthRate = ((totalAmount - principal) / principal) * 100;
+      const growthRate = principal > 0 ? ((totalAmount - principal) / principal) * 100 : 0;
 
       const loanDetails: LoanDetails = {
         ...data,
@@ -150,6 +189,7 @@ const LoanDetails = () => {
 
       setLoan(loanDetails);
     } catch (error: any) {
+      console.error("Load loan details error:", error);
       toast({
         title: "Error",
         description: error.message,
@@ -179,14 +219,14 @@ const LoanDetails = () => {
 
     const schedule = [];
     const approvedDate = new Date(loan.approved_at || loan.created_at);
-    
+
     for (let i = 0; i < loan.loan_duration_months; i++) {
       const dueDate = new Date(approvedDate);
       dueDate.setMonth(dueDate.getMonth() + i + 1);
-      
+
       const isPast = dueDate < new Date();
-      const isCurrent = dueDate.getMonth() === new Date().getMonth() && 
-                        dueDate.getFullYear() === new Date().getFullYear();
+      const isCurrent = dueDate.getMonth() === new Date().getMonth() &&
+        dueDate.getFullYear() === new Date().getFullYear();
 
       schedule.push({
         installment: i + 1,
@@ -281,7 +321,7 @@ const LoanDetails = () => {
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold">UGX {loan.total_amount.toLocaleString()}</div>
-                    <p className="text-xs text-muted-foreground">Including 30% interest</p>
+                    <p className="text-xs text-muted-foreground">Including interest</p>
                   </CardContent>
                 </Card>
 
@@ -407,7 +447,7 @@ const LoanDetails = () => {
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Interest Rate:</span>
-                        <span className="font-medium">30% (flat)</span>
+                        <span className="font-medium">20% (flat)</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Growth Rate:</span>
@@ -518,15 +558,15 @@ const LoanDetails = () => {
                                   payment.status === "paid"
                                     ? "default"
                                     : payment.status === "due"
-                                    ? "destructive"
-                                    : "outline"
+                                      ? "destructive"
+                                      : "outline"
                                 }
                               >
                                 {payment.status === "paid"
                                   ? "Paid"
                                   : payment.status === "due"
-                                  ? "Due"
-                                  : "Upcoming"}
+                                    ? "Due"
+                                    : "Upcoming"}
                               </Badge>
                             </TableCell>
                           </TableRow>

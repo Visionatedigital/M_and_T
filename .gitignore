@@ -26,3 +26,7 @@ npm-cache/
 *.njsproj
 *.sln
 *.sw?
+
+# Electron build output
+release/
+*.db

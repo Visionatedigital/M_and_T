@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, isSupabaseOffline } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -12,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Label } from "@/components/ui/label";
 import { Receipt, Search, Plus, DollarSign, Calendar, FileSpreadsheet } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const Repayments = () => {
   const location = useLocation();
@@ -21,44 +23,92 @@ const Repayments = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [repaymentForm, setRepaymentForm] = useState({
+    loan_application_id: "",
+    amount: "",
+    payment_method: "cash",
+    notes: "",
+  });
+  const [activeLoans, setActiveLoans] = useState<any[]>([]);
 
   useEffect(() => {
     checkAuth();
   }, []);
 
   const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    try {
+      // 1. If offline mode, prioritize local check
+      if (isSupabaseOffline) {
+        try {
+          const user = await api.auth.getMe();
+          if (user) {
+            loadRepayments();
+            return;
+          }
+        } catch (e) {
+          console.warn("No local session found");
+        }
+        navigate("/staff-login");
+        return;
+      }
+
+      // 2. Online mode: Try Supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        loadRepayments();
+        return;
+      }
+
       navigate("/staff-login");
-      return;
+    } catch (error) {
+      console.error("Auth check failed:", error);
+      // Fallback for offline mode if Supabase fails
+      if (isSupabaseOffline) {
+        try {
+          const user = await api.auth.getMe();
+          if (user) {
+            loadRepayments();
+            return;
+          }
+        } catch (e) { }
+      }
+      navigate("/staff-login");
     }
-    loadRepayments();
   };
 
   const loadRepayments = async () => {
     try {
-      const { data: loans, error } = await supabase
-        .from("loan_applications")
-        .select("*")
-        .in("status", ["approved", "disbursed"])
-        .order("created_at", { ascending: false });
+      let loans = [];
 
-      if (error) throw error;
+      if (isSupabaseOffline) {
+        console.log("🛠️ Loading loans for repayments from local API...");
+        loans = await api.applications.getAll();
+      } else {
+        const { data, error } = await supabase
+          .from("loan_applications")
+          .select("*")
+          .in("status", ["approved", "disbursed"])
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+        loans = data || [];
+      }
 
       // Generate repayment schedule from loans
-      const repaymentRecords = (loans || []).flatMap((loan: any) => {
-        const principal = loan.loan_amount;
-        const interest = principal * 0.30;
+      const repaymentRecords = loans.flatMap((loan: any) => {
+        const principal = Number(loan.loan_amount) || 0;
+        const interest = principal * 0.20;
         const totalAmount = principal + interest;
-        const monthlyPayment = totalAmount / loan.loan_duration_months;
+        const duration = Number(loan.loan_duration_months) || 12;
+        const monthlyPayment = totalAmount / duration;
         const approvedDate = new Date(loan.approved_at || loan.created_at);
-        
+
         const records = [];
-        for (let i = 0; i < loan.loan_duration_months; i++) {
+        for (let i = 0; i < duration; i++) {
           const dueDate = new Date(approvedDate);
           dueDate.setMonth(dueDate.getMonth() + i + 1);
           const isPaid = new Date() > dueDate;
-          
+
           records.push({
             id: `${loan.id}-${i}`,
             loan_id: loan.id,
@@ -73,7 +123,11 @@ const Repayments = () => {
       });
 
       setRepayments(repaymentRecords);
+
+      // Load active loans for the dropdown
+      setActiveLoans(loans);
     } catch (error: any) {
+      console.error("Load repayments error:", error);
       toast({
         title: "Error",
         description: error.message,
@@ -81,6 +135,36 @@ const Repayments = () => {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleRepaymentSubmit = async () => {
+    try {
+      if (!repaymentForm.loan_application_id || !repaymentForm.amount) {
+        toast({ title: "Error", description: "Please select a loan and amount", variant: "destructive" });
+        return;
+      }
+
+      const data = {
+        loan_application_id: repaymentForm.loan_application_id,
+        amount: parseFloat(repaymentForm.amount),
+        payment_method: repaymentForm.payment_method,
+        notes: repaymentForm.notes,
+      };
+
+      if (isSupabaseOffline) {
+        await api.repayments.create(data);
+      } else {
+        const { error } = await supabase.from("repayments").insert(data);
+        if (error) throw error;
+      }
+
+      toast({ title: "Success", description: "Repayment recorded successfully" });
+      setIsDialogOpen(false);
+      loadRepayments();
+      setRepaymentForm({ loan_application_id: "", amount: "", payment_method: "cash", notes: "" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     }
   };
 
@@ -161,21 +245,60 @@ const Repayments = () => {
                         <div className="space-y-4">
                           <div>
                             <Label>Select Loan</Label>
-                            <Input placeholder="Search for loan..." />
+                            <Select
+                              value={repaymentForm.loan_application_id}
+                              onValueChange={(val) => setRepaymentForm({ ...repaymentForm, loan_application_id: val })}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select a loan" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {activeLoans.map(loan => (
+                                  <SelectItem key={loan.id} value={loan.id}>
+                                    {loan.full_name} - {loan.loan_product} (UGX {loan.loan_amount?.toLocaleString()})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </div>
                           <div>
                             <Label>Payment Amount</Label>
-                            <Input type="number" placeholder="Enter amount" />
+                            <Input
+                              type="number"
+                              placeholder="Enter amount"
+                              value={repaymentForm.amount}
+                              onChange={(e) => setRepaymentForm({ ...repaymentForm, amount: e.target.value })}
+                            />
                           </div>
                           <div>
-                            <Label>Payment Date</Label>
-                            <Input type="date" />
+                            <Label>Payment Method</Label>
+                            <Select
+                              value={repaymentForm.payment_method}
+                              onValueChange={(val) => setRepaymentForm({ ...repaymentForm, payment_method: val })}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="cash">Cash</SelectItem>
+                                <SelectItem value="mobile_money">Mobile Money</SelectItem>
+                                <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label>Notes (Optional)</Label>
+                            <Input
+                              placeholder="e.g. Month 2 installment"
+                              value={repaymentForm.notes}
+                              onChange={(e) => setRepaymentForm({ ...repaymentForm, notes: e.target.value })}
+                            />
                           </div>
                           <div className="flex justify-end gap-2">
                             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
                               Cancel
                             </Button>
-                            <Button>Record Payment</Button>
+                            <Button onClick={handleRepaymentSubmit}>Record Payment</Button>
                           </div>
                         </div>
                       </DialogContent>
@@ -225,11 +348,10 @@ const Repayments = () => {
                                       <TableCell>{new Date(payment.due_date).toLocaleDateString()}</TableCell>
                                       <TableCell>UGX {payment.amount.toLocaleString()}</TableCell>
                                       <TableCell>
-                                        <span className={`px-2 py-1 rounded text-xs ${
-                                          payment.status === "paid" 
-                                            ? "bg-green-100 text-green-800" 
-                                            : "bg-yellow-100 text-yellow-800"
-                                        }`}>
+                                        <span className={`px-2 py-1 rounded text-xs ${payment.status === "paid"
+                                          ? "bg-green-100 text-green-800"
+                                          : "bg-yellow-100 text-yellow-800"
+                                          }`}>
                                           {payment.status}
                                         </span>
                                       </TableCell>
@@ -249,123 +371,122 @@ const Repayments = () => {
               ) : (
                 <>
                   <div className="grid gap-4 md:grid-cols-3">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Due</CardTitle>
-                    <DollarSign className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">UGX {totalDue.toLocaleString()}</div>
-                    <p className="text-xs text-muted-foreground">Pending repayments</p>
-                  </CardContent>
-                </Card>
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Due</CardTitle>
+                        <DollarSign className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">UGX {totalDue.toLocaleString()}</div>
+                        <p className="text-xs text-muted-foreground">Pending repayments</p>
+                      </CardContent>
+                    </Card>
 
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Paid</CardTitle>
-                    <Receipt className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">UGX {totalPaid.toLocaleString()}</div>
-                    <p className="text-xs text-muted-foreground">Collected repayments</p>
-                  </CardContent>
-                </Card>
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Paid</CardTitle>
+                        <Receipt className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">UGX {totalPaid.toLocaleString()}</div>
+                        <p className="text-xs text-muted-foreground">Collected repayments</p>
+                      </CardContent>
+                    </Card>
 
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Collection Rate</CardTitle>
-                    <Receipt className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {totalDue + totalPaid > 0 
-                        ? ((totalPaid / (totalDue + totalPaid)) * 100).toFixed(1) 
-                        : 0}%
-                    </div>
-                    <p className="text-xs text-muted-foreground">Payment collection rate</p>
-                  </CardContent>
-                </Card>
-              </div>
-
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle>Repayment Schedule</CardTitle>
-                      <CardDescription>View all repayment records</CardDescription>
-                    </div>
-                    <div className="relative">
-                      <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search repayments..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-8 w-64"
-                      />
-                    </div>
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Collection Rate</CardTitle>
+                        <Receipt className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">
+                          {totalDue + totalPaid > 0
+                            ? ((totalPaid / (totalDue + totalPaid)) * 100).toFixed(1)
+                            : 0}%
+                        </div>
+                        <p className="text-xs text-muted-foreground">Payment collection rate</p>
+                      </CardContent>
+                    </Card>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Client</TableHead>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>Due Date</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Payment Date</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {repayments
-                        .filter(r => 
-                          !searchTerm || 
-                          r.client_name.toLowerCase().includes(searchTerm.toLowerCase())
-                        ).length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                            {searchTerm ? "No repayments found matching your search" : "No repayments found"}
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        repayments
-                          .filter(r => 
-                            !searchTerm || 
-                            r.client_name.toLowerCase().includes(searchTerm.toLowerCase())
-                          )
-                          .map((repayment) => (
-                          <TableRow key={repayment.id}>
-                            <TableCell className="font-medium">{repayment.client_name}</TableCell>
-                            <TableCell>UGX {repayment.amount.toLocaleString()}</TableCell>
-                            <TableCell>{new Date(repayment.due_date).toLocaleDateString()}</TableCell>
-                            <TableCell>
-                              <span className={`px-2 py-1 rounded text-xs ${
-                                repayment.status === "paid" 
-                                  ? "bg-green-100 text-green-800" 
-                                  : "bg-yellow-100 text-yellow-800"
-                              }`}>
-                                {repayment.status}
-                              </span>
-                            </TableCell>
-                            <TableCell>
-                              {repayment.payment_date 
-                                ? new Date(repayment.payment_date).toLocaleDateString()
-                                : "-"
-                              }
-                            </TableCell>
-                            <TableCell>
-                              {repayment.status === "pending" && (
-                                <Button variant="outline" size="sm">Record Payment</Button>
-                              )}
-                            </TableCell>
+
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle>Repayment Schedule</CardTitle>
+                          <CardDescription>View all repayment records</CardDescription>
+                        </div>
+                        <div className="relative">
+                          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            placeholder="Search repayments..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="pl-8 w-64"
+                          />
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Client</TableHead>
+                            <TableHead>Amount</TableHead>
+                            <TableHead>Due Date</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Payment Date</TableHead>
+                            <TableHead>Actions</TableHead>
                           </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+                        </TableHeader>
+                        <TableBody>
+                          {repayments
+                            .filter(r =>
+                              !searchTerm ||
+                              r.client_name.toLowerCase().includes(searchTerm.toLowerCase())
+                            ).length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                {searchTerm ? "No repayments found matching your search" : "No repayments found"}
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            repayments
+                              .filter(r =>
+                                !searchTerm ||
+                                r.client_name.toLowerCase().includes(searchTerm.toLowerCase())
+                              )
+                              .map((repayment) => (
+                                <TableRow key={repayment.id}>
+                                  <TableCell className="font-medium">{repayment.client_name}</TableCell>
+                                  <TableCell>UGX {repayment.amount.toLocaleString()}</TableCell>
+                                  <TableCell>{new Date(repayment.due_date).toLocaleDateString()}</TableCell>
+                                  <TableCell>
+                                    <span className={`px-2 py-1 rounded text-xs ${repayment.status === "paid"
+                                      ? "bg-green-100 text-green-800"
+                                      : "bg-yellow-100 text-yellow-800"
+                                      }`}>
+                                      {repayment.status}
+                                    </span>
+                                  </TableCell>
+                                  <TableCell>
+                                    {repayment.payment_date
+                                      ? new Date(repayment.payment_date).toLocaleDateString()
+                                      : "-"
+                                    }
+                                  </TableCell>
+                                  <TableCell>
+                                    {repayment.status === "pending" && (
+                                      <Button variant="outline" size="sm">Record Payment</Button>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
                 </>
               )}
             </div>

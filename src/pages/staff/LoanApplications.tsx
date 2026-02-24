@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, isSupabaseOffline } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -14,7 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { FileText, Users, Plus, Search, CheckCircle, XCircle, Clock, Eye, DollarSign } from "lucide-react";
+import { FileText, Plus, Search, CheckCircle, XCircle, Clock, Eye, DollarSign } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface LoanApplication {
@@ -31,6 +32,17 @@ interface LoanApplication {
   group_id?: string;
   group_name?: string;
   group_members?: number;
+  branch_name?: string;
+  loan_type?: string;
+  loan_category?: string;
+  id_number?: string;
+  district?: string;
+  division?: string;
+  county?: string;
+  village?: string;
+  parish?: string;
+  business_location?: string;
+  attachments?: string | null;
 }
 
 const LoanApplications = () => {
@@ -39,7 +51,7 @@ const LoanApplications = () => {
   const [applications, setApplications] = useState<LoanApplication[]>([]);
   const [filteredApplications, setFilteredApplications] = useState<LoanApplication[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  
+
   // Determine status filter from URL path
   const getStatusFromPath = () => {
     const path = location.pathname;
@@ -48,7 +60,7 @@ const LoanApplications = () => {
     if (path.includes("/rejected")) return "rejected";
     return "all";
   };
-  
+
   const [statusFilter, setStatusFilter] = useState<string>(getStatusFromPath());
   const [selectedApplication, setSelectedApplication] = useState<LoanApplication | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -56,18 +68,45 @@ const LoanApplications = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Group loan form state
-  const [groupForm, setGroupForm] = useState({
+  const initialFormState = {
+    branch_name: "Kasangati Branch",
+    loan_type: "Business",
+    loan_category: "Individual Loan (1 Month)",
     group_name: "",
     group_leader_name: "",
     group_leader_email: "",
     group_leader_phone: "",
     group_leader_id: "",
+    district: "",
+    division: "",
+    county: "",
+    village: "",
+    parish: "",
+    business_location: "",
     loan_amount: "",
     loan_duration_months: "",
     loan_purpose: "",
-    group_members: [{ name: "", email: "", phone: "", id_number: "" }],
-  });
+    attachments: {} as Record<string, { name: string; data: string }>,
+  };
+
+  const [groupForm, setGroupForm] = useState(initialFormState);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, fieldName: string) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setGroupForm((prev) => ({
+          ...prev,
+          attachments: {
+            ...prev.attachments,
+            [fieldName]: { name: file.name, data: reader.result as string },
+          },
+        }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   useEffect(() => {
     checkAuth();
@@ -84,31 +123,72 @@ const LoanApplications = () => {
   }, [applications, searchTerm, statusFilter]);
 
   const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    try {
+      // 1. If offline mode, prioritize local check
+      if (isSupabaseOffline) {
+        try {
+          const user = await api.auth.getMe();
+          if (user) {
+            loadApplications();
+            return;
+          }
+        } catch (e) {
+          console.warn("No local session found");
+        }
+        navigate("/staff-login");
+        return;
+      }
+
+      // 2. Online mode: Try Supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        loadApplications();
+        return;
+      }
+
       navigate("/staff-login");
-      return;
+    } catch (error) {
+      console.error("Auth check failed:", error);
+      // Fallback for offline mode if Supabase fails
+      if (isSupabaseOffline) {
+        try {
+          const user = await api.auth.getMe();
+          if (user) {
+            loadApplications();
+            return;
+          }
+        } catch (e) { }
+      }
+      navigate("/staff-login");
     }
-    loadApplications();
   };
 
   const loadApplications = async () => {
     try {
-      const { data, error } = await supabase
-        .from("loan_applications")
-        .select("*")
-        .order("created_at", { ascending: false });
+      let data = [];
 
-      if (error) throw error;
+      if (isSupabaseOffline) {
+        console.log("🛠️ Loading applications from local API...");
+        data = await api.applications.getAll();
+      } else {
+        const { data: supabaseData, error } = await supabase
+          .from("loan_applications")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+        data = supabaseData || [];
+      }
 
       // Group applications by group_id if they exist
-      const grouped = data?.map((app: any) => ({
+      const grouped = data.map((app: any) => ({
         ...app,
         group_id: app.group_id || null,
-      })) || [];
+      }));
 
       setApplications(grouped);
     } catch (error: any) {
+      console.error("Load applications error:", error);
       toast({
         title: "Error",
         description: error.message,
@@ -134,7 +214,7 @@ const LoanApplications = () => {
     if (statusFilter !== "all") {
       if (statusFilter === "approved") {
         // Include both approved and disbursed loans
-        filtered = filtered.filter((app) => 
+        filtered = filtered.filter((app) =>
           app.status === "approved" || app.status === "disbursed"
         );
       } else {
@@ -147,27 +227,31 @@ const LoanApplications = () => {
 
   const handleStatusChange = async (applicationId: string, newStatus: string, rejectionReason?: string) => {
     try {
-      const updateData: any = {
-        status: newStatus,
-        updated_at: new Date().toISOString(),
-      };
+      if (isSupabaseOffline) {
+        await api.applications.updateStatus(applicationId, newStatus);
+      } else {
+        const updateData: any = {
+          status: newStatus,
+          updated_at: new Date().toISOString(),
+        };
 
-      if (newStatus === "approved") {
-        updateData.approved_at = new Date().toISOString();
-        updateData.reviewed_at = new Date().toISOString();
-      } else if (newStatus === "rejected") {
-        updateData.rejection_reason = rejectionReason || "Application rejected";
-        updateData.reviewed_at = new Date().toISOString();
-      } else if (newStatus === "under_review") {
-        updateData.reviewed_at = new Date().toISOString();
+        if (newStatus === "approved") {
+          updateData.approved_at = new Date().toISOString();
+          updateData.reviewed_at = new Date().toISOString();
+        } else if (newStatus === "rejected") {
+          updateData.rejection_reason = rejectionReason || "Application rejected";
+          updateData.reviewed_at = new Date().toISOString();
+        } else if (newStatus === "under_review") {
+          updateData.reviewed_at = new Date().toISOString();
+        }
+
+        const { error } = await supabase
+          .from("loan_applications")
+          .update(updateData)
+          .eq("id", applicationId);
+
+        if (error) throw error;
       }
-
-      const { error } = await supabase
-        .from("loan_applications")
-        .update(updateData)
-        .eq("id", applicationId);
-
-      if (error) throw error;
 
       toast({
         title: "Success",
@@ -185,9 +269,9 @@ const LoanApplications = () => {
     }
   };
 
-  const calculateGroupLoanDetails = (amount: number, duration: number) => {
+  const calculateLoanDetails = (amount: number, duration: number, rate: number = 0.20) => {
     const principal = amount;
-    const interestRate = 0.30; // 30% flat rate
+    const interestRate = rate; // Configurable interest rate
     const totalInterest = principal * interestRate;
     const totalAmount = principal + totalInterest;
     const monthlyPayment = totalAmount / duration;
@@ -203,7 +287,7 @@ const LoanApplications = () => {
     };
   };
 
-  const handleGroupLoanSubmit = async (e: React.FormEvent) => {
+  const handleLoanSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const loanAmount = parseFloat(groupForm.loan_amount);
@@ -218,61 +302,86 @@ const LoanApplications = () => {
         return;
       }
 
-      // Create group loan application
-      const { data: groupLeader, error: leaderError } = await supabase.auth.admin.createUser({
-        email: groupForm.group_leader_email,
-        password: "temp_password_123", // Should be changed on first login
-        user_metadata: {
-          full_name: groupForm.group_leader_name,
-          phone_number: groupForm.group_leader_phone,
-        },
-      });
-
-      if (leaderError && leaderError.message !== "User already registered") {
-        throw leaderError;
-      }
-
-      // Create loan application for group leader
-      const { data: application, error: appError } = await supabase
-        .from("loan_applications")
-        .insert({
-          user_id: groupLeader?.user?.id || "",
+      if (isSupabaseOffline) {
+        await api.applications.create({
           full_name: groupForm.group_leader_name,
           email: groupForm.group_leader_email,
           phone_number: groupForm.group_leader_phone,
           id_number: groupForm.group_leader_id,
-          loan_product: "Group Loan",
+          loan_product: groupForm.loan_category,
           loan_amount: loanAmount,
           loan_duration_months: duration,
           loan_purpose: groupForm.loan_purpose,
-          status: "pending",
-          date_of_birth: new Date().toISOString(),
-          address: "",
-          employment_status: "Group Member",
-        })
-        .select()
-        .single();
+          branch_name: groupForm.branch_name,
+          loan_type: groupForm.loan_type,
+          loan_category: groupForm.loan_category,
+          group_name: groupForm.group_name,
+          district: groupForm.district,
+          division: groupForm.division,
+          county: groupForm.county,
+          village: groupForm.village,
+          parish: groupForm.parish,
+          business_location: groupForm.business_location,
+          attachments: JSON.stringify(groupForm.attachments),
+        });
+      } else {
+        // Create individual loan application
+        const { data: borrower, error: borrowerError } = await supabase.auth.admin.createUser({
+          email: groupForm.group_leader_email,
+          password: "temp_password_123", // Should be changed on first login
+          user_metadata: {
+            full_name: groupForm.group_leader_name,
+            phone_number: groupForm.group_leader_phone,
+          },
+        });
 
-      if (appError) throw appError;
+        if (borrowerError && borrowerError.message !== "User already registered") {
+          throw borrowerError;
+        }
+
+        // Create loan application for individual borrower
+        const { data: application, error: appError } = await supabase
+          .from("loan_applications")
+          .insert({
+            user_id: borrower?.user?.id || "",
+            full_name: groupForm.group_leader_name,
+            email: groupForm.group_leader_email,
+            phone_number: groupForm.group_leader_phone,
+            id_number: groupForm.group_leader_id,
+            loan_product: groupForm.loan_category,
+            loan_amount: loanAmount,
+            loan_duration_months: duration,
+            loan_purpose: groupForm.loan_purpose,
+            status: "pending",
+            date_of_birth: new Date().toISOString(),
+            address: `${groupForm.district}, ${groupForm.division}`,
+            employment_status: "Employed",
+            branch_name: groupForm.branch_name,
+            loan_type: groupForm.loan_type,
+            loan_category: groupForm.loan_category,
+            group_name: groupForm.group_name,
+            district: groupForm.district,
+            division: groupForm.division,
+            county: groupForm.county,
+            village: groupForm.village,
+            parish: groupForm.parish,
+            business_location: groupForm.business_location,
+            attachments: JSON.stringify(groupForm.attachments),
+          })
+          .select()
+          .single();
+
+        if (appError) throw appError;
+      }
 
       toast({
         title: "Success",
-        description: "Group loan application created successfully",
+        description: "Loan application created successfully",
       });
 
       setIsGroupDialogOpen(false);
       loadApplications();
-      setGroupForm({
-        group_name: "",
-        group_leader_name: "",
-        group_leader_email: "",
-        group_leader_phone: "",
-        group_leader_id: "",
-        loan_amount: "",
-        loan_duration_months: "",
-        loan_purpose: "",
-        group_members: [{ name: "", email: "", phone: "", id_number: "" }],
-      });
+      setGroupForm(initialFormState);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -304,7 +413,7 @@ const LoanApplications = () => {
   }
 
   const loanDetails = selectedApplication
-    ? calculateGroupLoanDetails(selectedApplication.loan_amount, selectedApplication.loan_duration_months)
+    ? calculateLoanDetails(selectedApplication.loan_amount, selectedApplication.loan_duration_months)
     : null;
 
   return (
@@ -324,57 +433,94 @@ const LoanApplications = () => {
                   <DialogTrigger asChild>
                     <Button>
                       <Plus className="mr-2 h-4 w-4" />
-                      New Group Loan
+                      New Application
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
-                      <DialogTitle>Create Group Loan Application</DialogTitle>
+                      <DialogTitle>Create Loan Application</DialogTitle>
                       <DialogDescription>
-                        Create a new group loan application. Group loans use a 30% flat interest rate.
+                        Create a new individual loan application with flexible interest rates.
                       </DialogDescription>
                     </DialogHeader>
-                    <form onSubmit={handleGroupLoanSubmit} className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <Label>Group Name</Label>
-                          <Input
-                            value={groupForm.group_name}
-                            onChange={(e) => setGroupForm({ ...groupForm, group_name: e.target.value })}
-                            required
-                          />
-                        </div>
-                        <div>
-                          <Label>Loan Amount (UGX)</Label>
-                          <Input
-                            type="number"
-                            value={groupForm.loan_amount}
-                            onChange={(e) => setGroupForm({ ...groupForm, loan_amount: e.target.value })}
-                            required
-                          />
-                        </div>
-                        <div>
-                          <Label>Loan Duration (Months)</Label>
-                          <Input
-                            type="number"
-                            value={groupForm.loan_duration_months}
-                            onChange={(e) => setGroupForm({ ...groupForm, loan_duration_months: e.target.value })}
-                            required
-                          />
-                        </div>
-                        <div>
-                          <Label>Loan Purpose</Label>
-                          <Input
-                            value={groupForm.loan_purpose}
-                            onChange={(e) => setGroupForm({ ...groupForm, loan_purpose: e.target.value })}
-                            required
-                          />
-                        </div>
-                      </div>
-                      <div className="border-t pt-4">
-                        <h3 className="font-semibold mb-4">Group Leader Details</h3>
+                    <form onSubmit={handleLoanSubmit} className="space-y-6">
+
+                      <div className="space-y-4">
+                        <h3 className="font-semibold border-b pb-2">Loan Application Details</h3>
                         <div className="grid grid-cols-2 gap-4">
                           <div>
+                            <Label>Branch Name</Label>
+                            <Select value={groupForm.branch_name} onValueChange={(val) => setGroupForm({ ...groupForm, branch_name: val })}>
+                              <SelectTrigger><SelectValue placeholder="Select Branch" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Kasangati Branch">Kasangati Branch</SelectItem>
+                                <SelectItem value="Kampala Central">Kampala Central</SelectItem>
+                                <SelectItem value="Mbarara Branch">Mbarara Branch</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label>Loan Type</Label>
+                            <Select value={groupForm.loan_type} onValueChange={(val) => setGroupForm({ ...groupForm, loan_type: val })}>
+                              <SelectTrigger><SelectValue placeholder="Select Loan Type" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Business">Business</SelectItem>
+                                <SelectItem value="Agricultural">Agricultural</SelectItem>
+                                <SelectItem value="School Fees">School Fees</SelectItem>
+                                <SelectItem value="Emergency">Emergency</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label>Loan Category</Label>
+                            <Select value={groupForm.loan_category} onValueChange={(val) => setGroupForm({ ...groupForm, loan_category: val })}>
+                              <SelectTrigger><SelectValue placeholder="Select Category" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Group Loan (4 Months)">Group Loan (4 Months)</SelectItem>
+                                <SelectItem value="Individual Loan (1 Month)">Individual Loan (1 Month)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label>Amount Applied (UGX)</Label>
+                            <Input
+                              type="number"
+                              value={groupForm.loan_amount}
+                              onChange={(e) => setGroupForm({ ...groupForm, loan_amount: e.target.value })}
+                              required
+                            />
+                          </div>
+                          <div>
+                            <Label>Duration (Months)</Label>
+                            <Input
+                              type="number"
+                              value={groupForm.loan_duration_months}
+                              onChange={(e) => setGroupForm({ ...groupForm, loan_duration_months: e.target.value })}
+                              required
+                            />
+                          </div>
+                          <div>
+                            <Label>Purpose of Loan</Label>
+                            <Input
+                              value={groupForm.loan_purpose}
+                              onChange={(e) => setGroupForm({ ...groupForm, loan_purpose: e.target.value })}
+                              required
+                            />
+                          </div>
+                          <div className="col-span-2">
+                            <Label>Group Name (If applicable)</Label>
+                            <Input
+                              value={groupForm.group_name}
+                              onChange={(e) => setGroupForm({ ...groupForm, group_name: e.target.value })}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <h3 className="font-semibold border-b pb-2">Borrower Information</h3>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="col-span-2">
                             <Label>Full Name</Label>
                             <Input
                               value={groupForm.group_leader_name}
@@ -383,6 +529,22 @@ const LoanApplications = () => {
                             />
                           </div>
                           <div>
+                            <Label>National ID Number</Label>
+                            <Input
+                              value={groupForm.group_leader_id}
+                              onChange={(e) => setGroupForm({ ...groupForm, group_leader_id: e.target.value })}
+                              required
+                            />
+                          </div>
+                          <div>
+                            <Label>Telephone Contact</Label>
+                            <Input
+                              value={groupForm.group_leader_phone}
+                              onChange={(e) => setGroupForm({ ...groupForm, group_leader_phone: e.target.value })}
+                              required
+                            />
+                          </div>
+                          <div className="col-span-2">
                             <Label>Email</Label>
                             <Input
                               type="email"
@@ -391,29 +553,66 @@ const LoanApplications = () => {
                               required
                             />
                           </div>
+
+                          <div className="col-span-2 text-sm font-medium mt-2">Physical Address:</div>
                           <div>
-                            <Label>Phone Number</Label>
-                            <Input
-                              value={groupForm.group_leader_phone}
-                              onChange={(e) => setGroupForm({ ...groupForm, group_leader_phone: e.target.value })}
-                              required
-                            />
+                            <Label>District</Label>
+                            <Input value={groupForm.district} onChange={(e) => setGroupForm({ ...groupForm, district: e.target.value })} required />
                           </div>
                           <div>
-                            <Label>ID Number</Label>
-                            <Input
-                              value={groupForm.group_leader_id}
-                              onChange={(e) => setGroupForm({ ...groupForm, group_leader_id: e.target.value })}
-                              required
-                            />
+                            <Label>Division</Label>
+                            <Input value={groupForm.division} onChange={(e) => setGroupForm({ ...groupForm, division: e.target.value })} required />
+                          </div>
+                          <div>
+                            <Label>County</Label>
+                            <Input value={groupForm.county} onChange={(e) => setGroupForm({ ...groupForm, county: e.target.value })} required />
+                          </div>
+                          <div>
+                            <Label>Village</Label>
+                            <Input value={groupForm.village} onChange={(e) => setGroupForm({ ...groupForm, village: e.target.value })} required />
+                          </div>
+                          <div>
+                            <Label>Parish</Label>
+                            <Input value={groupForm.parish} onChange={(e) => setGroupForm({ ...groupForm, parish: e.target.value })} required />
+                          </div>
+                          <div className="col-span-2 mt-2">
+                            <Label>Business Location (if applicable)</Label>
+                            <Input value={groupForm.business_location} onChange={(e) => setGroupForm({ ...groupForm, business_location: e.target.value })} />
                           </div>
                         </div>
                       </div>
-                      <div className="flex justify-end gap-2">
+
+                      <div className="space-y-4">
+                        <h3 className="font-semibold border-b pb-2">Attachments</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <Label>Photocopy of National ID</Label>
+                            <Input type="file" onChange={(e) => handleFileUpload(e, 'national_id')} accept="image/*,.pdf" />
+                          </div>
+                          <div>
+                            <Label>LC1 Recommendation Letter</Label>
+                            <Input type="file" onChange={(e) => handleFileUpload(e, 'lc1_letter')} accept="image/*,.pdf" />
+                          </div>
+                          <div>
+                            <Label>Recommendation Letter (Chairperson/Boda)</Label>
+                            <Input type="file" onChange={(e) => handleFileUpload(e, 'chairperson_letter')} accept="image/*,.pdf" />
+                          </div>
+                          <div>
+                            <Label>Passport Size Photo</Label>
+                            <Input type="file" onChange={(e) => handleFileUpload(e, 'passport_photo')} accept="image/*" />
+                          </div>
+                          <div className="col-span-1 md:col-span-2">
+                            <Label>Detailed Monthly Income & Expenditure</Label>
+                            <Input type="file" onChange={(e) => handleFileUpload(e, 'income_statement')} accept="image/*,.pdf,.doc,.docx" />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-4">
                         <Button type="button" variant="outline" onClick={() => setIsGroupDialogOpen(false)}>
                           Cancel
                         </Button>
-                        <Button type="submit">Create Application</Button>
+                        <Button type="submit">Complete Application</Button>
                       </div>
                     </form>
                   </DialogContent>
@@ -472,8 +671,8 @@ const LoanApplications = () => {
                           className="pl-8 w-64"
                         />
                       </div>
-                      <Select 
-                        value={statusFilter} 
+                      <Select
+                        value={statusFilter}
                         onValueChange={(value) => {
                           setStatusFilter(value);
                           // Navigate to the appropriate route
@@ -598,12 +797,53 @@ const LoanApplications = () => {
                           <p className="font-medium">{selectedApplication.phone_number}</p>
                         </div>
                         <div>
-                          <Label>Loan Product</Label>
-                          <p className="font-medium">{selectedApplication.loan_product}</p>
+                          <Label>National ID</Label>
+                          <p className="font-medium">{selectedApplication.id_number || 'N/A'}</p>
+                        </div>
+                        <div>
+                          <Label>Branch</Label>
+                          <p className="font-medium">{selectedApplication.branch_name || 'N/A'}</p>
+                        </div>
+                        <div>
+                          <Label>Loan Category</Label>
+                          <p className="font-medium">{selectedApplication.loan_category || selectedApplication.loan_product}</p>
+                        </div>
+                        <div>
+                          <Label>Business Location</Label>
+                          <p className="font-medium">{selectedApplication.business_location || 'N/A'}</p>
+                        </div>
+                        <div>
+                          <Label>Address</Label>
+                          <p className="font-medium text-sm">
+                            {(selectedApplication.district || selectedApplication.division)
+                              ? `${selectedApplication.district}, ${selectedApplication.division} - ${selectedApplication.village}`
+                              : 'N/A'}
+                          </p>
                         </div>
                       </div>
+
+                      {/* Attachments Section */}
+                      {selectedApplication.attachments && selectedApplication.attachments !== "{}" && (
+                        <div className="border-t pt-4">
+                          <h3 className="font-semibold mb-2">Attachments</h3>
+                          <div className="flex flex-col gap-2">
+                            {Object.entries(JSON.parse(selectedApplication.attachments)).map(([key, attachment]: [string, any]) => (
+                              <div key={key} className="flex items-center justify-between border rounded p-2 text-sm bg-muted/20">
+                                <span className="font-medium truncate mr-2">{attachment.name || key}</span>
+                                <Button size="sm" variant="secondary" onClick={() => {
+                                  const link = document.createElement('a');
+                                  link.href = attachment.data;
+                                  link.download = attachment.name;
+                                  link.click();
+                                }}>Download / View</Button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       <div className="border-t pt-4">
-                        <h3 className="font-semibold mb-4">Loan Calculation (30% Flat Rate)</h3>
+                        <h3 className="font-semibold mb-4">Loan Calculation (20% Default Rate)</h3>
                         <div className="grid grid-cols-2 gap-4">
                           <Card>
                             <CardContent className="pt-4">
@@ -613,7 +853,7 @@ const LoanApplications = () => {
                           </Card>
                           <Card>
                             <CardContent className="pt-4">
-                              <div className="text-sm text-muted-foreground">Total Interest (30%)</div>
+                              <div className="text-sm text-muted-foreground">Total Interest (20%)</div>
                               <div className="text-2xl font-bold">UGX {loanDetails.totalInterest.toLocaleString()}</div>
                             </CardContent>
                           </Card>

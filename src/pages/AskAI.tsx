@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import ReactMarkdown from "react-markdown";
+import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -46,142 +47,95 @@ const AskAI = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
+      try {
+        const user = await api.auth.getMe();
+        if (user && (user.role === 'admin' || user.role === 'loan_officer')) {
+          await loadConversations();
+          setIsLoading(false);
+          return;
+        }
         navigate("/staff-login");
-        return;
-      }
-
-      const { data: roles } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", session.user.id);
-
-      if (!roles || !roles.some(r => r.role === "admin" || r.role === "loan_officer")) {
-        await supabase.auth.signOut();
+      } catch (error) {
+        console.error("Auth check failed:", error);
         navigate("/staff-login");
-        return;
       }
-
-      await loadConversations();
-      setIsLoading(false);
     };
 
     checkAuth();
   }, [navigate]);
 
   const loadConversations = async () => {
-    const { data, error } = await supabase
-      .from("conversations")
-      .select("*")
-      .order("updated_at", { ascending: false });
-
-    if (error) {
-      console.error("Error loading conversations:", error);
-      return;
+    try {
+      const data = await api.ai.getConversations();
+      setConversations(data || []);
+    } catch (e) {
+      console.error("Failed to load conversations:", e);
     }
-
-    setConversations(data || []);
   };
 
   const loadConversation = async (conversationId: string) => {
-    const { data, error } = await supabase
-      .from("chat_messages")
-      .select("*")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true });
+    try {
+      const data = await api.ai.getMessages(conversationId);
+      const loadedMessages: Message[] = (data || []).map((msg: any) => ({
+        role: msg.role as "user" | "assistant",
+        content: msg.content,
+      }));
 
-    if (error) {
+      setMessages(loadedMessages);
+      setCurrentConversationId(conversationId);
+      setIsHistoryOpen(false);
+    } catch (error) {
       console.error("Error loading messages:", error);
       toast({
         title: "Error",
         description: "Failed to load conversation.",
         variant: "destructive",
       });
-      return;
     }
-
-    const loadedMessages: Message[] = (data || []).map(msg => ({
-      role: msg.role as "user" | "assistant",
-      content: msg.content,
-    }));
-
-    setMessages(loadedMessages);
-    setCurrentConversationId(conversationId);
-    setIsHistoryOpen(false);
   };
 
   const createNewConversation = async (firstMessage: string) => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return null;
-
-    const title = firstMessage.slice(0, 50) + (firstMessage.length > 50 ? "..." : "");
-
-    const { data, error } = await supabase
-      .from("conversations")
-      .insert({
-        user_id: session.user.id,
-        title,
-      })
-      .select()
-      .single();
-
-    if (error) {
+    try {
+      const title = firstMessage.slice(0, 50) + (firstMessage.length > 50 ? "..." : "");
+      const data = await api.ai.createConversation(title);
+      await loadConversations();
+      return data.id;
+    } catch (error) {
       console.error("Error creating conversation:", error);
       return null;
     }
-
-    await loadConversations();
-    return data.id;
   };
 
   const saveMessage = async (conversationId: string, role: "user" | "assistant", content: string) => {
-    const { error } = await supabase
-      .from("chat_messages")
-      .insert({
-        conversation_id: conversationId,
-        role,
-        content,
-      });
-
-    if (error) {
+    try {
+      await api.ai.saveMessage(conversationId, role, content);
+    } catch (error) {
       console.error("Error saving message:", error);
     }
-
-    // Update conversation's updated_at timestamp
-    await supabase
-      .from("conversations")
-      .update({ updated_at: new Date().toISOString() })
-      .eq("id", conversationId);
   };
 
   const deleteConversation = async (conversationId: string) => {
-    const { error } = await supabase
-      .from("conversations")
-      .delete()
-      .eq("id", conversationId);
+    try {
+      await api.ai.deleteConversation(conversationId);
 
-    if (error) {
+      await loadConversations();
+      if (currentConversationId === conversationId) {
+        setMessages([]);
+        setCurrentConversationId(null);
+      }
+
+      toast({
+        title: "Deleted",
+        description: "Conversation deleted successfully.",
+      });
+    } catch (error) {
       console.error("Error deleting conversation:", error);
       toast({
         title: "Error",
         description: "Failed to delete conversation.",
         variant: "destructive",
       });
-      return;
     }
-
-    await loadConversations();
-    if (currentConversationId === conversationId) {
-      setMessages([]);
-      setCurrentConversationId(null);
-    }
-
-    toast({
-      title: "Deleted",
-      description: "Conversation deleted successfully.",
-    });
   };
 
   const startNewChat = () => {
@@ -227,24 +181,16 @@ const AskAI = () => {
     await saveMessage(conversationId, "user", userMessage.content);
 
     try {
-      const { data, error } = await supabase.functions.invoke('ai-financial-assistant', {
-        body: {
-          messages: [...messages, userMessage].map(m => ({
-            role: m.role,
-            content: m.content
-          }))
-        }
-      });
-
-      if (error) throw error;
+      const response = await api.ai.chat([...messages, userMessage]);
+      const assistantResponseContent = response.response;
 
       const assistantMessage: Message = {
         role: "assistant",
-        content: data.response,
+        content: assistantResponseContent,
       };
 
       setMessages(prev => [...prev, assistantMessage]);
-      
+
       // Save assistant message
       await saveMessage(conversationId, "assistant", assistantMessage.content);
       await loadConversations();
@@ -277,12 +223,12 @@ const AskAI = () => {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full">
+      <div className="h-screen flex w-full overflow-hidden">
         <StaffSidebar />
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col overflow-hidden">
           <StaffHeader />
-          <main className="flex-1 p-4 md:p-8 bg-gradient-to-b from-background to-muted/20 flex flex-col">
-            <div className="max-w-5xl mx-auto w-full flex-1 flex flex-col">
+          <main className="flex-1 p-4 md:p-8 bg-gradient-to-b from-background to-muted/20 flex flex-col overflow-hidden">
+            <div className="max-w-5xl mx-auto w-full flex-1 flex flex-col overflow-hidden">
               <div className="mb-6 flex items-center justify-between">
                 <div>
                   <h1 className="text-3xl font-bold mb-2 bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
@@ -292,7 +238,7 @@ const AskAI = () => {
                     Your financial assistant - ask about loans, clients, repayments, and more
                   </p>
                 </div>
-                
+
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
@@ -302,7 +248,7 @@ const AskAI = () => {
                   >
                     <Plus className="h-5 w-5" />
                   </Button>
-                  
+
                   <Sheet open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
                     <SheetTrigger asChild>
                       <Button variant="outline" size="icon" title="Chat history">
@@ -323,9 +269,8 @@ const AskAI = () => {
                             conversations.map((conv) => (
                               <div
                                 key={conv.id}
-                                className={`group flex items-center gap-2 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors ${
-                                  currentConversationId === conv.id ? "bg-muted border-primary" : ""
-                                }`}
+                                className={`group flex items-center gap-2 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors ${currentConversationId === conv.id ? "bg-muted border-primary" : ""
+                                  }`}
                                 onClick={() => loadConversation(conv.id)}
                               >
                                 <Sparkles className="h-4 w-4 text-primary flex-shrink-0" />
@@ -356,8 +301,8 @@ const AskAI = () => {
                 </div>
               </div>
 
-              <Card className="flex-1 flex flex-col overflow-hidden shadow-lg border-0 bg-background/95 backdrop-blur">
-                <ScrollArea className="flex-1 p-4 md:p-8" ref={scrollRef}>
+              <Card className="flex-1 flex flex-col overflow-hidden shadow-lg border-0 bg-background/95 backdrop-blur min-h-0">
+                <div className="flex-1 overflow-y-auto p-4 md:p-8" ref={scrollRef}>
                   <div className="space-y-6">
                     {messages.length === 0 && (
                       <div className="text-center py-20 animate-fade-in">
@@ -374,31 +319,34 @@ const AskAI = () => {
                     {messages.map((message, index) => (
                       <div
                         key={index}
-                        className={`flex gap-4 group animate-fade-in ${
-                          message.role === "assistant" ? "justify-start" : "justify-end"
-                        }`}
+                        className={`flex gap-4 group animate-fade-in ${message.role === "assistant" ? "justify-start" : "justify-end"
+                          }`}
                       >
                         {message.role === "assistant" && (
                           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center flex-shrink-0 shadow-sm">
                             <Sparkles className="h-5 w-5 text-primary" />
                           </div>
                         )}
-                        
+
                         <div className="flex-1 max-w-[85%]">
                           <div
-                            className={`rounded-2xl px-5 py-4 ${
-                              message.role === "assistant"
-                                ? "bg-muted/50 border border-border/50"
-                                : "bg-primary text-primary-foreground shadow-sm"
-                            }`}
+                            className={`rounded-2xl px-5 py-4 ${message.role === "assistant"
+                              ? "bg-muted/50 border border-border/50"
+                              : "bg-primary text-primary-foreground shadow-sm"
+                              }`}
                           >
-                            <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                            {message.role === "assistant" ? (
+                              <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-foreground prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2 prose-p:my-1.5 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-strong:text-foreground prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-pre:bg-muted prose-pre:rounded-lg">
+                                <ReactMarkdown>{message.content}</ReactMarkdown>
+                              </div>
+                            ) : (
+                              <p className="text-[15px] leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                            )}
                           </div>
-                          
+
                           {/* Action buttons */}
-                          <div className={`flex gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity ${
-                            message.role === "assistant" ? "justify-start" : "justify-end"
-                          }`}>
+                          <div className={`flex gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity ${message.role === "assistant" ? "justify-start" : "justify-end"
+                            }`}>
                             <Button
                               variant="ghost"
                               size="sm"
@@ -444,7 +392,7 @@ const AskAI = () => {
                       </div>
                     )}
                   </div>
-                </ScrollArea>
+                </div>
 
                 <div className="border-t bg-background/50 backdrop-blur p-4">
                   <div className="glow-box relative rounded-lg p-[2px] bg-gradient-to-r from-primary via-accent to-primary bg-[length:200%_auto] animate-glow">
@@ -466,10 +414,10 @@ const AskAI = () => {
                         onClick={sendMessage}
                         disabled={!input.trim() || isProcessing}
                         size="icon"
-                      className="h-[56px] w-[56px] rounded-xl shadow-sm hover:shadow-md transition-all"
-                    >
-                      <Send className="h-5 w-5" />
-                    </Button>
+                        className="h-[56px] w-[56px] rounded-xl shadow-sm hover:shadow-md transition-all"
+                      >
+                        <Send className="h-5 w-5" />
+                      </Button>
                     </div>
                   </div>
                   <p className="text-xs text-muted-foreground mt-2 ml-1">

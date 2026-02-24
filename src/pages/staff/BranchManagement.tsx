@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, isSupabaseOffline } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -42,31 +43,79 @@ const BranchManagement = () => {
   }, []);
 
   const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    try {
+      // 1. If offline mode, prioritize local check
+      if (isSupabaseOffline) {
+        try {
+          const user = await api.auth.getMe();
+          if (user) {
+            loadData();
+            return;
+          }
+        } catch (e) {
+          console.warn("No local session found");
+        }
+        navigate("/staff-login");
+        return;
+      }
+
+      // 2. Online mode: Try Supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        loadData();
+        return;
+      }
+
       navigate("/staff-login");
-      return;
+    } catch (error) {
+      console.error("Auth check failed:", error);
+      // Fallback for offline mode if Supabase fails
+      if (isSupabaseOffline) {
+        try {
+          const user = await api.auth.getMe();
+          if (user) {
+            loadData();
+            return;
+          }
+        } catch (e) { }
+      }
+      navigate("/staff-login");
     }
-    loadData();
   };
 
   const loadData = async () => {
     try {
-      // Load branches
-      const { data: branchesData, error: branchesError } = await supabase
-        .from("branches")
-        .select("*")
-        .order("created_at", { ascending: false });
+      let branchesData = [];
+      let territoriesData = [];
 
-      if (branchesError) throw branchesError;
+      if (isSupabaseOffline) {
+        console.log("🛠️ Loading branch data from local API...");
+        try {
+          branchesData = await api.branches.getAll() || [];
+          // Territories might not have a dedicated endpoint yet, provide mock or empty
+          territoriesData = [];
+        } catch (e) {
+          console.warn("Failed to fetch branches in offline mode");
+        }
+      } else {
+        // Load branches
+        const { data: bData, error: branchesError } = await supabase
+          .from("branches")
+          .select("*")
+          .order("created_at", { ascending: false });
 
-      // Load territories
-      const { data: territoriesData, error: territoriesError } = await supabase
-        .from("territories")
-        .select("*")
-        .order("name", { ascending: true });
+        if (branchesError) throw branchesError;
+        branchesData = bData || [];
 
-      if (territoriesError) throw territoriesError;
+        // Load territories
+        const { data: tData, error: territoriesError } = await supabase
+          .from("territories")
+          .select("*")
+          .order("name", { ascending: true });
+
+        if (territoriesError) throw territoriesError;
+        territoriesData = tData || [];
+      }
 
       // Map territory names to branches
       const branchesWithTerritories = (branchesData || []).map((branch: any) => ({
@@ -77,6 +126,7 @@ const BranchManagement = () => {
       setBranches(branchesWithTerritories);
       setTerritories(territoriesData || []);
     } catch (error: any) {
+      console.error("Load data error:", error);
       toast({
         title: "Error",
         description: error.message,
@@ -219,138 +269,138 @@ const BranchManagement = () => {
               ) : (
                 <>
                   <div className="grid gap-4 md:grid-cols-3">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Branches</CardTitle>
-                    <Building2 className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{branches.length}</div>
-                    <p className="text-xs text-muted-foreground">
-                      {branches.filter(b => b.status === "active").length} active
-                    </p>
-                  </CardContent>
-                </Card>
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Branches</CardTitle>
+                        <Building2 className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">{branches.length}</div>
+                        <p className="text-xs text-muted-foreground">
+                          {branches.filter(b => b.status === "active").length} active
+                        </p>
+                      </CardContent>
+                    </Card>
 
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Territories</CardTitle>
-                    <MapPin className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{territories.length}</div>
-                    <p className="text-xs text-muted-foreground">Managed territories</p>
-                  </CardContent>
-                </Card>
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Territories</CardTitle>
+                        <MapPin className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">{territories.length}</div>
+                        <p className="text-xs text-muted-foreground">Managed territories</p>
+                      </CardContent>
+                    </Card>
 
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Active Branches</CardTitle>
-                    <BarChart3 className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {branches.filter(b => b.status === "active").length}
-                    </div>
-                    <p className="text-xs text-muted-foreground">Currently operational</p>
-                  </CardContent>
-                </Card>
-              </div>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Branches</CardTitle>
-                  <CardDescription>View all branches and their details</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Code</TableHead>
-                        <TableHead>Address</TableHead>
-                        <TableHead>Contact</TableHead>
-                        <TableHead>Territory</TableHead>
-                        <TableHead>Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {branches.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                            No branches found
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        branches.map((branch) => (
-                          <TableRow key={branch.id}>
-                            <TableCell className="font-medium">{branch.name}</TableCell>
-                            <TableCell>{branch.code}</TableCell>
-                            <TableCell>{branch.address}</TableCell>
-                            <TableCell>
-                              <div className="space-y-1">
-                                {branch.phone && (
-                                  <div className="flex items-center gap-1 text-sm">
-                                    <Phone className="h-3 w-3" />
-                                    {branch.phone}
-                                  </div>
-                                )}
-                                {branch.email && (
-                                  <div className="flex items-center gap-1 text-sm">
-                                    <Mail className="h-3 w-3" />
-                                    {branch.email}
-                                  </div>
-                                )}
-                                {!branch.phone && !branch.email && (
-                                  <span className="text-muted-foreground text-sm">-</span>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell>{branch.territory_name}</TableCell>
-                            <TableCell>
-                              <Badge variant={branch.status === "active" ? "default" : "secondary"}>
-                                {branch.status}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Territories</CardTitle>
-                  <CardDescription>View all managed territories</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {territories.length === 0 ? (
-                      <p className="text-muted-foreground col-span-full text-center py-8">
-                        No territories found
-                      </p>
-                    ) : (
-                      territories.map((territory) => (
-                        <Card key={territory.id}>
-                          <CardHeader>
-                            <CardTitle className="text-lg">{territory.name}</CardTitle>
-                            {territory.description && (
-                              <CardDescription>{territory.description}</CardDescription>
-                            )}
-                          </CardHeader>
-                          <CardContent>
-                            <div className="text-sm text-muted-foreground">
-                              {branches.filter(b => b.territory_id === territory.id).length} branch(es)
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))
-                    )}
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Active Branches</CardTitle>
+                        <BarChart3 className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">
+                          {branches.filter(b => b.status === "active").length}
+                        </div>
+                        <p className="text-xs text-muted-foreground">Currently operational</p>
+                      </CardContent>
+                    </Card>
                   </div>
-                </CardContent>
-              </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Branches</CardTitle>
+                      <CardDescription>View all branches and their details</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Code</TableHead>
+                            <TableHead>Address</TableHead>
+                            <TableHead>Contact</TableHead>
+                            <TableHead>Territory</TableHead>
+                            <TableHead>Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {branches.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                No branches found
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            branches.map((branch) => (
+                              <TableRow key={branch.id}>
+                                <TableCell className="font-medium">{branch.name}</TableCell>
+                                <TableCell>{branch.code}</TableCell>
+                                <TableCell>{branch.address}</TableCell>
+                                <TableCell>
+                                  <div className="space-y-1">
+                                    {branch.phone && (
+                                      <div className="flex items-center gap-1 text-sm">
+                                        <Phone className="h-3 w-3" />
+                                        {branch.phone}
+                                      </div>
+                                    )}
+                                    {branch.email && (
+                                      <div className="flex items-center gap-1 text-sm">
+                                        <Mail className="h-3 w-3" />
+                                        {branch.email}
+                                      </div>
+                                    )}
+                                    {!branch.phone && !branch.email && (
+                                      <span className="text-muted-foreground text-sm">-</span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell>{branch.territory_name}</TableCell>
+                                <TableCell>
+                                  <Badge variant={branch.status === "active" ? "default" : "secondary"}>
+                                    {branch.status}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Territories</CardTitle>
+                      <CardDescription>View all managed territories</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                        {territories.length === 0 ? (
+                          <p className="text-muted-foreground col-span-full text-center py-8">
+                            No territories found
+                          </p>
+                        ) : (
+                          territories.map((territory) => (
+                            <Card key={territory.id}>
+                              <CardHeader>
+                                <CardTitle className="text-lg">{territory.name}</CardTitle>
+                                {territory.description && (
+                                  <CardDescription>{territory.description}</CardDescription>
+                                )}
+                              </CardHeader>
+                              <CardContent>
+                                <div className="text-sm text-muted-foreground">
+                                  {branches.filter(b => b.territory_id === territory.id).length} branch(es)
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ))
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
                 </>
               )}
             </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, isSupabaseOffline } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -64,33 +65,85 @@ const Reports = () => {
   }, []);
 
   const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    try {
+      // 1. If offline mode, prioritize local check
+      if (isSupabaseOffline) {
+        try {
+          const user = await api.auth.getMe();
+          if (user) {
+            loadReports();
+            return;
+          }
+        } catch (e) {
+          console.warn("No local session found");
+        }
+        navigate("/staff-login");
+        return;
+      }
+
+      // 2. Online mode: Try Supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        loadReports();
+        return;
+      }
+
       navigate("/staff-login");
-      return;
+    } catch (error) {
+      console.error("Auth check failed:", error);
+      // Fallback for offline mode if Supabase fails
+      if (isSupabaseOffline) {
+        try {
+          const user = await api.auth.getMe();
+          if (user) {
+            loadReports();
+            return;
+          }
+        } catch (e) { }
+      }
+      navigate("/staff-login");
     }
-    loadReports();
   };
 
   const loadReports = async () => {
     try {
-      // Load all loan applications
-      const { data: loans, error: loansError } = await supabase
-        .from("loan_applications")
-        .select("*");
+      let loans = [];
+      let profiles = [];
 
-      if (loansError) throw loansError;
+      if (isSupabaseOffline) {
+        console.log("🛠️ Loading report data from local API...");
+        try {
+          loans = await api.applications.getAll() || [];
+          profiles = await api.clients.getAll() || [];
+        } catch (e) {
+          console.error("Failed to fetch reports in offline mode:", e);
+        }
+      } else {
+        const { data: loansData, error: loansError } = await supabase
+          .from("loan_applications")
+          .select("*");
+
+        if (loansError) throw loansError;
+        loans = loansData || [];
+
+        const { data: profilesData, error: profilesError } = await supabase
+          .from("profiles")
+          .select("id, created_at");
+
+        if (profilesError) throw profilesError;
+        profiles = profilesData || [];
+      }
 
       // Calculate loan statistics
-      const totalApplications = loans?.length || 0;
-      const approvedLoans = loans?.filter(l => l.status === "approved" || l.status === "disbursed").length || 0;
-      const rejectedLoans = loans?.filter(l => l.status === "rejected").length || 0;
-      const pendingLoans = loans?.filter(l => l.status === "pending" || l.status === "under_review").length || 0;
+      const totalApplications = loans.length;
+      const approvedLoans = loans.filter(l => l.status === "approved" || l.status === "disbursed").length;
+      const rejectedLoans = loans.filter(l => l.status === "rejected").length;
+      const pendingLoans = loans.filter(l => l.status === "pending" || l.status === "under_review").length;
 
-      const approvedLoanAmounts = loans?.filter(l => l.status === "approved" || l.status === "disbursed")
-        .map(l => Number(l.loan_amount)) || [];
+      const approvedLoanAmounts = loans.filter(l => l.status === "approved" || l.status === "disbursed")
+        .map(l => Number(l.loan_amount));
       const totalDisbursed = approvedLoanAmounts.reduce((sum, amt) => sum + amt, 0);
-      const totalInterest = approvedLoanAmounts.reduce((sum, amt) => sum + (amt * 0.30), 0);
+      const totalInterest = approvedLoanAmounts.reduce((sum, amt) => sum + (amt * 0.20), 0);
 
       const rejectionRate = totalApplications > 0 ? (rejectedLoans / totalApplications) * 100 : 0;
       const approvalRate = totalApplications > 0 ? (approvedLoans / totalApplications) * 100 : 0;
@@ -108,7 +161,7 @@ const Reports = () => {
 
       // Calculate product statistics
       const productMap = new Map<string, ProductStats>();
-      loans?.forEach((loan: any) => {
+      loans.forEach((loan: any) => {
         const product = loan.loan_product;
         if (!productMap.has(product)) {
           productMap.set(product, {
@@ -131,31 +184,25 @@ const Reports = () => {
 
       setProductStats(Array.from(productMap.values()));
 
-      // Load client statistics
-      const { data: profiles, error: profilesError } = await supabase
-        .from("profiles")
-        .select("id, created_at");
+      // Calculate client statistics
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const newClientsThisMonth = profiles.filter(p =>
+        new Date(p.created_at) >= startOfMonth
+      ).length;
 
-      if (!profilesError && profiles) {
-        const now = new Date();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const newClientsThisMonth = profiles.filter(p => 
-          new Date(p.created_at) >= startOfMonth
-        ).length;
+      const activeClientIds = new Set(
+        loans.filter(l => l.status === "approved" || l.status === "disbursed")
+          .map(l => l.user_id)
+      );
 
-        // Count active clients (those with approved/disbursed loans)
-        const activeClientIds = new Set(
-          loans?.filter(l => l.status === "approved" || l.status === "disbursed")
-            .map(l => l.user_id) || []
-        );
-
-        setClientStats({
-          totalClients: profiles.length,
-          activeClients: activeClientIds.size,
-          newClientsThisMonth,
-        });
-      }
+      setClientStats({
+        totalClients: profiles.length,
+        activeClients: activeClientIds.size,
+        newClientsThisMonth,
+      });
     } catch (error: any) {
+      console.error("Load reports error:", error);
       toast({
         title: "Error",
         description: error.message,
@@ -270,7 +317,7 @@ const Reports = () => {
                           <div className="flex justify-between pt-2 border-t">
                             <span>Avg Loan Size:</span>
                             <span className="font-bold">
-                              UGX {loanStats.approvedLoans > 0 
+                              UGX {loanStats.approvedLoans > 0
                                 ? (loanStats.totalDisbursed / loanStats.approvedLoans).toLocaleString()
                                 : 0}
                             </span>
@@ -289,8 +336,8 @@ const Reports = () => {
                             <span>Approved:</span>
                             <div className="flex items-center gap-2">
                               <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full bg-green-600" 
+                                <div
+                                  className="h-full bg-green-600"
                                   style={{ width: `${loanStats.approvalRate}%` }}
                                 />
                               </div>
@@ -301,8 +348,8 @@ const Reports = () => {
                             <span>Rejected:</span>
                             <div className="flex items-center gap-2">
                               <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full bg-red-600" 
+                                <div
+                                  className="h-full bg-red-600"
                                   style={{ width: `${loanStats.rejectionRate}%` }}
                                 />
                               </div>
@@ -313,12 +360,12 @@ const Reports = () => {
                             <span>Pending:</span>
                             <div className="flex items-center gap-2">
                               <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full bg-yellow-600" 
-                                  style={{ 
-                                    width: `${loanStats.totalApplications > 0 
-                                      ? (loanStats.pendingLoans / loanStats.totalApplications) * 100 
-                                      : 0}%` 
+                                <div
+                                  className="h-full bg-yellow-600"
+                                  style={{
+                                    width: `${loanStats.totalApplications > 0
+                                      ? (loanStats.pendingLoans / loanStats.totalApplications) * 100
+                                      : 0}%`
                                   }}
                                 />
                               </div>
@@ -423,7 +470,7 @@ const Reports = () => {
                           </div>
                           <div className="flex justify-between">
                             <span>Interest Rate:</span>
-                            <span className="font-bold">30% (flat)</span>
+                            <span className="font-bold">20% (flat)</span>
                           </div>
                           <div className="flex justify-between pt-2 border-t">
                             <span>Total Portfolio Value:</span>

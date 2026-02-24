@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { api } from "@/services/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,11 +17,26 @@ const data = [
 ];
 
 export const DisbursementChart = () => {
+  const [data, setData] = useState<any[]>([]);
   const [showDisbursed, setShowDisbursed] = useState(true);
   const [showRepayments, setShowRepayments] = useState(true);
 
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const chartData = await api.reports.getChartData();
+        setData(chartData);
+      } catch (error) {
+        console.error("Error fetching disbursement data:", error);
+      }
+    };
+    fetchData();
+  }, []);
+
+  if (data.length === 0) return null;
+
   return (
-    <Card>
+    <Card className="transition-all duration-200 hover:shadow-md hover:-translate-y-1 cursor-default">
       <CardHeader>
         <CardTitle>Financial Analytics</CardTitle>
         <CardDescription>
@@ -45,12 +61,12 @@ export const DisbursementChart = () => {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" className="stroke-muted" opacity={0.3} />
-              <XAxis 
-                dataKey="month" 
+              <XAxis
+                dataKey="month"
                 className="text-xs"
                 stroke="hsl(var(--muted-foreground))"
               />
-              <YAxis 
+              <YAxis
                 className="text-xs"
                 stroke="hsl(var(--muted-foreground))"
                 tickFormatter={(value) => `${value}M`}
@@ -88,31 +104,31 @@ export const DisbursementChart = () => {
             </AreaChart>
           </ResponsiveContainer>
         </div>
-        
+
         <div className="flex items-center gap-6 pt-4 border-t">
           <div className="flex items-center gap-2">
-            <Checkbox 
+            <Checkbox
               id="disbursed"
               checked={showDisbursed}
               onCheckedChange={(checked) => setShowDisbursed(checked === true)}
             />
-            <Label 
-              htmlFor="disbursed" 
+            <Label
+              htmlFor="disbursed"
               className="flex items-center gap-2 cursor-pointer"
             >
               <div className="w-3 h-3 rounded-full bg-primary" />
               Disbursed
             </Label>
           </div>
-          
+
           <div className="flex items-center gap-2">
-            <Checkbox 
+            <Checkbox
               id="repayments"
               checked={showRepayments}
               onCheckedChange={(checked) => setShowRepayments(checked === true)}
             />
-            <Label 
-              htmlFor="repayments" 
+            <Label
+              htmlFor="repayments"
               className="flex items-center gap-2 cursor-pointer"
             >
               <div className="w-3 h-3 rounded-full bg-accent" />

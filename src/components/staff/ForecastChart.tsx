@@ -49,7 +49,7 @@ export const ForecastChart = () => {
     };
 
     return (
-        <Card>
+        <Card className="transition-all duration-200 hover:shadow-md hover:-translate-y-1 cursor-default">
             <CardHeader>
                 <div className="flex justify-between items-center">
                     <div>

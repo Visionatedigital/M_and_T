@@ -8,14 +8,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
+  // Use relative paths for Electron (file:// protocol needs ./ instead of /)
+  base: './',
   server: {
-    host: true, // Allow external connections
+    host: true,
     port: 8080,
     strictPort: false,
     hmr: {
       clientPort: 8080,
     },
-    // Explicitly allow ngrok domains
     allowedHosts: [
       'craniometric-nonmentally-julee.ngrok-free.dev',
       '.ngrok-free.dev',
@@ -29,5 +30,10 @@ export default defineConfig(({ mode }) => ({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+  },
+  build: {
+    // Ensure clean output for Electron packaging
+    outDir: 'dist',
+    emptyOutDir: true,
   },
 }));

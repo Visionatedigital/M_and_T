@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, isSupabaseOffline } from "@/integrations/supabase/client";
+import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -34,6 +35,11 @@ const Clients = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [clientForm, setClientForm] = useState({
+    full_name: "",
+    email: "",
+    phone_number: "",
+  });
 
   useEffect(() => {
     checkAuth();
@@ -44,50 +50,101 @@ const Clients = () => {
   }, [clients, searchTerm, location.pathname]);
 
   const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
+    try {
+      // 1. If offline mode, prioritize local check to avoid Supabase hangs/errors
+      if (isSupabaseOffline) {
+        try {
+          const user = await api.auth.getMe();
+          if (user) {
+            loadClients();
+            return;
+          }
+        } catch (e) {
+          console.warn("No local session found");
+        }
+        navigate("/staff-login");
+        return;
+      }
+
+      // 2. Online mode: Try Supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        loadClients();
+        return;
+      }
+
       navigate("/staff-login");
-      return;
+    } catch (error) {
+      console.error("Auth check failed:", error);
+      // Fallback for offline mode if Supabase fails
+      if (isSupabaseOffline) {
+        try {
+          const user = await api.auth.getMe();
+          if (user) {
+            loadClients();
+            return;
+          }
+        } catch (e) { }
+      }
+      navigate("/staff-login");
     }
-    loadClients();
   };
 
   const loadClients = async () => {
     try {
-      const { data: profiles, error: profilesError } = await supabase
-        .from("profiles")
-        .select("*")
-        .order("created_at", { ascending: false });
+      let profilesData = [];
+      let loansData = [];
 
-      if (profilesError) throw profilesError;
+      if (isSupabaseOffline) {
+        console.log("🛠️ Loading clients from local API...");
+        const data = await api.clients.getAll();
+        profilesData = data || [];
+        // In offline mode, we might not have a separate loans call easily, 
+        // or we can fetch them if available
+        try {
+          loansData = await api.applications.getAll() || [];
+        } catch (e) {
+          console.warn("Failed to fetch loans in offline mode");
+        }
+      } else {
+        const { data: profiles, error: profilesError } = await supabase
+          .from("profiles")
+          .select("*")
+          .order("created_at", { ascending: false });
 
-      const { data: loans, error: loansError } = await supabase
-        .from("loan_applications")
-        .select("*");
+        if (profilesError) throw profilesError;
+        profilesData = profiles || [];
 
-      if (loansError) throw loansError;
+        const { data: loans, error: loansError } = await supabase
+          .from("loan_applications")
+          .select("*");
 
-      const clientsWithStats = (profiles || []).map((profile: any) => {
-        const clientLoans = (loans || []).filter((loan: any) => loan.user_id === profile.id);
-        const activeLoans = clientLoans.filter((loan: any) => 
+        if (loansError) throw loansError;
+        loansData = loans || [];
+      }
+
+      const clientsWithStats = profilesData.map((profile: any) => {
+        const clientLoans = loansData.filter((loan: any) => loan.user_id === profile.id);
+        const activeLoans = clientLoans.filter((loan: any) =>
           ["approved", "disbursed"].includes(loan.status)
         );
-        
+
         const totalBorrowed = clientLoans.reduce((sum: number, loan: any) => {
-          const principal = loan.loan_amount;
-          const interest = principal * 0.30;
+          const principal = Number(loan.loan_amount) || 0;
+          const interest = principal * 0.20;
           return sum + principal + interest;
         }, 0);
 
         const totalRepaid = activeLoans.reduce((sum: number, loan: any) => {
-          const principal = loan.loan_amount;
-          const interest = principal * 0.30;
+          const principal = Number(loan.loan_amount) || 0;
+          const interest = principal * 0.20;
           const totalAmount = principal + interest;
-          const monthlyPayment = totalAmount / loan.loan_duration_months;
+          const duration = Number(loan.loan_duration_months) || 12;
+          const monthlyPayment = totalAmount / duration;
           const approvedDate = new Date(loan.approved_at || loan.created_at);
           const now = new Date();
           const monthsElapsed = Math.floor((now.getTime() - approvedDate.getTime()) / (1000 * 60 * 60 * 24 * 30));
-          return sum + (monthlyPayment * monthsElapsed);
+          return sum + (monthlyPayment * Math.min(monthsElapsed, duration));
         }, 0);
 
         return {
@@ -101,6 +158,7 @@ const Clients = () => {
 
       setClients(clientsWithStats);
     } catch (error: any) {
+      console.error("Load clients error:", error);
       toast({
         title: "Error",
         description: error.message,
@@ -108,6 +166,40 @@ const Clients = () => {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleClientSubmit = async () => {
+    try {
+      if (!clientForm.full_name || !clientForm.email) {
+        toast({ title: "Error", description: "Full name and email are required", variant: "destructive" });
+        return;
+      }
+
+      const data = {
+        full_name: clientForm.full_name,
+        email: clientForm.email,
+        phone_number: clientForm.phone_number,
+      };
+
+      if (isSupabaseOffline) {
+        await api.clients.create(data);
+      } else {
+        // Online: Create user in Supabase auth
+        const { error } = await supabase.auth.admin.createUser({
+          email: clientForm.email,
+          email_confirm: true,
+          user_metadata: { full_name: clientForm.full_name, phone_number: clientForm.phone_number }
+        });
+        if (error && error.message !== "User already registered") throw error;
+      }
+
+      toast({ title: "Success", description: "Client created successfully" });
+      setIsDialogOpen(false);
+      loadClients();
+      setClientForm({ full_name: "", email: "", phone_number: "" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     }
   };
 
@@ -202,21 +294,34 @@ const Clients = () => {
                         <div className="space-y-4">
                           <div>
                             <Label>Full Name</Label>
-                            <Input placeholder="Enter full name" />
+                            <Input
+                              placeholder="Enter full name"
+                              value={clientForm.full_name}
+                              onChange={(e) => setClientForm({ ...clientForm, full_name: e.target.value })}
+                            />
                           </div>
                           <div>
                             <Label>Email</Label>
-                            <Input type="email" placeholder="Enter email" />
+                            <Input
+                              type="email"
+                              placeholder="Enter email"
+                              value={clientForm.email}
+                              onChange={(e) => setClientForm({ ...clientForm, email: e.target.value })}
+                            />
                           </div>
                           <div>
                             <Label>Phone Number</Label>
-                            <Input placeholder="Enter phone number" />
+                            <Input
+                              placeholder="Enter phone number"
+                              value={clientForm.phone_number}
+                              onChange={(e) => setClientForm({ ...clientForm, phone_number: e.target.value })}
+                            />
                           </div>
                           <div className="flex justify-end gap-2">
                             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
                               Cancel
                             </Button>
-                            <Button>Add Client</Button>
+                            <Button onClick={handleClientSubmit}>Add Client</Button>
                           </div>
                         </div>
                       </DialogContent>
@@ -270,116 +375,116 @@ const Clients = () => {
               ) : (
                 <>
                   <div className="grid gap-4 md:grid-cols-3">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Clients</CardTitle>
-                    <Users className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{clients.length}</div>
-                    <p className="text-xs text-muted-foreground">Registered clients</p>
-                  </CardContent>
-                </Card>
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Clients</CardTitle>
+                        <Users className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">{clients.length}</div>
+                        <p className="text-xs text-muted-foreground">Registered clients</p>
+                      </CardContent>
+                    </Card>
 
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Active Clients</CardTitle>
-                    <Users className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {clients.filter(c => c.active_loans > 0).length}
-                    </div>
-                    <p className="text-xs text-muted-foreground">With active loans</p>
-                  </CardContent>
-                </Card>
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Active Clients</CardTitle>
+                        <Users className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">
+                          {clients.filter(c => c.active_loans > 0).length}
+                        </div>
+                        <p className="text-xs text-muted-foreground">With active loans</p>
+                      </CardContent>
+                    </Card>
 
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Borrowed</CardTitle>
-                    <Users className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      UGX {clients.reduce((sum, c) => sum + c.total_borrowed, 0).toLocaleString()}
-                    </div>
-                    <p className="text-xs text-muted-foreground">All time</p>
-                  </CardContent>
-                </Card>
-              </div>
-
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle>Client List</CardTitle>
-                      <CardDescription>View and manage all clients</CardDescription>
-                    </div>
-                    <div className="relative">
-                      <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search clients..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-8 w-64"
-                      />
-                    </div>
+                    <Card>
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Borrowed</CardTitle>
+                        <Users className="h-4 w-4 text-muted-foreground" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold">
+                          UGX {clients.reduce((sum, c) => sum + c.total_borrowed, 0).toLocaleString()}
+                        </div>
+                        <p className="text-xs text-muted-foreground">All time</p>
+                      </CardContent>
+                    </Card>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Client Name</TableHead>
-                        <TableHead>Contact</TableHead>
-                        <TableHead>Total Loans</TableHead>
-                        <TableHead>Active Loans</TableHead>
-                        <TableHead>Total Borrowed</TableHead>
-                        <TableHead>Total Repaid</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredClients.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                            No clients found
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        filteredClients.map((client) => (
-                          <TableRow key={client.id}>
-                            <TableCell className="font-medium">{client.full_name}</TableCell>
-                            <TableCell>
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2 text-sm">
-                                  <Mail className="h-3 w-3" />
-                                  {client.email}
-                                </div>
-                                {client.phone_number && (
-                                  <div className="flex items-center gap-2 text-sm">
-                                    <Phone className="h-3 w-3" />
-                                    {client.phone_number}
-                                  </div>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell>{client.total_loans}</TableCell>
-                            <TableCell>{client.active_loans}</TableCell>
-                            <TableCell>UGX {client.total_borrowed.toLocaleString()}</TableCell>
-                            <TableCell>UGX {client.total_repaid.toLocaleString()}</TableCell>
-                            <TableCell>
-                              <Button variant="ghost" size="sm">
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                            </TableCell>
+
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle>Client List</CardTitle>
+                          <CardDescription>View and manage all clients</CardDescription>
+                        </div>
+                        <div className="relative">
+                          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            placeholder="Search clients..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="pl-8 w-64"
+                          />
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Client Name</TableHead>
+                            <TableHead>Contact</TableHead>
+                            <TableHead>Total Loans</TableHead>
+                            <TableHead>Active Loans</TableHead>
+                            <TableHead>Total Borrowed</TableHead>
+                            <TableHead>Total Repaid</TableHead>
+                            <TableHead>Actions</TableHead>
                           </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredClients.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                                No clients found
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            filteredClients.map((client) => (
+                              <TableRow key={client.id}>
+                                <TableCell className="font-medium">{client.full_name}</TableCell>
+                                <TableCell>
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-2 text-sm">
+                                      <Mail className="h-3 w-3" />
+                                      {client.email}
+                                    </div>
+                                    {client.phone_number && (
+                                      <div className="flex items-center gap-2 text-sm">
+                                        <Phone className="h-3 w-3" />
+                                        {client.phone_number}
+                                      </div>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell>{client.total_loans}</TableCell>
+                                <TableCell>{client.active_loans}</TableCell>
+                                <TableCell>UGX {client.total_borrowed.toLocaleString()}</TableCell>
+                                <TableCell>UGX {client.total_repaid.toLocaleString()}</TableCell>
+                                <TableCell>
+                                  <Button variant="ghost" size="sm">
+                                    <Eye className="h-4 w-4" />
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
                 </>
               )}
             </div>
