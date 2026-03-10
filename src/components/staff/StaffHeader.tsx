@@ -1,4 +1,4 @@
-import { Search, Bell, MessageSquare, User, LogOut, Check } from "lucide-react";
+import { Search, Bell, User, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/services/api";
 import { useToast } from "@/hooks/use-toast";
@@ -76,7 +77,12 @@ export function StaffHeader() {
   };
 
   const handleSignOut = async () => {
-    api.auth.logout();
+    try {
+      await supabase.auth.signOut();
+      await api.auth.logout();
+    } catch (e) {
+      console.warn("Sign out error:", e);
+    }
     toast({
       title: "Signed out",
       description: "You have been signed out successfully.",

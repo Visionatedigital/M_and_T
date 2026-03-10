@@ -1,4 +1,14 @@
-const API_URL = 'http://localhost:5000/api';
+// ── Mode Detection ──────────────────────────────────────────
+// VITE_REMOTE_MODE=true  → connects to remote PostgreSQL server
+// VITE_REMOTE_MODE=false → uses local SQLite (default for dev)
+const isRemote = import.meta.env.VITE_REMOTE_MODE === 'true';
+const REMOTE_URL = import.meta.env.VITE_REMOTE_API_URL || 'http://192.168.1.100:3000';
+const LOCAL_URL = 'http://localhost:3000';
+
+const API_URL = `${isRemote ? REMOTE_URL : LOCAL_URL}/api`;
+
+export const isRemoteMode = isRemote;
+console.log(`🌐 API Mode: ${isRemote ? 'REMOTE' : 'LOCAL'} → ${API_URL}`);
 
 const getHeaders = () => {
     const token = localStorage.getItem('token');
@@ -70,6 +80,14 @@ export const api = {
             body: JSON.stringify(data),
         }).then(r => {
             if (!r.ok) throw new Error('Failed to update product');
+            return r.json();
+        }),
+        create: (data: any) => fetch(`${API_URL}/products`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(data),
+        }).then(r => {
+            if (!r.ok) throw new Error('Failed to create product');
             return r.json();
         }),
     },
@@ -182,7 +200,16 @@ export const api = {
             });
             if (!response.ok) throw new Error('Failed to update location');
             return response.json();
-        }
+        },
+        create: async (data: any) => {
+            const response = await fetch(`${API_URL}/clients`, {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify(data),
+            });
+            if (!response.ok) throw new Error('Failed to create client');
+            return response.json();
+        },
     },
     groups: {
         getAll: async () => {

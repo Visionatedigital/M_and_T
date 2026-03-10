@@ -6,7 +6,7 @@
 ![Supabase](https://img.shields.io/badge/Supabase-Backend-3ecf8e)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind-CSS-38bdf8)
 
-A comprehensive microfinance management system for M&T Microfinance (U) Ltd, specializing in **group loans** with continuous reinvestment. Built with React, TypeScript, and Supabase.
+A comprehensive microfinance management system for M&T Microfinance (U) Ltd, specializing in **individual loans** with flexible terms. Built with React, TypeScript, and Supabase.
 
 ## 🏦 About M&T Microfinance
 
@@ -14,10 +14,10 @@ M&T Microfinance (U) Ltd is a leading microfinance institution in Uganda, dedica
 
 ### Core Business Model
 
-- **Group Loans**: Primary product offering where groups apply for loans collectively
-- **30% Flat Interest Rate**: Applied across the entire loan cycle
-- **Continuous Reinvestment**: Principle of reinvesting returns for sustainable growth
-- **Money Growth Tracking**: Clients can track how their investment grows over time
+- **Individual Loans**: Primary product offering for individual borrowers
+- **Flexible Interest Rates**: Configurable rates per loan product
+- **Personalized Terms**: Each loan tailored to individual borrower needs
+- **Comprehensive Tracking**: Monitor loan performance and repayment progress
 
 ---
 
@@ -37,9 +37,9 @@ M&T Microfinance (U) Ltd is a leading microfinance institution in Uganda, dedica
 
 ### Loan Management
 - 📝 **Loan Applications** - Create, review, approve/reject applications
-- 👥 **Group Loan Support** - Special handling for group loan applications
+- 👤 **Individual Borrower Focus** - Streamlined application process for individual clients
 - 💰 **Active Loans** - Track disbursed loans and repayment progress
-- 📈 **Growth Tracking** - Monitor money growth at 30% interest rate
+- 📈 **Performance Tracking** - Monitor loan portfolio performance and trends
 - 💵 **Repayment Management** - Track payments and schedules
 
 ### Administration
@@ -260,7 +260,7 @@ serve(async (req) => {
 
 | Parameter | Value |
 |-----------|-------|
-| Interest Rate | 30% flat rate |
+| Interest Rate | Configurable per loan product |
 | Calculation Method | Simple interest on principal |
 | Applied | Once over the entire loan cycle |
 
@@ -268,19 +268,19 @@ serve(async (req) => {
 
 ```
 Principal Amount:     P
-Interest Rate:        30% (0.30)
-Total Interest:       P × 0.30
-Total Amount:         P + (P × 0.30) = P × 1.30
+Interest Rate:        R (configurable per product)
+Total Interest:       P × R
+Total Amount:         P + (P × R) = P × (1 + R)
 Monthly Payment:      Total Amount ÷ Loan Duration (months)
 ```
 
-### Example Calculation
+### Example Calculation (20% Interest Rate)
 
-| Loan Amount | Duration | Interest | Total | Monthly Payment |
+| Loan Amount | Duration | Interest (20%) | Total | Monthly Payment |
 |-------------|----------|----------|-------|-----------------|
-| UGX 1,000,000 | 12 months | UGX 300,000 | UGX 1,300,000 | UGX 108,333 |
-| UGX 5,000,000 | 24 months | UGX 1,500,000 | UGX 6,500,000 | UGX 270,833 |
-| UGX 10,000,000 | 36 months | UGX 3,000,000 | UGX 13,000,000 | UGX 361,111 |
+| UGX 1,000,000 | 12 months | UGX 200,000 | UGX 1,200,000 | UGX 100,000 |
+| UGX 5,000,000 | 24 months | UGX 1,000,000 | UGX 6,000,000 | UGX 250,000 |
+| UGX 10,000,000 | 36 months | UGX 2,000,000 | UGX 12,000,000 | UGX 333,333 |
 
 ---
 
