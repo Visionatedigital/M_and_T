@@ -27,6 +27,8 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Users } from "lucide-react";
 
 interface LoanDetails {
   id: string;
@@ -59,6 +61,9 @@ interface LoanDetails {
   months_elapsed: number;
   months_remaining: number;
   monthly_payment: number;
+  group_members?: Array<{ name: string; amount?: number; borrower_id?: string }>;
+  group_id?: string;
+  loan_product?: string;
 }
 
 const LoanDetails = () => {
@@ -124,30 +129,56 @@ const LoanDetails = () => {
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
-  const generateRepaymentSchedule = () => {
+  const isGroupLoan = loan?.loan_product === "Group Loan" || !!loan?.group_id;
+  const loanTitle = (isGroupLoan && (loan as any)?.group_name) ? (loan as any).group_name : loan?.loan_product;
+  const groupMembersWithAmounts = (loan?.group_members || []).filter((m: any) => (m.amount ?? 0) > 0);
+
+  const generateRepaymentSchedule = (memberPrincipal?: number) => {
     if (!loan) return [];
+    const principal = memberPrincipal ?? loan.principal;
+    const interestRate = 0.30;
+    const totalAmount = principal * (1 + interestRate);
+    const approvedDate = new Date(loan.approved_at || loan.created_at);
+    const months = loan.loan_duration_months || 4;
 
     const schedule = [];
-    const approvedDate = new Date(loan.approved_at || loan.created_at);
+    const numInstallments = isGroupLoan ? Math.ceil(months * 4.33) : months;
+    const installmentAmount = totalAmount / numInstallments;
+    const cycleDays = isGroupLoan ? 7 : 30;
 
-    for (let i = 0; i < loan.loan_duration_months; i++) {
+    for (let i = 0; i < numInstallments; i++) {
       const dueDate = new Date(approvedDate);
-      dueDate.setMonth(dueDate.getMonth() + i + 1);
+      if (isGroupLoan) {
+        dueDate.setDate(dueDate.getDate() + (i + 1) * 7);
+      } else {
+        dueDate.setMonth(dueDate.getMonth() + i + 1);
+      }
 
       const isPast = dueDate < new Date();
-      const isCurrent = dueDate.getMonth() === new Date().getMonth() &&
-        dueDate.getFullYear() === new Date().getFullYear();
+      const now = new Date();
+      const isCurrent = !isPast && dueDate.getTime() - now.getTime() < cycleDays * 24 * 60 * 60 * 1000;
 
       schedule.push({
         installment: i + 1,
         dueDate: dueDate.toLocaleDateString(),
-        amount: loan.monthly_payment,
+        amount: Math.round(installmentAmount),
+        totalAmount,
         status: isPast ? "paid" : isCurrent ? "due" : "upcoming",
       });
     }
 
     return schedule;
   };
+
+  const memberSchedules = groupMembersWithAmounts.length > 0
+    ? groupMembersWithAmounts.map((m: any, idx: number) => ({
+        id: `member-${idx}`,
+        name: m.name || "Member",
+        amount: m.amount ?? 0,
+        total: (m.amount ?? 0) * 1.30,
+        schedule: generateRepaymentSchedule(m.amount ?? 0),
+      }))
+    : [];
 
   if (isLoading) {
     return (
@@ -183,7 +214,7 @@ const LoanDetails = () => {
   }
 
   const progress = (loan.amount_paid / loan.total_amount) * 100;
-  const repaymentSchedule = generateRepaymentSchedule();
+  const repaymentSchedule = groupMembersWithAmounts.length > 0 ? [] : generateRepaymentSchedule();
 
   return (
     <SidebarProvider>
@@ -205,7 +236,7 @@ const LoanDetails = () => {
                   </Button>
                   <div>
                     <h1 className="text-3xl font-bold">Loan Details</h1>
-                    <p className="text-muted-foreground">Loan ID: {loan.id.slice(0, 8)}...</p>
+                    <p className="text-muted-foreground">{loanTitle} • Loan ID: {loan.id.slice(0, 8)}...</p>
                   </div>
                 </div>
                 {getStatusBadge(loan.status)}
@@ -340,8 +371,8 @@ const LoanDetails = () => {
                   <CardContent className="space-y-4">
                     <div className="space-y-2">
                       <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Loan Product:</span>
-                        <span className="font-medium">{loan.loan_product}</span>
+                        <span className="text-muted-foreground">Loan Title:</span>
+                        <span className="font-medium">{loanTitle}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Loan Amount:</span>
@@ -443,47 +474,118 @@ const LoanDetails = () => {
                     <Calendar className="h-5 w-5" />
                     Repayment Schedule
                   </CardTitle>
-                  <CardDescription>Monthly payment schedule for this loan</CardDescription>
+                  <CardDescription>
+                    {memberSchedules.length > 0
+                      ? "Weekly payment schedule per member (30% interest)"
+                      : isGroupLoan
+                        ? "Weekly payment schedule for this group loan"
+                        : "Monthly payment schedule for this loan"}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Installment</TableHead>
-                          <TableHead>Due Date</TableHead>
-                          <TableHead>Amount</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {repaymentSchedule.map((payment) => (
-                          <TableRow key={payment.installment}>
-                            <TableCell className="font-medium">{payment.installment}</TableCell>
-                            <TableCell>{payment.dueDate}</TableCell>
-                            <TableCell>UGX {payment.amount.toLocaleString()}</TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={
-                                  payment.status === "paid"
-                                    ? "default"
-                                    : payment.status === "due"
-                                      ? "destructive"
-                                      : "outline"
-                                }
-                              >
-                                {payment.status === "paid"
-                                  ? "Paid"
-                                  : payment.status === "due"
-                                    ? "Due"
-                                    : "Upcoming"}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
+                  {memberSchedules.length > 0 ? (
+                    <Tabs defaultValue={memberSchedules[0]?.id} className="w-full">
+                      <TabsList className="flex-wrap h-auto gap-1">
+                        {memberSchedules.map((ms) => (
+                          <TabsTrigger key={ms.id} value={ms.id} className="gap-1">
+                            <Users className="h-4 w-4" />
+                            {ms.name} (UGX {(ms.amount).toLocaleString()})
+                          </TabsTrigger>
                         ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                      </TabsList>
+                      {memberSchedules.map((ms) => (
+                        <TabsContent key={ms.id} value={ms.id} className="mt-4">
+                          <div className="mb-4 p-3 rounded-lg bg-muted/50 text-sm">
+                            <span className="font-medium">Principal: </span>
+                            <span>UGX {(ms.amount).toLocaleString()}</span>
+                            <span className="mx-2">|</span>
+                            <span className="font-medium">Total (30%): </span>
+                            <span>UGX {(ms.total).toLocaleString()}</span>
+                            <span className="mx-2">|</span>
+                            <span className="font-medium">Weekly: </span>
+                            <span>UGX {(ms.schedule[0]?.amount ?? 0).toLocaleString()}</span>
+                          </div>
+                          <div className="rounded-md border">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Week</TableHead>
+                                  <TableHead>Due Date</TableHead>
+                                  <TableHead>Amount</TableHead>
+                                  <TableHead>Status</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {ms.schedule.map((payment) => (
+                                  <TableRow key={payment.installment}>
+                                    <TableCell className="font-medium">{payment.installment}</TableCell>
+                                    <TableCell>{payment.dueDate}</TableCell>
+                                    <TableCell>UGX {payment.amount.toLocaleString()}</TableCell>
+                                    <TableCell>
+                                      <Badge
+                                        variant={
+                                          payment.status === "paid"
+                                            ? "default"
+                                            : payment.status === "due"
+                                              ? "destructive"
+                                              : "outline"
+                                        }
+                                      >
+                                        {payment.status === "paid"
+                                          ? "Paid"
+                                          : payment.status === "due"
+                                            ? "Due"
+                                            : "Upcoming"}
+                                      </Badge>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </TabsContent>
+                      ))}
+                    </Tabs>
+                  ) : (
+                    <div className="rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{isGroupLoan ? "Week" : "Installment"}</TableHead>
+                            <TableHead>Due Date</TableHead>
+                            <TableHead>Amount</TableHead>
+                            <TableHead>Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {repaymentSchedule.map((payment) => (
+                            <TableRow key={payment.installment}>
+                              <TableCell className="font-medium">{payment.installment}</TableCell>
+                              <TableCell>{payment.dueDate}</TableCell>
+                              <TableCell>UGX {payment.amount.toLocaleString()}</TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={
+                                    payment.status === "paid"
+                                      ? "default"
+                                      : payment.status === "due"
+                                        ? "destructive"
+                                        : "outline"
+                                  }
+                                >
+                                  {payment.status === "paid"
+                                    ? "Paid"
+                                    : payment.status === "due"
+                                      ? "Due"
+                                      : "Upcoming"}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>

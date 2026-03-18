@@ -1,6 +1,5 @@
-
 const nodemailer = require('nodemailer');
-const db = require('../db');
+const db = require('../db.cjs');
 
 // Initialize Africa's Talking
 const credentials = {
@@ -12,7 +11,7 @@ const AfricasTalking = require('africastalking')(credentials);
 
 // Initialize Nodemailer
 const transporter = nodemailer.createTransport({
-    service: 'gmail', // Or use SMTP settings from env
+    service: 'gmail',
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
@@ -21,18 +20,12 @@ const transporter = nodemailer.createTransport({
 
 const sendSMS = async (to, message) => {
     if (!to || !message) return;
-
-    // Only Mock if API Key is missing COMPLETELY
     if (!process.env.AT_API_KEY) {
         console.log(`[MOCK SMS] To: ${to}, Message: ${message}`);
         return { status: 'mocked' };
     }
-
     try {
-        const result = await AfricasTalking.SMS.send({
-            to: to,
-            message: message
-        });
+        const result = await AfricasTalking.SMS.send({ to, message });
         console.log('SMS sent:', result);
         return result;
     } catch (error) {
@@ -43,19 +36,14 @@ const sendSMS = async (to, message) => {
 
 const sendEmail = async (to, subject, text) => {
     if (!to || !subject || !text) return;
-
-    // In development or if credentials missing, just log
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
         console.log(`[MOCK EMAIL] To: ${to}, Subject: ${subject}, Body: ${text}`);
         return { status: 'mocked' };
     }
-
     try {
         const info = await transporter.sendMail({
             from: process.env.EMAIL_USER,
-            to: to,
-            subject: subject,
-            text: text
+            to, subject, text
         });
         console.log('Email sent:', info.messageId);
         return info;
@@ -69,8 +57,7 @@ const createNotification = async (userId, title, message, type = 'info') => {
     try {
         const { rows } = await db.query(
             `INSERT INTO notifications (user_id, title, message, type)
-             VALUES ($1, $2, $3, $4)
-             RETURNING *`,
+             VALUES ($1, $2, $3, $4) RETURNING *`,
             [userId, title, message, type]
         );
         return rows[0];
@@ -80,8 +67,4 @@ const createNotification = async (userId, title, message, type = 'info') => {
     }
 };
 
-module.exports = {
-    sendSMS,
-    sendEmail,
-    createNotification
-};
+module.exports = { sendSMS, sendEmail, createNotification };

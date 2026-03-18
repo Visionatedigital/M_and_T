@@ -98,7 +98,8 @@ const ActiveLoans = () => {
       filtered = filtered.filter(
         (loan) =>
           loan.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          loan.loan_product.toLowerCase().includes(searchTerm.toLowerCase())
+          loan.loan_product.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (((loan as any).group_name || (loan as any).groups?.group_name || "").toLowerCase().includes(searchTerm.toLowerCase()))
       );
     }
 
@@ -135,11 +136,11 @@ const ActiveLoans = () => {
       .filter(([_, members]) => members.length >= 2)
       .map(([groupId, members]) => ({
         groupId,
-        groupName: (members[0] as any).groups?.group_name || 'Unknown Group',
+        groupName: (members[0] as any).group_name || (members[0] as any).groups?.group_name || 'Unknown Group',
         members,
-        totalPrincipal: members.reduce((sum, m) => sum + m.principal, 0),
-        totalPaid: members.reduce((sum, m) => sum + m.amount_paid, 0),
-        totalRemaining: members.reduce((sum, m) => sum + m.remaining_balance, 0),
+        totalPrincipal: members.reduce((sum, m) => sum + (m.principal ?? 0), 0),
+        totalPaid: members.reduce((sum, m) => sum + (m.amount_paid ?? 0), 0),
+        totalRemaining: members.reduce((sum, m) => sum + (m.remaining_balance ?? 0), 0),
         memberCount: members.length,
       }))
       .sort((a, b) => b.totalPrincipal - a.totalPrincipal); // Sort by total principal descending
@@ -163,6 +164,15 @@ const ActiveLoans = () => {
       totalRemaining,
       avgGrowth,
     };
+  };
+
+  const getGroupName = (loan: ActiveLoan) => ((loan as any).group_name || (loan as any).groups?.group_name || null) as string | null;
+  const isGroupLoanEntry = (loan: ActiveLoan) => loan.loan_product === "Group Loan" || !!loan.group_id || !!getGroupName(loan);
+  const getLoanTitle = (loan: ActiveLoan) => {
+    const groupName = getGroupName(loan);
+    const isGroupLoan = isGroupLoanEntry(loan);
+    if (isGroupLoan && groupName) return groupName;
+    return loan.loan_product;
   };
 
   if (isLoading) {
@@ -279,11 +289,13 @@ const ActiveLoans = () => {
                         <p className="text-center py-8 text-muted-foreground">No loans found</p>
                       ) : (
                         filteredLoans.map((loan) => {
-                          const monthlyPayment = loan.total_amount / loan.loan_duration_months;
+                          const totalAmount = loan.total_amount ?? 0;
+                          const duration = loan.loan_duration_months ?? 1;
+                          const monthlyPayment = duration > 0 ? totalAmount / duration : 0;
                           const approvedDate = new Date(loan.approved_at || loan.created_at);
                           const schedule = [];
 
-                          for (let i = 0; i < loan.loan_duration_months; i++) {
+                          for (let i = 0; i < duration; i++) {
                             const dueDate = new Date(approvedDate);
                             dueDate.setMonth(dueDate.getMonth() + i + 1);
                             const isPast = dueDate < new Date();
@@ -304,9 +316,9 @@ const ActiveLoans = () => {
                                 <div className="flex items-center justify-between">
                                   <div>
                                     <CardTitle className="text-lg">{loan.full_name}</CardTitle>
-                                    <CardDescription>{loan.loan_product} - UGX {loan.loan_amount.toLocaleString()}</CardDescription>
+                                    <CardDescription>{getLoanTitle(loan)} - UGX {(loan.loan_amount ?? 0).toLocaleString()}</CardDescription>
                                   </div>
-                                  <Badge variant="outline">{loan.loan_duration_months} months</Badge>
+                                  <Badge variant="outline">{duration} months</Badge>
                                 </div>
                               </CardHeader>
                               <CardContent>
@@ -425,7 +437,7 @@ const ActiveLoans = () => {
                         <TableHeader>
                           <TableRow>
                             <TableHead>Group/Client</TableHead>
-                            <TableHead>Members</TableHead>
+                            <TableHead>{viewMode === "list" ? "Leader" : "Members"}</TableHead>
                             <TableHead>Principal</TableHead>
                             <TableHead>Total Amount</TableHead>
                             <TableHead>Paid</TableHead>
@@ -452,22 +464,23 @@ const ActiveLoans = () => {
                                 );
 
                                 return sortedLoans.map((loan) => {
-                                  const progress = (loan.amount_paid / loan.total_amount) * 100;
+                                  const paid = loan.amount_paid ?? 0;
+                                  const total = loan.total_amount ?? 1;
+                                  const progress = total > 0 ? (paid / total) * 100 : 0;
+                                  const growthRate = loan.growth_rate ?? 0;
                                   return (
                                     <TableRow key={loan.id}>
-                                      <TableCell className="font-medium">{loan.full_name}</TableCell>
+                                      <TableCell className="font-medium">{getLoanTitle(loan)}</TableCell>
                                       <TableCell>
-                                        {loan.group_id && (loan as any).groups?.group_name
-                                          ? (loan as any).groups.group_name
-                                          : "-"}
+                                        {isGroupLoanEntry(loan) ? loan.full_name : "-"}
                                       </TableCell>
-                                      <TableCell>UGX {loan.principal.toLocaleString()}</TableCell>
-                                      <TableCell>UGX {loan.total_amount.toLocaleString()}</TableCell>
-                                      <TableCell>UGX {loan.amount_paid.toLocaleString()}</TableCell>
-                                      <TableCell>UGX {loan.remaining_balance.toLocaleString()}</TableCell>
+                                      <TableCell>UGX {(loan.principal ?? 0).toLocaleString()}</TableCell>
+                                      <TableCell>UGX {(loan.total_amount ?? 0).toLocaleString()}</TableCell>
+                                      <TableCell>UGX {(loan.amount_paid ?? 0).toLocaleString()}</TableCell>
+                                      <TableCell>UGX {(loan.remaining_balance ?? 0).toLocaleString()}</TableCell>
                                       <TableCell>
                                         <Badge variant="default" className="bg-green-600">
-                                          {loan.growth_rate.toFixed(2)}%
+                                          {growthRate.toFixed(2)}%
                                         </Badge>
                                       </TableCell>
                                       <TableCell>
@@ -497,9 +510,11 @@ const ActiveLoans = () => {
                               const individuals: typeof filteredLoans = [];
 
                               filteredLoans.forEach(loan => {
-                                if (loan.group_id) {
-                                  const existing = grouped.get(loan.group_id) || [];
-                                  grouped.set(loan.group_id, [...existing, loan]);
+                                const groupName = getGroupName(loan);
+                                const groupKey = loan.group_id || (groupName ? `name:${groupName}` : null);
+                                if (groupKey) {
+                                  const existing = grouped.get(groupKey) || [];
+                                  grouped.set(groupKey, [...existing, loan]);
                                 } else {
                                   individuals.push(loan);
                                 }
@@ -510,7 +525,7 @@ const ActiveLoans = () => {
                                 .filter(([_, members]) => members.length >= 2)
                                 .map(([groupId, members]) => ({
                                   groupId,
-                                  groupName: (members[0] as any).groups?.group_name || 'Unknown Group',
+                                  groupName: (members[0] as any).group_name || (members[0] as any).groups?.group_name || 'Unknown Group',
                                   members,
                                   totalPrincipal: members.reduce((sum, m) => sum + m.principal, 0),
                                   totalAmount: members.reduce((sum, m) => sum + m.total_amount, 0),
@@ -569,18 +584,21 @@ const ActiveLoans = () => {
 
                                   {/* Render individual loans (no group or single-member groups) */}
                                   {allIndividuals.map((loan) => {
-                                    const progress = (loan.amount_paid / loan.total_amount) * 100;
+                                    const paid = loan.amount_paid ?? 0;
+                                    const total = loan.total_amount ?? 1;
+                                    const progress = total > 0 ? (paid / total) * 100 : 0;
+                                    const growthRate = loan.growth_rate ?? 0;
                                     return (
                                       <TableRow key={loan.id}>
                                         <TableCell className="font-medium">{loan.full_name}</TableCell>
                                         <TableCell>-</TableCell>
-                                        <TableCell>UGX {loan.principal.toLocaleString()}</TableCell>
-                                        <TableCell>UGX {loan.total_amount.toLocaleString()}</TableCell>
-                                        <TableCell>UGX {loan.amount_paid.toLocaleString()}</TableCell>
-                                        <TableCell>UGX {loan.remaining_balance.toLocaleString()}</TableCell>
+                                        <TableCell>UGX {(loan.principal ?? 0).toLocaleString()}</TableCell>
+                                        <TableCell>UGX {(loan.total_amount ?? 0).toLocaleString()}</TableCell>
+                                        <TableCell>UGX {(loan.amount_paid ?? 0).toLocaleString()}</TableCell>
+                                        <TableCell>UGX {(loan.remaining_balance ?? 0).toLocaleString()}</TableCell>
                                         <TableCell>
                                           <Badge variant="default" className="bg-green-600">
-                                            {loan.growth_rate.toFixed(2)}%
+                                            {growthRate.toFixed(2)}%
                                           </Badge>
                                         </TableCell>
                                         <TableCell>
@@ -620,18 +638,23 @@ const ActiveLoans = () => {
                       <CardContent>
                         <div className="space-y-4">
                           {filteredLoans.slice(0, 5).map((loan) => {
-                            const monthlyGrowth = loan.growth_rate / loan.loan_duration_months;
-                            const currentValue = loan.principal + (loan.principal * (loan.growth_rate / 100) * (loan.months_elapsed / loan.loan_duration_months));
+                            const principal = loan.principal ?? 0;
+                            const growthRate = loan.growth_rate ?? 0;
+                            const duration = loan.loan_duration_months ?? 1;
+                            const monthsElapsed = loan.months_elapsed ?? 0;
+                            const monthlyGrowth = duration > 0 ? growthRate / duration : 0;
+                            const currentValue = principal + (principal * (growthRate / 100) * (duration > 0 ? monthsElapsed / duration : 0));
+                            const progressPct = duration > 0 ? (monthsElapsed / duration) * 100 : 0;
                             return (
                               <div key={loan.id} className="border rounded-lg p-4">
                                 <div className="flex items-center justify-between mb-2">
                                   <div className="font-medium">{loan.full_name}</div>
-                                  <Badge variant="outline">{loan.loan_product}</Badge>
+                                  <Badge variant="outline">{getLoanTitle(loan)}</Badge>
                                 </div>
                                 <div className="space-y-2">
                                   <div className="flex justify-between text-sm">
                                     <span className="text-muted-foreground">Initial Investment:</span>
-                                    <span className="font-medium">UGX {loan.principal.toLocaleString()}</span>
+                                    <span className="font-medium">UGX {principal.toLocaleString()}</span>
                                   </div>
                                   <div className="flex justify-between text-sm">
                                     <span className="text-muted-foreground">Current Value:</span>
@@ -639,13 +662,13 @@ const ActiveLoans = () => {
                                   </div>
                                   <div className="flex justify-between text-sm">
                                     <span className="text-muted-foreground">Projected Return:</span>
-                                    <span className="font-medium text-primary">UGX {loan.total_amount.toLocaleString()}</span>
+                                    <span className="font-medium text-primary">UGX {(loan.total_amount ?? 0).toLocaleString()}</span>
                                   </div>
                                   <div className="flex justify-between text-sm">
                                     <span className="text-muted-foreground">Growth Rate:</span>
-                                    <span className="font-medium">{loan.growth_rate.toFixed(2)}%</span>
+                                    <span className="font-medium">{growthRate.toFixed(2)}%</span>
                                   </div>
-                                  <Progress value={(loan.months_elapsed / loan.loan_duration_months) * 100} className="mt-2" />
+                                  <Progress value={progressPct} className="mt-2" />
                                 </div>
                               </div>
                             );
@@ -720,14 +743,16 @@ const ActiveLoans = () => {
                 </TableHeader>
                 <TableBody>
                   {selectedGroup.members.map((loan) => {
-                    const progress = (loan.amount_paid / loan.total_amount) * 100;
+                    const paid = loan.amount_paid ?? 0;
+                    const total = loan.total_amount ?? 1;
+                    const progress = total > 0 ? (paid / total) * 100 : 0;
                     return (
                       <TableRow key={loan.id}>
                         <TableCell className="font-medium">{loan.full_name}</TableCell>
-                        <TableCell>UGX {loan.principal.toLocaleString()}</TableCell>
-                        <TableCell>UGX {loan.total_amount.toLocaleString()}</TableCell>
-                        <TableCell className="text-green-600">UGX {loan.amount_paid.toLocaleString()}</TableCell>
-                        <TableCell>UGX {loan.remaining_balance.toLocaleString()}</TableCell>
+                        <TableCell>UGX {(loan.principal ?? 0).toLocaleString()}</TableCell>
+                        <TableCell>UGX {(loan.total_amount ?? 0).toLocaleString()}</TableCell>
+                        <TableCell className="text-green-600">UGX {(loan.amount_paid ?? 0).toLocaleString()}</TableCell>
+                        <TableCell>UGX {(loan.remaining_balance ?? 0).toLocaleString()}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <Progress value={progress} className="w-20" />
@@ -758,19 +783,19 @@ const ActiveLoans = () => {
                 <div>
                   <p className="text-sm text-muted-foreground">Total Principal</p>
                   <p className="text-lg font-bold">
-                    UGX {selectedGroup.members.reduce((sum, m) => sum + m.principal, 0).toLocaleString()}
+                    UGX {selectedGroup.members.reduce((sum, m) => sum + (m.principal ?? 0), 0).toLocaleString()}
                   </p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Total Paid</p>
                   <p className="text-lg font-bold text-green-600">
-                    UGX {selectedGroup.members.reduce((sum, m) => sum + m.amount_paid, 0).toLocaleString()}
+                    UGX {selectedGroup.members.reduce((sum, m) => sum + (m.amount_paid ?? 0), 0).toLocaleString()}
                   </p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Total Remaining</p>
                   <p className="text-lg font-bold">
-                    UGX {selectedGroup.members.reduce((sum, m) => sum + m.remaining_balance, 0).toLocaleString()}
+                    UGX {selectedGroup.members.reduce((sum, m) => sum + (m.remaining_balance ?? 0), 0).toLocaleString()}
                   </p>
                 </div>
               </div>

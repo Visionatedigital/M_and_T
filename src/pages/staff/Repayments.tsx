@@ -26,34 +26,49 @@ const Repayments = () => {
   const [selectedLoanId, setSelectedLoanId] = useState<string>("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [paymentMethod, setPaymentMethod] = useState("cash");
   const [memberBreakdown, setMemberBreakdown] = useState<any[]>([]);
+  const [selectedMemberName, setSelectedMemberName] = useState<string>("");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [recordTypeFilter, setRecordTypeFilter] = useState<string>("all");
 
   useEffect(() => {
+    if (selectedMemberName) return;
+
     if (selectedLoanId) {
       const loan = loans.find(l => l.id === selectedLoanId);
       if (loan) {
-        // Individual loan member breakdown is now simpler: just the one member
-        setMemberBreakdown([{
-          id: loan.id,
-          name: loan.full_name,
-          amount: (loan.loan_amount / 4).toString() // Default estimate
-        }]);
+        if (loan.member_schedules && loan.member_schedules.length > 0) {
+          setMemberBreakdown(loan.member_schedules.map((m: any) => ({
+            id: m.name,
+            name: m.name,
+            amount: Math.round(m.weekly || 0).toString()
+          })));
+        } else {
+          const numInst = loan.group_id ? Math.ceil((loan.loan_duration_months || 4) * 4.33) : (loan.loan_duration_months || 4);
+          const instAmt = (loan.loan_amount * 1.30) / numInst;
+          setMemberBreakdown([{
+            id: loan.id,
+            name: loan.full_name,
+            amount: Math.round(instAmt).toString()
+          }]);
+        }
       }
     } else {
       setMemberBreakdown([]);
     }
-  }, [selectedLoanId, loans]);
+  }, [selectedLoanId, loans, selectedMemberName]);
 
   useEffect(() => {
+    if (selectedMemberName) return;
+
     if (memberBreakdown.length > 0) {
       const total = memberBreakdown.reduce((sum, m) => sum + (parseFloat(m.amount) || 0), 0);
       setAmount(total.toFixed(0));
     }
-  }, [memberBreakdown]);
+  }, [memberBreakdown, selectedMemberName]);
 
   useEffect(() => {
     checkAuth();
@@ -98,13 +113,17 @@ const Repayments = () => {
 
   const [selectedGroup, setSelectedGroup] = useState<any>(null);
   const [isGroupDialogOpen, setIsGroupDialogOpen] = useState(false);
+  const [isReallocateDialogOpen, setIsReallocateDialogOpen] = useState(false);
+  const [reallocateAmount, setReallocateAmount] = useState("");
+  const [reallocateTarget, setReallocateTarget] = useState<{ loanId: string; memberName: string } | null>(null);
+  const [selectedMemberOutstanding, setSelectedMemberOutstanding] = useState<number | null>(null);
 
   const groupedRepayments = Object.values(
     repayments
       .filter(r => {
         const matchesSearch = !searchTerm ||
           r.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (r.groups?.group_name && r.groups.group_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          ((r.group_name || r.groups?.group_name) && (r.group_name || r.groups?.group_name || '').toLowerCase().includes(searchTerm.toLowerCase())) ||
           (r.phone_number && r.phone_number.includes(searchTerm));
 
         const matchesStatus = statusFilter === "all" || r.status === statusFilter;
@@ -122,7 +141,7 @@ const Repayments = () => {
         if (!acc[key]) {
           acc[key] = {
             id: key,
-            name: curr.group_id ? curr.groups?.group_name : curr.full_name,
+            name: curr.group_id ? (curr.group_name || curr.groups?.group_name || 'Unknown Group') : curr.full_name,
             isGroup: !!curr.group_id,
             members: [],
             totalCollection: 0,
@@ -133,15 +152,46 @@ const Repayments = () => {
           };
         }
 
-        acc[key].members.push({
-          id: curr.id,
-          name: curr.full_name,
-          amount: curr.loan_amount,
-          paidAmount: curr.paidAmount,
-          balance: curr.balance,
-          status: curr.status,
-          nin: curr.id_number
-        });
+        // If this loan has member_schedules (group_members JSONB) with multiple members, add each
+        const schedules = curr.member_schedules;
+        if (schedules && Array.isArray(schedules) && schedules.length > 1) {
+          const numInst = curr.group_id ? Math.ceil((curr.loan_duration_months || 4) * 4.33) : (curr.loan_duration_months || 4);
+          const memberPaidMap = curr.member_paid_map || {};
+          const hasMemberPaidMap = Object.keys(memberPaidMap).length > 0;
+          schedules.forEach((m: any) => {
+            const mPrincipal = parseFloat(m.amount) || 0;
+            const mTotal = mPrincipal * 1.30;
+            const mInstallment = m.weekly ?? mTotal / numInst;
+            const nameKey = (m.name || '').toString().trim().toLowerCase();
+            const memberPaid = hasMemberPaidMap
+              ? parseFloat(memberPaidMap[nameKey] || 0)
+              : (curr.paidAmount / schedules.length);
+            const memberBalance = Math.max(0, mTotal - memberPaid);
+            acc[key].members.push({
+              id: curr.id,
+              name: m.name || 'Member',
+              amount: mPrincipal,
+              installment: mInstallment,
+              paidAmount: memberPaid,
+              balance: memberBalance,
+              status: curr.status,
+              nin: (m as any).id_number || (m as any).nin
+            });
+          });
+        } else {
+          const numInst = curr.group_id ? Math.ceil((curr.loan_duration_months || 4) * 4.33) : (curr.loan_duration_months || 4);
+          const instAmt = (curr.loan_amount * 1.30) / numInst;
+          acc[key].members.push({
+            id: curr.id,
+            name: curr.full_name,
+            amount: curr.loan_amount,
+            installment: instAmt,
+            paidAmount: curr.paidAmount,
+            balance: curr.balance,
+            status: curr.status,
+            nin: curr.id_number
+          });
+        }
 
         acc[key].totalCollection += curr.paidAmount;
         acc[key].totalBalance += curr.balance;
@@ -192,21 +242,29 @@ const Repayments = () => {
     }
 
     try {
-      await api.repayments.create({
+      const result = await api.repayments.create({
         loan_application_id: selectedLoanId,
         amount: parseFloat(amount),
         payment_date: date,
+        payment_method: paymentMethod,
+        member_breakdown: selectedMemberName
+          ? [{ name: selectedMemberName, amount: parseFloat(amount) }]
+          : undefined,
+        notes: selectedMemberName ? `Member payment: ${selectedMemberName}` : undefined,
       });
 
       toast({
         title: "Success",
-        description: "Payment recorded successfully.",
+        description: result?.message || "Payment recorded successfully.",
       });
 
       setIsDialogOpen(false);
       setIsGroupDialogOpen(false);
       setAmount("");
       setSelectedLoanId("");
+      setPaymentMethod("cash");
+      setSelectedMemberName("");
+      setSelectedMemberOutstanding(null);
       loadRepayments();
     } catch (error: any) {
       toast({
@@ -217,10 +275,53 @@ const Repayments = () => {
     }
   };
 
-  const handleMemberRecord = (memberId: string, memberAmount: number) => {
+  const handleMemberRecord = (memberId: string, memberAmount: number, memberBalance: number, memberName?: string) => {
     setSelectedLoanId(memberId);
-    setAmount(memberAmount.toString());
+    const suggestedAmount = Math.max(0, Math.min(memberAmount || 0, memberBalance || 0));
+    setAmount(suggestedAmount.toFixed(0));
+    setSelectedMemberName(memberName || "");
+    setSelectedMemberOutstanding(Math.max(0, memberBalance || 0));
     setIsDialogOpen(true);
+  };
+
+  const openReallocateDialog = (loanId: string, memberName: string) => {
+    setReallocateTarget({ loanId, memberName });
+    setReallocateAmount("");
+    setIsReallocateDialogOpen(true);
+  };
+
+  const handleReallocateHistory = async () => {
+    if (!reallocateTarget) return;
+    const amountToAllocate = parseFloat(reallocateAmount.replace(/,/g, ""));
+    if (!amountToAllocate || amountToAllocate <= 0) {
+      toast({
+        title: "Invalid amount",
+        description: "Please enter a valid amount greater than 0.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const result = await api.repayments.reallocateHistory({
+        loan_application_id: reallocateTarget.loanId,
+        member_name: reallocateTarget.memberName,
+        amount: amountToAllocate,
+      });
+      toast({
+        title: "Reallocated",
+        description: result?.message || `UGX ${amountToAllocate.toLocaleString()} reallocated to ${reallocateTarget.memberName}.`,
+      });
+      loadRepayments();
+      setIsReallocateDialogOpen(false);
+      setReallocateTarget(null);
+    } catch (error: any) {
+      toast({
+        title: "Reallocation failed",
+        description: error.message || "Could not reallocate historical payments.",
+        variant: "destructive",
+      });
+    }
   };
 
   if (isLoading) {
@@ -261,7 +362,7 @@ const Repayments = () => {
                   <h1 className="text-3xl font-bold mb-2">Repayments</h1>
                   <p className="text-muted-foreground">Monitor and record loan repayments</p>
                 </div>
-                <Button onClick={() => setIsDialogOpen(true)} className="gap-2">
+                <Button onClick={() => { setSelectedMemberName(""); setSelectedMemberOutstanding(null); setIsDialogOpen(true); }} className="gap-2">
                   <Plus className="h-4 w-4" />
                   Record Payment
                 </Button>
@@ -376,44 +477,14 @@ const Repayments = () => {
                         </TableRow>
                       ) : (
                         groupedRepayments.map((record: any) => (
-                          <TableRow
-                            key={record.id}
-                            className={record.isGroup ? "bg-muted/30 cursor-pointer hover:bg-muted/50" : ""}
-                            onClick={() => {
-                              if (record.isGroup) {
-                                setSelectedGroup(record);
-                                setIsGroupDialogOpen(true);
-                              }
-                            }}
-                          >
-                            <TableCell className="font-medium flex items-center gap-2">
-                              {record.name} {record.isGroup && <span className="text-[10px] bg-primary/10 text-primary px-1 rounded ml-1 font-bold whitespace-nowrap">GROUP</span>}
-                            </TableCell>
+                          <TableRow key={record.id} className={record.isGroup ? "bg-muted/30 cursor-pointer hover:bg-muted/50" : ""} onClick={() => { if (record.isGroup) { setSelectedGroup(record); setIsGroupDialogOpen(true); } }}>
+                            <TableCell className="font-medium flex items-center gap-2">{record.name || (record.isGroup ? 'Unknown Group' : '-')}{record.isGroup && <span className="text-[10px] bg-primary/10 text-primary px-1 rounded ml-1 font-bold whitespace-nowrap">GROUP</span>}</TableCell>
                             <TableCell>UGX {record.installmentAmount.toLocaleString()}</TableCell>
                             <TableCell>UGX {record.totalCollection.toLocaleString()}</TableCell>
                             <TableCell>UGX {record.totalBalance.toLocaleString()}</TableCell>
                             <TableCell>{new Date(record.date).toLocaleDateString()}</TableCell>
-                            <TableCell>
-                              <span className={`px-2 py-1 rounded text-xs whitespace-nowrap ${record.status === "Fully Paid" ? "bg-green-100 text-green-800" :
-                                record.status === "Past Maturity" ? "bg-red-100 text-red-800" :
-                                  record.status === "Missed Repayment" ? "bg-orange-100 text-orange-800" :
-                                    record.status === "Due Today" ? "bg-yellow-100 text-yellow-800" :
-                                      "bg-blue-100 text-blue-800"
-                                }`}>
-                                {record.status}
-                              </span>
-                            </TableCell>
-                            <TableCell>
-                              {record.isGroup ? (
-                                <Button variant="ghost" size="sm" onClick={() => { setSelectedGroup(record); setIsGroupDialogOpen(true); }}>
-                                  View
-                                </Button>
-                              ) : (
-                                <Button variant="outline" size="sm" onClick={() => { setSelectedLoanId(record.id); setAmount(record.installmentAmount.toString()); setIsDialogOpen(true); }}>
-                                  Record
-                                </Button>
-                              )}
-                            </TableCell>
+                            <TableCell><span className={`px-2 py-1 rounded text-xs whitespace-nowrap ${record.status === "Fully Paid" ? "bg-green-100 text-green-800" : record.status === "Past Maturity" ? "bg-red-100 text-red-800" : record.status === "Missed Repayment" ? "bg-orange-100 text-orange-800" : record.status === "Due Today" ? "bg-yellow-100 text-yellow-800" : "bg-blue-100 text-blue-800"}`}>{record.status}</span></TableCell>
+                            <TableCell>{record.isGroup ? <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setSelectedGroup(record); setIsGroupDialogOpen(true); }}>View</Button> : <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); setSelectedLoanId(record.id); setSelectedMemberName(""); setSelectedMemberOutstanding(null); setAmount(record.installmentAmount.toString()); setIsDialogOpen(true); }}>Record</Button>}</TableCell>
                           </TableRow>
                         ))
                       )}
@@ -424,43 +495,73 @@ const Repayments = () => {
 
               {/* Group Dialog */}
               <Dialog open={isGroupDialogOpen} onOpenChange={setIsGroupDialogOpen}>
-                <DialogContent className="max-w-4xl">
+                <DialogContent className="w-[96vw] max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
                   <DialogHeader>
                     <DialogTitle>{selectedGroup?.name} Members</DialogTitle>
                     <DialogDescription>Individual breakdown for group loans</DialogDescription>
                   </DialogHeader>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Member</TableHead>
-                        <TableHead>Installment</TableHead>
-                        <TableHead>Balance</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Action</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedGroup?.members.map((m: any) => (
-                        <TableRow key={m.id}>
-                          <TableCell className="font-medium">{m.name}</TableCell>
-                          <TableCell>UGX {(m.amount / 16).toLocaleString()}</TableCell> {/* Assuming weekly installments for groups */}
-                          <TableCell>UGX {m.balance.toLocaleString()}</TableCell>
-                          <TableCell>
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${m.status === 'Fully Paid' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                              {m.status}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            {m.balance > 0 && (
-                              <Button size="sm" variant="outline" onClick={() => handleMemberRecord(m.id, m.amount / 16)}>
-                                Record
-                              </Button>
-                            )}
-                          </TableCell>
+                  <div className="overflow-auto pr-1">
+                    <Table className="min-w-[760px]">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Member</TableHead>
+                          <TableHead>Installment</TableHead>
+                          <TableHead>Balance</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Action</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {(selectedGroup?.members ?? []).map((m: any, idx: number) => (
+                          <TableRow key={m.id + '-' + idx}>
+                            <TableCell className="font-medium">{m.name}</TableCell>
+                            <TableCell>UGX {(m.installment ?? (m.amount * 1.3 / 17)).toLocaleString()}</TableCell>
+                            <TableCell>UGX {m.balance.toLocaleString()}</TableCell>
+                            <TableCell><span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${m.status === 'Fully Paid' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>{m.status}</span></TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-2">
+                                {m.balance > 0 && (
+                                  <Button size="sm" variant="outline" onClick={() => handleMemberRecord(m.id, m.installment ?? (m.amount * 1.3 / 17), m.balance, m.name)}>
+                                    Record
+                                  </Button>
+                                )}
+                                <Button size="sm" variant="ghost" onClick={() => openReallocateDialog(m.id, m.name)}>
+                                  Reallocate Past
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </DialogContent>
+              </Dialog>
+
+              {/* Reallocate Past Payment Dialog */}
+              <Dialog open={isReallocateDialogOpen} onOpenChange={setIsReallocateDialogOpen}>
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Reallocate Past Payment</DialogTitle>
+                    <DialogDescription>
+                      Assign historical unallocated payment to <span className="font-medium">{reallocateTarget?.memberName || "member"}</span>.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3 py-2">
+                    <Label htmlFor="reallocate_amount">Amount (UGX)</Label>
+                    <Input
+                      id="reallocate_amount"
+                      type="number"
+                      min="1"
+                      placeholder="e.g. 59000"
+                      value={reallocateAmount}
+                      onChange={(e) => setReallocateAmount(e.target.value)}
+                    />
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsReallocateDialogOpen(false)}>Cancel</Button>
+                    <Button onClick={handleReallocateHistory}>Reallocate</Button>
+                  </DialogFooter>
                 </DialogContent>
               </Dialog>
 
@@ -469,11 +570,22 @@ const Repayments = () => {
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle>Record Repayment</DialogTitle>
+                    <DialogDescription>Enter payment details for the selected client.</DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 py-4">
+                    {selectedMemberName && (
+                      <p className="text-xs text-muted-foreground">
+                        Member outstanding: UGX {(selectedMemberOutstanding || 0).toLocaleString()}
+                      </p>
+                    )}
+                    {selectedMemberName && (
+                      <div className="rounded-md bg-muted/50 p-2 text-sm">
+                        Recording for member: <span className="font-semibold">{selectedMemberName}</span>
+                      </div>
+                    )}
                     <div className="space-y-2">
                       <Label>Select Client</Label>
-                      <Select value={selectedLoanId} onValueChange={setSelectedLoanId}>
+                      <Select value={selectedLoanId} onValueChange={(v) => { setSelectedLoanId(v); setSelectedMemberName(""); setSelectedMemberOutstanding(null); }}>
                         <SelectTrigger>
                           <SelectValue placeholder="Search client..." />
                         </SelectTrigger>
@@ -491,6 +603,19 @@ const Repayments = () => {
                     <div className="space-y-2">
                       <Label>Payment Date</Label>
                       <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Payment Method</Label>
+                      <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select payment method" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="cash">Cash</SelectItem>
+                          <SelectItem value="bank_transfer">Bank</SelectItem>
+                          <SelectItem value="mobile_money">Mobile Money</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                   <DialogFooter>

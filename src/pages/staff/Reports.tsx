@@ -54,6 +54,7 @@ const Reports = () => {
   const { toast } = useToast();
   const [isExportingAI, setIsExportingAI] = useState(false);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [isExportingZScore, setIsExportingZScore] = useState(false);
 
   const handleAiExport = async () => {
     setIsExportingAI(true);
@@ -64,6 +65,18 @@ const Reports = () => {
       toast({ title: "Export Failed", description: error.message, variant: "destructive" });
     } finally {
       setIsExportingAI(false);
+    }
+  };
+
+  const handleZScoreExport = async () => {
+    setIsExportingZScore(true);
+    try {
+      await api.reports.downloadFinancialAnalysisDocx();
+      toast({ title: "Success", description: "Z-Score Analysis generated ✓" });
+    } catch (error: any) {
+      toast({ title: "Export Failed", description: error.message, variant: "destructive" });
+    } finally {
+      setIsExportingZScore(false);
     }
   };
 
@@ -163,6 +176,15 @@ const Reports = () => {
                   >
                     {isExportingAI ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4 text-blue-600" />}
                     AI Summary (Word)
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleZScoreExport}
+                    disabled={isExportingZScore}
+                    className="bg-white/50 backdrop-blur-sm border-purple-200 hover:bg-purple-50"
+                  >
+                    {isExportingZScore ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4 text-purple-600" />}
+                    Z-Score (Word)
                   </Button>
                   <Button
                     variant="outline"

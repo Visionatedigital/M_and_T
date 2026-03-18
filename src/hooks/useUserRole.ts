@@ -13,7 +13,8 @@ export const useUserRole = () => {
             try {
                 const user = await api.auth.getMe();
                 if (user) {
-                    setRole(user.role as UserRole);
+                    const normalized = String(user.role || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+                    setRole((normalized || null) as UserRole);
                 } else {
                     setRole(null);
                 }

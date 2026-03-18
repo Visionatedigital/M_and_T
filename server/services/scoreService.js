@@ -1,4 +1,4 @@
-const db = require('../db');
+const db = require('../db.cjs');
 
 /**
  * Calculate Credit Score for a Client (300 - 850)

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, CheckCircle, XCircle, Users, DollarSign, Calendar, MapPin, Briefcase, FileText, Eye } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, Users, DollarSign, Calendar, MapPin, Briefcase, FileText, Eye, Sparkles, Loader2 } from "lucide-react";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -31,6 +31,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Edit } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface LoanApplication {
     id: string;
@@ -66,6 +67,9 @@ interface LoanApplication {
     attachment_passport_photo?: string;
     attachment_income_statement?: string;
     attachment_uploaded_at?: string;
+    interest_method?: "flat_rate" | "reducing_balance" | "interest_only" | "fixed_fee";
+    interest_rate?: number;
+    interest_fixed_amount?: number;
 }
 
 const LoanApplicationDetails = () => {
@@ -77,7 +81,11 @@ const LoanApplicationDetails = () => {
     const [userRole, setUserRole] = useState<string>("");
     const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+    const [isDisbursementDialogOpen, setIsDisbursementDialogOpen] = useState(false);
+    const [disbursementMethod, setDisbursementMethod] = useState("cash");
     const [rejectionReason, setRejectionReason] = useState("");
+    const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
 
     useEffect(() => {
         checkAuth();
@@ -95,8 +103,27 @@ const LoanApplicationDetails = () => {
         }
     };
 
+    const handleAnalyze = async () => {
+        if (!application?.id) return;
+        setIsAnalyzing(true);
+        setAiAnalysis(null);
+        try {
+            const { analysis } = await api.applications.analyze(application.id);
+            setAiAnalysis(analysis);
+        } catch (error: any) {
+            toast({
+                title: "Analysis failed",
+                description: error.message,
+                variant: "destructive",
+            });
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
     const loadApplication = async (appId: string) => {
         setIsLoading(true);
+        setAiAnalysis(null);
         try {
             const data = await api.applications.getById(appId);
             setApplication(data);
@@ -112,7 +139,7 @@ const LoanApplicationDetails = () => {
         }
     };
 
-    const handleStatusChange = async (newStatus: string) => {
+    const handleStatusChange = async (newStatus: string, extraData?: any) => {
         if (!application) return;
 
         try {
@@ -137,7 +164,7 @@ const LoanApplicationDetails = () => {
             // It strictly updates status. So rejection reason won't be saved unless I modify the backend.
             // Given the user instructions "Continue" and previous context, I will stick to what works (status update).
 
-            await api.applications.updateStatus(application.id, newStatus);
+            await api.applications.updateStatus(application.id, newStatus, extraData);
 
             toast({
                 title: "Success",
@@ -155,13 +182,22 @@ const LoanApplicationDetails = () => {
         }
     };
 
+    const confirmApproveWithMethod = async () => {
+        await handleStatusChange("approved", { disbursement_method: disbursementMethod });
+        setIsDisbursementDialogOpen(false);
+    };
+
     const calculateLoanDetails = () => {
         if (!application) return null;
 
         // Safety check for loan calculations
-        const principal = parseFloat(application.loan_amount.toString());
-        const interestRate = 0.30; // 30% flat rate
-        const totalInterest = principal * interestRate;
+        const principal = parseFloat(application.loan_amount.toString()) || 0;
+        const interestMethod = application.interest_method || "flat_rate";
+        const interestRatePercent = Number(application.interest_rate ?? 30);
+        const fixedFeeAmount = Number(application.interest_fixed_amount ?? 0);
+        const totalInterest = interestMethod === "fixed_fee"
+            ? Math.max(0, fixedFeeAmount)
+            : Math.max(0, principal * (interestRatePercent / 100));
         const totalAmount = principal + totalInterest;
 
         // Group loans have weekly payments (16 weeks for 4 months usually, or duration * 4)
@@ -174,6 +210,9 @@ const LoanApplicationDetails = () => {
 
         return {
             principal,
+            interestMethod,
+            interestRatePercent,
+            fixedFeeAmount,
             totalInterest,
             totalAmount,
             weeklyPayment,
@@ -194,6 +233,13 @@ const LoanApplicationDetails = () => {
         const config = statusConfig[status] || { variant: "outline" as const, label: status };
         return <Badge variant={config.variant}>{config.label}</Badge>;
     };
+
+    const getLoanTitle = (app: LoanApplication) => {
+        const isGroupLoan = app.loan_product === "Group Loan" || !!app.group_id;
+        if (isGroupLoan && app.group_name) return app.group_name;
+        return app.loan_product;
+    };
+    const isGroupApplication = !!application && (application.loan_product === "Group Loan" || !!application.group_id || !!application.group_name);
 
     if (isLoading) {
         return (
@@ -225,9 +271,12 @@ const LoanApplicationDetails = () => {
                             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                                 <div>
                                     <div className="flex items-center gap-3 mb-2">
-                                        <h1 className="text-3xl font-bold">{application.full_name}</h1>
+                                        <h1 className="text-3xl font-bold">{getLoanTitle(application)}</h1>
                                         {getStatusBadge(application.status)}
                                     </div>
+                                    {isGroupApplication && (
+                                        <p className="text-sm text-muted-foreground mb-2">Group Leader: {application.full_name}</p>
+                                    )}
                                     <div className="flex flex-wrap gap-4 text-muted-foreground">
                                         <div className="flex items-center gap-1">
                                             <Calendar className="h-4 w-4" />
@@ -235,12 +284,12 @@ const LoanApplicationDetails = () => {
                                         </div>
                                         <div className="flex items-center gap-1">
                                             <Briefcase className="h-4 w-4" />
-                                            {application.loan_product}
+                                            {getLoanTitle(application)}
                                         </div>
                                         {application.group_name && (
                                             <div className="flex items-center gap-1 text-primary font-medium">
                                                 <Users className="h-4 w-4" />
-                                                {application.group_name}
+                                                Group Loan
                                             </div>
                                         )}
                                     </div>
@@ -253,7 +302,7 @@ const LoanApplicationDetails = () => {
                                             <XCircle className="mr-2 h-4 w-4" />
                                             Reject
                                         </Button>
-                                        <Button onClick={() => handleStatusChange("approved")}>
+                                        <Button onClick={() => setIsDisbursementDialogOpen(true)}>
                                             <CheckCircle className="mr-2 h-4 w-4" />
                                             Approve Application
                                         </Button>
@@ -440,7 +489,7 @@ const LoanApplicationDetails = () => {
                                                     <span className="font-bold text-lg">UGX {loanCalcs.principal.toLocaleString()}</span>
                                                 </div>
                                                 <div className="flex justify-between items-center border-b pb-2">
-                                                    <span className="text-muted-foreground">Interest (30%)</span>
+                                                    <span className="text-muted-foreground">{loanCalcs.interestMethod === "fixed_fee" ? "Fixed Fee" : `Interest (${loanCalcs.interestRatePercent}%)`}</span>
                                                     <span className="font-bold text-destructive">UGX {loanCalcs.totalInterest.toLocaleString()}</span>
                                                 </div>
                                                 <div className="flex justify-between items-center border-b pb-2">
@@ -484,6 +533,46 @@ const LoanApplicationDetails = () => {
                                         </CardContent>
                                     </Card>
                                 )}
+
+                                {/* AI Analysis */}
+                                <Card className="border-primary/20">
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="flex items-center gap-2 text-base">
+                                            <Sparkles className="h-4 w-4 text-primary" />
+                                            AI Analysis
+                                        </CardTitle>
+                                        <CardDescription>Get AI-powered risk assessment and recommendations</CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="space-y-3">
+                                        {!aiAnalysis ? (
+                                            <Button
+                                                variant="outline"
+                                                className="w-full"
+                                                onClick={handleAnalyze}
+                                                disabled={isAnalyzing}
+                                            >
+                                                {isAnalyzing ? (
+                                                    <>
+                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                        Analyzing...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Sparkles className="mr-2 h-4 w-4" />
+                                                        Analyze Application
+                                                    </>
+                                                )}
+                                            </Button>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                <div className="rounded-lg bg-muted/50 p-4 text-sm whitespace-pre-wrap border">{aiAnalysis}</div>
+                                                <Button variant="ghost" size="sm" onClick={handleAnalyze} disabled={isAnalyzing}>
+                                                    {isAnalyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh Analysis"}
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </CardContent>
+                                </Card>
 
                                 {/* Purpose */}
                                 {application.loan_purpose && (
@@ -551,6 +640,32 @@ const LoanApplicationDetails = () => {
                             onCancel={() => setIsEditDialogOpen(false)}
                         />
                     )}
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={isDisbursementDialogOpen} onOpenChange={setIsDisbursementDialogOpen}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Select Disbursement Method</DialogTitle>
+                        <DialogDescription>How was this loan disbursed?</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3 py-2">
+                        <Label htmlFor="detail_disbursement_method">Method</Label>
+                        <Select value={disbursementMethod} onValueChange={setDisbursementMethod}>
+                            <SelectTrigger id="detail_disbursement_method">
+                                <SelectValue placeholder="Select method" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="cash">Cash</SelectItem>
+                                <SelectItem value="bank_transfer">Bank</SelectItem>
+                                <SelectItem value="mobile_money">Mobile Money</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                        <Button variant="outline" onClick={() => setIsDisbursementDialogOpen(false)}>Cancel</Button>
+                        <Button onClick={confirmApproveWithMethod}>Confirm & Approve</Button>
+                    </div>
                 </DialogContent>
             </Dialog>
 

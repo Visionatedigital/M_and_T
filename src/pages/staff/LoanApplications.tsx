@@ -40,6 +40,9 @@ interface LoanApplication {
   employment_status?: string;
   employer_name?: string;
   monthly_income?: number;
+  interest_method?: "flat_rate" | "reducing_balance" | "interest_only" | "fixed_fee";
+  interest_rate?: number;
+  interest_fixed_amount?: number;
 }
 
 const LoanApplications = () => {
@@ -63,6 +66,9 @@ const LoanApplications = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isGroupDialogOpen, setIsGroupDialogOpen] = useState(false);
+  const [isDisbursementDialogOpen, setIsDisbursementDialogOpen] = useState(false);
+  const [pendingApprovalId, setPendingApprovalId] = useState<string | null>(null);
+  const [disbursementMethod, setDisbursementMethod] = useState("cash");
   const [userRole, setUserRole] = useState<string>("");
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -149,7 +155,7 @@ const LoanApplications = () => {
     setFilteredApplications(filtered);
   };
 
-  const handleStatusChange = async (applicationId: string, newStatus: string, rejectionReason?: string) => {
+  const handleStatusChange = async (applicationId: string, newStatus: string, rejectionReason?: string, extraData?: any) => {
     try {
       const updateData: any = {
         status: newStatus,
@@ -166,7 +172,7 @@ const LoanApplications = () => {
         updateData.reviewed_at = new Date().toISOString();
       }
 
-      await api.applications.updateStatus(applicationId, newStatus);
+      await api.applications.updateStatus(applicationId, newStatus, extraData);
 
       toast({
         title: "Success",
@@ -184,10 +190,34 @@ const LoanApplications = () => {
     }
   };
 
-  const calculateGroupLoanDetails = (amount: number, duration: number) => {
-    const principal = parseFloat(amount.toString());
-    const interestRate = 0.30; // 30% flat rate
-    const totalInterest = principal * interestRate;
+  const openDisbursementDialog = (applicationId: string) => {
+    setPendingApprovalId(applicationId);
+    setDisbursementMethod("cash");
+    setIsDisbursementDialogOpen(true);
+  };
+
+  const confirmApproveWithMethod = async () => {
+    if (!pendingApprovalId) return;
+    await handleStatusChange(
+      pendingApprovalId,
+      "approved",
+      undefined,
+      { disbursement_method: disbursementMethod }
+    );
+    setIsDisbursementDialogOpen(false);
+    setPendingApprovalId(null);
+  };
+
+  const calculateGroupLoanDetails = (application: LoanApplication) => {
+    const principal = parseFloat(application.loan_amount.toString()) || 0;
+    const duration = Math.max(1, parseFloat(application.loan_duration_months.toString()) || 1);
+    const interestMethod = application.interest_method || "flat_rate";
+    const interestRatePercent = Number(application.interest_rate ?? 30);
+    const fixedFeeAmount = Number(application.interest_fixed_amount ?? 0);
+
+    const totalInterest = interestMethod === "fixed_fee"
+      ? Math.max(0, fixedFeeAmount)
+      : Math.max(0, principal * (interestRatePercent / 100));
     const totalAmount = principal + totalInterest;
 
     // Group loans have weekly payments (16 weeks for 4 months)
@@ -199,7 +229,10 @@ const LoanApplications = () => {
 
     return {
       principal,
-      interestRate: interestRate * 100,
+      interestMethod,
+      interestRatePercent,
+      fixedFeeAmount,
+      interestLabel: interestMethod === "fixed_fee" ? `Fixed Fee (${fixedFeeAmount.toLocaleString()} UGX)` : `${interestRatePercent}%`,
       totalInterest,
       totalAmount,
       weeklyPayment,
@@ -300,6 +333,18 @@ const LoanApplications = () => {
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
+  const getLoanTitle = (app: LoanApplication) => {
+    const isGroupLoan = app.loan_product === "Group Loan" || !!app.group_id;
+    if (isGroupLoan && app.group_name) return app.group_name;
+    return app.loan_product;
+  };
+
+  const isGroupApplication = (app: LoanApplication) =>
+    app.loan_product === "Group Loan" || !!app.group_id || !!app.group_name;
+
+  const getPrimaryApplicantName = (app: LoanApplication) =>
+    isGroupApplication(app) && app.group_name ? app.group_name : app.full_name;
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -309,7 +354,7 @@ const LoanApplications = () => {
   }
 
   const loanDetails = selectedApplication
-    ? calculateGroupLoanDetails(selectedApplication.loan_amount, selectedApplication.loan_duration_months)
+    ? calculateGroupLoanDetails(selectedApplication)
     : null;
 
   return (
@@ -458,7 +503,12 @@ const LoanApplications = () => {
                           <TableRow key={app.id}>
                             <TableCell>
                               <div>
-                                <div className="font-medium">{app.full_name}</div>
+                                <div className="font-medium">{getPrimaryApplicantName(app)}</div>
+                                {isGroupApplication(app) && app.full_name && (
+                                  <div className="text-xs text-muted-foreground mt-0.5">
+                                    Leader: {app.full_name}
+                                  </div>
+                                )}
                                 {app.group_name && (
                                   <div className="text-xs font-bold text-primary mt-0.5 flex items-center gap-1">
                                     <Users className="h-3 w-3" />
@@ -468,7 +518,12 @@ const LoanApplications = () => {
                                 <div className="text-sm text-muted-foreground">{app.email}</div>
                               </div>
                             </TableCell>
-                            <TableCell>{app.loan_product}</TableCell>
+                            <TableCell>
+                              <div className="font-medium">{getLoanTitle(app)}</div>
+                              {app.group_name && (
+                                <div className="text-xs text-muted-foreground">Group Loan</div>
+                              )}
+                            </TableCell>
                             <TableCell>UGX {app.loan_amount.toLocaleString()}</TableCell>
                             <TableCell>{app.loan_duration_months} months</TableCell>
                             <TableCell>{getStatusBadge(app.status)}</TableCell>
@@ -479,8 +534,7 @@ const LoanApplications = () => {
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => {
-                                    setSelectedApplication(app);
-                                    setIsDialogOpen(true);
+                                    navigate(`/staff-dashboard/applications/${app.id}`);
                                   }}
                                 >
                                   <Eye className="h-4 w-4" />
@@ -502,7 +556,7 @@ const LoanApplications = () => {
                                         <Button
                                           variant="ghost"
                                           size="sm"
-                                          onClick={() => handleStatusChange(app.id, "approved")}
+                                          onClick={() => openDisbursementDialog(app.id)}
                                         >
                                           <CheckCircle className="h-4 w-4 text-green-600" />
                                         </Button>
@@ -528,13 +582,13 @@ const LoanApplications = () => {
               </Card>
 
               <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                <DialogContent className="max-w-2xl">
+                <DialogContent className="w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>Application Details</DialogTitle>
                   </DialogHeader>
                   {selectedApplication && loanDetails && (
                     <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <Label>Applicant Name</Label>
                           <p className="font-medium">{selectedApplication.full_name}</p>
@@ -548,8 +602,8 @@ const LoanApplications = () => {
                           <p className="font-medium">{selectedApplication.phone_number}</p>
                         </div>
                         <div>
-                          <Label>Loan Product</Label>
-                          <p className="font-medium">{selectedApplication.loan_product}</p>
+                          <Label>Loan Title</Label>
+                          <p className="font-medium">{getLoanTitle(selectedApplication)}</p>
                         </div>
                         {selectedApplication.loan_category && (
                           <div>
@@ -613,8 +667,8 @@ const LoanApplications = () => {
                         </div>
                       )}
                       <div className="border-t pt-4">
-                        <h3 className="font-semibold mb-4">Loan Calculation (30% Flat Rate)</h3>
-                        <div className="grid grid-cols-2 gap-4">
+                        <h3 className="font-semibold mb-4">Loan Calculation ({loanDetails.interestLabel})</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <Card>
                             <CardContent className="pt-4">
                               <div className="text-sm text-muted-foreground">Principal Amount</div>
@@ -623,7 +677,7 @@ const LoanApplications = () => {
                           </Card>
                           <Card>
                             <CardContent className="pt-4">
-                              <div className="text-sm text-muted-foreground">Total Interest (30%)</div>
+                              <div className="text-sm text-muted-foreground">{loanDetails.interestMethod === "fixed_fee" ? "Fixed Fee" : `Total Interest (${loanDetails.interestRatePercent}%)`}</div>
                               <div className="text-2xl font-bold">UGX {loanDetails.totalInterest.toLocaleString()}</div>
                             </CardContent>
                           </Card>
@@ -667,7 +721,7 @@ const LoanApplications = () => {
                         </Button>
                         {selectedApplication.status === "pending" && userRole === "admin" && (
                           <>
-                            <Button onClick={() => handleStatusChange(selectedApplication.id, "approved")}>
+                            <Button onClick={() => openDisbursementDialog(selectedApplication.id)}>
                               Approve
                             </Button>
                             <Button variant="destructive" onClick={() => handleStatusChange(selectedApplication.id, "rejected")}>
@@ -699,6 +753,32 @@ const LoanApplications = () => {
                       onCancel={() => setIsEditDialogOpen(false)}
                     />
                   )}
+                </DialogContent>
+              </Dialog>
+
+              <Dialog open={isDisbursementDialogOpen} onOpenChange={setIsDisbursementDialogOpen}>
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Select Disbursement Method</DialogTitle>
+                    <DialogDescription>How was this loan disbursed?</DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3 py-2">
+                    <Label htmlFor="disbursement_method">Method</Label>
+                    <Select value={disbursementMethod} onValueChange={setDisbursementMethod}>
+                      <SelectTrigger id="disbursement_method">
+                        <SelectValue placeholder="Select method" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cash">Cash</SelectItem>
+                        <SelectItem value="bank_transfer">Bank</SelectItem>
+                        <SelectItem value="mobile_money">Mobile Money</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setIsDisbursementDialogOpen(false)}>Cancel</Button>
+                    <Button onClick={confirmApproveWithMethod}>Confirm & Approve</Button>
+                  </div>
                 </DialogContent>
               </Dialog>
             </div>

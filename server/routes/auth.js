@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../db');
+const db = require('../db.cjs');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -13,20 +13,29 @@ router.post('/login', async (req, res) => {
     try {
         const { rows } = await db.query('SELECT * FROM auth.users WHERE email = $1', [email]);
 
+        console.log(`[LOGIN ATTEMPT] Email: ${email}`);
+        console.log(`[LOGIN ATTEMPT] DB row count: ${rows.length}`);
+
+        const dbHost = (db.pool && db.pool.options) ? db.pool.options.host : 'unknown';
+
         if (rows.length === 0) {
-            return res.status(401).json({ error: 'Invalid email or password' });
+            console.log(`[LOGIN FAILED] Reason: User not found in auth.users by email.`);
+            return res.status(401).json({ error: `Email not found: ${email} (DB: ${dbHost})` });
         }
 
         const user = rows[0];
 
-        if (!user.password_hash) {
-            return res.status(401).json({ error: 'Account not set up for local login. Please contact admin.' });
+        if (!user.encrypted_password) {
+            console.log(`[LOGIN FAILED] Reason: encrypted_password column is null or empty.`);
+            return res.status(401).json({ error: 'Auth settings incomplete (DB: ' + dbHost + ')' });
         }
 
-        const isMatch = await bcrypt.compare(password, user.password_hash);
+        const isMatch = await bcrypt.compare(password, user.encrypted_password);
+        console.log(`[LOGIN ATTEMPT] Bcrypt match result: ${isMatch}`);
 
         if (!isMatch) {
-            return res.status(401).json({ error: 'Invalid email or password' });
+            console.log(`[LOGIN FAILED] Reason: Password hash mismatch.`);
+            return res.status(401).json({ error: `Invalid password for ${email} (DB: ${dbHost})` });
         }
 
         // Fetch user role

@@ -2,6 +2,7 @@ import {
   LayoutDashboard,
   FileText,
   Users,
+  Eye,
   DollarSign,
   BarChart3,
   Settings,
@@ -16,7 +17,10 @@ import {
   Sparkles,
   Shield,
   Building2,
-  Package
+  Package,
+  BookOpen,
+  TrendingUp,
+  Scale
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -54,21 +58,32 @@ const menuItems = [
     ],
   },
   {
-    title: "Active Loans",
+    title: "Loans",
     icon: Wallet,
     items: [
       { title: "View All Loans", url: "/staff-dashboard/loans", icon: Wallet },
-      { title: "Loan Details", url: "/staff-dashboard/loans/details", icon: FileSpreadsheet },
-      { title: "Loan Schedule", url: "/staff-dashboard/loans/schedule", icon: Receipt },
+      { title: "Add Loans", url: "/staff-dashboard/loans/add", icon: UserPlus },
+      { title: "Approve Loans", url: "/staff-dashboard/loans/approve", icon: CheckCircle },
+      { title: "Due Loans", url: "/staff-dashboard/loans/due", icon: Clock },
+      { title: "Missed Repayments", url: "/staff-dashboard/loans/missed", icon: XCircle },
+      { title: "Loans in Arrears", url: "/staff-dashboard/loans/arrears", icon: Clock },
+      { title: "No Repayments", url: "/staff-dashboard/loans/no-repayments", icon: Clock },
+      { title: "Past Maturity Date", url: "/staff-dashboard/loans/past-maturity", icon: Clock },
+      { title: "Loan Calculator", url: "/staff-dashboard/loans/calculator", icon: BarChart3 },
     ],
   },
   {
-    title: "Clients",
+    title: "Borrowers",
     icon: Users,
     items: [
-      { title: "View Clients", url: "/staff-dashboard/clients", icon: Users },
-      { title: "Client History", url: "/staff-dashboard/clients/history", icon: FileText },
+      { title: "View Borrower", url: "/staff-dashboard/borrowers", icon: Eye },
+      { title: "Add Borrower", url: "/staff-dashboard/borrowers/add", icon: UserPlus },
     ],
+  },
+  {
+    title: "Guarantors",
+    icon: Shield,
+    url: "/staff-dashboard/guarantors",
   },
   {
     title: "Repayments",
@@ -80,22 +95,34 @@ const menuItems = [
     ],
   },
   {
-    title: "Reports",
-    icon: BarChart3,
+    title: "Accounting & Reports",
+    icon: BookOpen,
     items: [
-      { title: "Loan Reports", url: "/staff-dashboard/reports/loans", icon: BarChart3 },
-      { title: "Financial Reports", url: "/staff-dashboard/reports/financial", icon: DollarSign },
-      { title: "Client Reports", url: "/staff-dashboard/reports/clients", icon: Users },
+      { title: "Financial Overview", url: "/staff-dashboard/accounting?tab=pl", icon: LayoutDashboard },
+      { title: "Aging Report", url: "/staff-dashboard/accounting?tab=aging_report", icon: Clock },
+      { title: "Cash Books", url: "/staff-dashboard/accounting?tab=cashbook", icon: BookOpen },
+      { title: "Income Statement", url: "/staff-dashboard/accounting?tab=income", icon: FileText },
+      { title: "Comprehensive Income", url: "/staff-dashboard/accounting?tab=comprehensive_income", icon: TrendingUp },
+      { title: "Trial Balance", url: "/staff-dashboard/accounting?tab=trial", icon: Scale },
     ],
   },
   {
-    title: "Collateral & Assets",
-    icon: Shield,
+    title: "Creditors",
+    icon: DollarSign,
     items: [
-      { title: "Collateral Register", url: "/staff-dashboard/collateral", icon: Shield },
-      { title: "Asset Valuations", url: "/staff-dashboard/collateral/valuations", icon: FileSpreadsheet },
-      { title: "Insurance Tracking", url: "/staff-dashboard/collateral/insurance", icon: Shield },
+      { title: "View Creditors", url: "/staff-dashboard/creditors", icon: Eye },
+      { title: "Add Creditor", url: "/staff-dashboard/creditors/add", icon: UserPlus },
     ],
+  },
+  {
+    title: "Collateral Register",
+    icon: Shield,
+    url: "/staff-dashboard/collateral",
+  },
+  {
+    title: "Asset Management",
+    icon: Package,
+    url: "/staff-dashboard/assets",
   },
   {
     title: "Branch Management",
@@ -116,14 +143,17 @@ const menuItems = [
     ],
   },
   {
+    title: "Staff Management",
+    icon: Users,
+    items: [
+      { title: "Staff Directory", url: "/staff-dashboard/staff", icon: Users },
+      { title: "Payroll", url: "/staff-dashboard/staff/payroll", icon: Receipt },
+    ],
+  },
+  {
     title: "Settings",
     icon: Settings,
     url: "/staff-dashboard/settings",
-  },
-  {
-    title: "Staff Management",
-    icon: Users,
-    url: "/staff-dashboard/staff",
   },
 ];
 
@@ -137,11 +167,13 @@ export function StaffSidebar() {
 
   if (loading) return null; // or a skeleton
 
+  const normalizedRole = (role || "").toString().toLowerCase().trim().replace(/[\s-]+/g, "_");
+
   // Filter menu items based on role
   const filteredMenuItems = menuItems.map(item => {
     // If it's a loan officer, we might need to filter internal items
-    if (role === 'loan_officer') {
-      const restrictedTitles = ['Branch Management', 'Product Management', 'Settings', 'Reports', 'Staff Management'];
+    if (normalizedRole === 'loan_officer') {
+      const restrictedTitles = ['Branch Management', 'Product Management', 'Settings', 'Reports', 'Staff Management', 'Accounting & Reports', 'Creditors', 'Asset Management'];
       if (restrictedTitles.includes(item.title)) return null;
 
       // Filter sub-items

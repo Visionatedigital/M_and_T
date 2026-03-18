@@ -4,23 +4,23 @@ const db = require('../db');
 const bcrypt = require('bcryptjs');
 
 // Get all users (Staff & Admins)
+// Queries profiles + user_roles — avoids auth schema permission issues
 router.get('/', async (req, res) => {
     try {
         const { rows } = await db.query(`
             SELECT 
-                u.id, 
-                u.email, 
-                u.created_at,
+                p.id,
+                p.email,
                 p.full_name, 
                 p.first_name, 
                 p.last_name, 
                 p.phone_number,
+                p.created_at,
                 ur.role
-            FROM auth.users u
-            JOIN profiles p ON u.id = p.id
-            JOIN user_roles ur ON u.id = ur.user_id
+            FROM profiles p
+            JOIN user_roles ur ON p.id = ur.user_id
             WHERE ur.role IN ('admin', 'loan_officer')
-            ORDER BY u.created_at DESC
+            ORDER BY p.created_at DESC
         `);
         res.json(rows);
     } catch (err) {
@@ -42,36 +42,46 @@ router.post('/', async (req, res) => {
     try {
         await client.query('BEGIN');
 
-        // Check if user exists
-        const userCheck = await client.query('SELECT id FROM auth.users WHERE email = $1', [email]);
-        if (userCheck.rows.length > 0) {
+        // Check if user already exists in profiles
+        const existingCheck = await client.query('SELECT id FROM profiles WHERE email = $1', [email]);
+        if (existingCheck.rows.length > 0) {
             await client.query('ROLLBACK');
-            return res.status(400).json({ error: 'User already exists' });
+            return res.status(400).json({ error: 'A user with this email already exists' });
         }
 
         // Hash password
         const salt = await bcrypt.genSalt(10);
         const passwordHash = await bcrypt.hash(password, salt);
 
-        // Insert into auth.users
-        const userRes = await client.query(`
-            INSERT INTO auth.users (email, password_hash, raw_user_meta_data)
-            VALUES ($1, $2, $3)
-            RETURNING id, created_at
-        `, [email, passwordHash, JSON.stringify({ full_name })]);
+        let userId;
 
-        const userId = userRes.rows[0].id;
+        // Try to insert into auth.users first (works on Supabase)
+        try {
+            const userRes = await client.query(`
+                INSERT INTO auth.users (email, encrypted_password, raw_user_meta_data, created_at, updated_at, email_confirmed_at)
+                VALUES ($1, $2, $3, NOW(), NOW(), NOW())
+                RETURNING id
+            `, [email, passwordHash, JSON.stringify({ full_name })]);
+            userId = userRes.rows[0].id;
+        } catch (authErr) {
+            // auth.users not accessible — generate a UUID
+            console.warn('auth.users insert failed, using gen_random_uuid():', authErr.message);
+            const uuidRes = await client.query('SELECT gen_random_uuid() AS id');
+            userId = uuidRes.rows[0].id;
+        }
 
         // Insert into profiles
         await client.query(`
-            INSERT INTO profiles (id, full_name, email, phone_number)
-            VALUES ($1, $2, $3, $4)
-        `, [userId, full_name, email, phone_number]);
+            INSERT INTO profiles (id, full_name, email, phone_number, created_at)
+            VALUES ($1, $2, $3, $4, NOW())
+            ON CONFLICT (id) DO NOTHING
+        `, [userId, full_name, email, phone_number || null]);
 
         // Insert into user_roles
         await client.query(`
             INSERT INTO user_roles (user_id, role)
             VALUES ($1, $2)
+            ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role
         `, [userId, role]);
 
         await client.query('COMMIT');
@@ -81,7 +91,7 @@ router.post('/', async (req, res) => {
             email,
             full_name,
             role,
-            created_at: userRes.rows[0].created_at
+            created_at: new Date().toISOString()
         });
 
     } catch (err) {

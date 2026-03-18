@@ -6,7 +6,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 // Check if Supabase is in offline/restoring mode
-const isOfflineMode = import.meta.env.VITE_SUPABASE_OFFLINE === 'true' || 
+const isOfflineMode = import.meta.env.VITE_SUPABASE_OFFLINE === 'true' ||
   (SUPABASE_URL && SUPABASE_URL.includes('placeholder'));
 
 // Validate environment variables
@@ -32,10 +32,9 @@ export const supabase = createClient<Database>(
   {
     auth: {
       storage: localStorage,
-      persistSession: true,
-      autoRefreshToken: true,
-      // Disable auto refresh in offline mode to prevent errors
-      ...(isOfflineMode && { autoRefreshToken: false }),
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
     },
     // Add global error handler
     global: {

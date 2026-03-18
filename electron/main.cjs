@@ -1,17 +1,37 @@
 const { app, BrowserWindow, Menu, shell, dialog, nativeImage } = require('electron');
 const path = require('path');
-const { startServer } = require('./server.cjs');
+const fs = require('fs');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) app.quit();
 
 const isDev = !app.isPackaged;
 
-// App icon path — use build/ for the high-res version
-const iconPath = path.join(__dirname, '..', 'build', 'icon.png');
+// App icon path — use public/ for the source
+const iconPath = path.join(__dirname, '..', 'public', 'icon.png');
 
 let mainWindow;
+let splashWindow;
 let serverInstance;
+
+function createSplashWindow() {
+    splashWindow = new BrowserWindow({
+        width: 500,
+        height: 350,
+        transparent: true,
+        frame: false,
+        alwaysOnTop: true,
+        resizable: false,
+        icon: iconPath,
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+        }
+    });
+
+    splashWindow.loadFile(path.join(__dirname, 'splash.html'));
+    splashWindow.on('closed', () => (splashWindow = null));
+}
 
 function createWindow() {
     const appIcon = nativeImage.createFromPath(iconPath);
@@ -30,11 +50,14 @@ function createWindow() {
         },
         show: false,
         backgroundColor: '#0f172a',
-        titleBarStyle: 'hiddenInset',
+        // titleBarStyle: 'hiddenInset', // Removed for better Windows compatibility
     });
 
     // Show window once ready to prevent flickering
     mainWindow.once('ready-to-show', () => {
+        if (splashWindow) {
+            splashWindow.close();
+        }
         mainWindow.show();
         mainWindow.focus();
     });
@@ -131,45 +154,62 @@ function createMenu() {
 // App lifecycle
 app.whenReady().then(async () => {
     console.log('🚀 Starting M&T Growth Gateway Desktop...');
-    console.log(`📁 User data path: ${app.getPath('userData')}`);
 
-    // Set Dock icon on macOS (critical for dev mode — production builds use electron-builder)
+    // Create splash screen immediately
+    createSplashWindow();
+
+    // Set Dock icon on macOS
     if (process.platform === 'darwin' && app.dock) {
         const dockIcon = nativeImage.createFromPath(iconPath);
         app.dock.setIcon(dockIcon);
-        console.log('🎨 Dock icon set');
     }
 
-    // ── Read .env to determine mode ──
-    // Parse .env manually (no dotenv dependency needed)
-    const fs = require('fs');
-    let remoteMode = false;
-    try {
-        const envPath = path.join(__dirname, '..', '.env');
-        const envContent = fs.readFileSync(envPath, 'utf8');
-        const match = envContent.match(/VITE_REMOTE_MODE\s*=\s*(\w+)/);
-        remoteMode = match && match[1] === 'true';
-    } catch (e) {
-        // No .env file — default to local mode
-    }
-
-    console.log(`🌐 Mode: ${remoteMode ? 'REMOTE (shared server)' : 'LOCAL (SQLite)'}`);
-
-    if (!remoteMode) {
-        // ── Local Mode: Start embedded Express + SQLite server ──
-        try {
-            serverInstance = await startServer(app.getPath('userData'));
-            console.log('✅ Local backend server started successfully');
-        } catch (err) {
-            console.error('❌ Failed to start backend server:', err);
-            dialog.showErrorBox('Server Error', `Failed to start the application server:\n${err.message}`);
-            app.quit();
-            return;
+    // ── Load and parse .env early ──
+    const envFileName = '.env';
+    // Search paths:
+    // 1. Resources folder (standard for asar)
+    // 2. App root folder (beside the .exe - where extraFiles goes on Windows)
+    // 3. Project root (for development)
+    const resourcesEnvPath = path.join(process.resourcesPath, envFileName);
+    const rootEnvPath = path.join(path.dirname(process.execPath), envFileName);
+    const devEnvPath = path.join(__dirname, '..', envFileName);
+    
+    let envPath = devEnvPath;
+    if (!isDev) {
+        if (fs.existsSync(resourcesEnvPath)) {
+            envPath = resourcesEnvPath;
+        } else if (fs.existsSync(rootEnvPath)) {
+            envPath = rootEnvPath;
         }
-    } else {
-        // ── Remote Mode: No local server needed ──
-        console.log('☁️  Remote mode — desktop app will connect to shared server');
-        console.log('   The local SQLite server will NOT be started.');
+    }
+
+    console.log(`📂 Loading environment from: ${envPath}`);
+    
+    // Explicitly load dotenv with the found path to populate process.env
+    require('dotenv').config({ path: envPath });
+
+    let useSupabase = process.env.VITE_USE_SUPABASE === 'true';
+    let remoteUrl = process.env.VITE_REMOTE_API_URL || 'http://localhost:5001';
+
+    console.log(`🌐 Mode: ${useSupabase ? 'SUPABASE (Remote DB)' : 'LOCAL (SQLite)'}`);
+
+    try {
+        if (useSupabase) {
+            // ── Connect directly to Supabase via server/index.cjs ──
+            const remoteServer = require('../server/index.cjs');
+            serverInstance = await remoteServer.startServer(5001); // Standardize on 5001 for remote
+            console.log('✅ Remote (Supabase) backend server started on port 5001');
+        } else {
+            // ── Local Mode: Start embedded SQLite server (on port 3000) ──
+            const { startServer: startLocalServer } = require('./server.cjs');
+            serverInstance = await startLocalServer(app.getPath('userData'));
+            console.log('✅ Local SQLite backend server started on port 3000');
+        }
+    } catch (err) {
+        console.error('❌ Failed to start backend server:', err);
+        dialog.showErrorBox('Server Error', `Failed to start the application server:\n${err.message}`);
+        app.quit();
+        return;
     }
 
     createMenu();

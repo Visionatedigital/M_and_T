@@ -1,8 +1,13 @@
+// Disable strict SSL checking for Supabase pooler
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const { Pool } = require('pg');
 require('dotenv').config();
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
+    ssl: {
+        rejectUnauthorized: false
+    }
 });
 
 pool.on('connect', () => {

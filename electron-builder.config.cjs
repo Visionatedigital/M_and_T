@@ -11,7 +11,9 @@ module.exports = {
     files: [
         'dist/**/*',
         'electron/**/*',
-        'server/services/**/*',
+        'server/**/*',
+        '.env',
+        'package.json',
         'node_modules/**/*',
         '!node_modules/.cache',
         '!node_modules/@types',
@@ -20,6 +22,9 @@ module.exports = {
         '!node_modules/@eslint*',
         '!node_modules/vite',
         '!node_modules/@vitejs',
+    ],
+    extraFiles: [
+        '.env'
     ],
     extraMetadata: {
         main: 'electron/main.cjs',

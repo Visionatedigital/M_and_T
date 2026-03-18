@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { useState, useEffect, useMemo } from "react";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Button } from "@/components/ui/button";
@@ -13,11 +13,14 @@ import {
     FormDescription,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Trash2, UserPlus, Plus } from "lucide-react";
+import { Trash2, UserPlus, Plus, User, Users, ChevronsUpDown, Crown, Search, Shield } from "lucide-react";
 import { api } from "@/services/api";
 import { useToast } from "@/hooks/use-toast";
 
@@ -31,36 +34,44 @@ const guarantorSchema = z.object({
 
 // Schema for Loan Application
 const formSchema = z.object({
-    // Applicant Details
-    full_name: z.string().min(2, "Name must be at least 2 characters"),
-    email: z.string().email("Invalid email"),
-    phone_number: z.string().min(10, "Phone number must be valid"),
-    id_number: z.string().min(5, "ID Number is required"),
-    date_of_birth: z.string().refine((date) => new Date(date).toString() !== 'Invalid Date', { message: "Valid date is required" }),
+    // Borrower selection (individual) - details come from selected borrower
+    borrower_id: z.string().optional(),
 
-    // Address
-    district: z.string().min(1, "District is required"),
+    // Application Type (Individual vs Group)
+    application_type: z.enum(["individual", "group"]),
+
+    // Loan Details
+    loan_product: z.string().min(1, "Select a category"),
+    loan_category: z.string().min(1, "Select a product"),
+    loan_amount: z.string().refine((val) => !isNaN(Number(val)) && Number(val) > 0, {
+        message: "Amount must be a positive number",
+    }),
+    loan_duration: z.string().refine((val) => !isNaN(Number(val)) && Number(val) > 0, {
+        message: "Duration must be a positive number",
+    }),
+    duration_unit: z.enum(["weeks", "months", "years"]).optional(),
+    repayment_frequency: z.enum(["weekly", "biweekly", "monthly"]).optional(),
+    interest_method: z.enum(["flat_rate", "reducing_balance", "interest_only", "fixed_fee"]).optional(),
+    interest_rate: z.string().optional(),
+    interest_fixed_amount: z.string().optional(),
+    loan_purpose: z.string().min(2, "Purpose is required"),
+    business_location: z.string().optional(),
+    group_name: z.string().optional(),
+
+    // Legacy fields (populated from selected borrower when submitting)
+    full_name: z.string().optional(),
+    email: z.union([z.string().email("Invalid email"), z.literal("")]).optional(),
+    phone_number: z.string().optional(),
+    id_number: z.string().optional(),
+    date_of_birth: z.string().optional(),
+    district: z.string().optional(),
     division: z.string().optional(),
     county: z.string().optional(),
     sub_county: z.string().optional(),
     parish: z.string().optional(),
-    village: z.string().min(1, "Village is required"),
-
-    // Loan Details
-    loan_product: z.string().min(1, "Select a loan product"),
-    loan_category: z.string().min(1, "Select a loan category"), // Business, School Fees, etc.
-    loan_amount: z.string().refine((val) => !isNaN(Number(val)) && Number(val) > 0, {
-        message: "Amount must be a positive number",
-    }),
-    loan_duration_months: z.string().refine((val) => !isNaN(Number(val)) && Number(val) > 0, {
-        message: "Duration must be a positive number",
-    }),
-    loan_purpose: z.string().min(5, "Purpose is required"),
-    business_location: z.string().optional(),
-    group_name: z.string().optional(),
+    village: z.string().optional(),
 
     // Security & Collateral (for secured loans)
-    security_type: z.string().optional(),
     security_type: z.string().optional(),
     security_value: z.string().optional(),
     insurance_status: z.string().optional(), // Added insurance status
@@ -102,7 +113,9 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
     const { toast } = useToast();
     const [loanProducts, setLoanProducts] = useState<any[]>([]);
     // Use a simplified local state for guarantors since useFieldArray can be complex with shadcn form sometimes
-    const [guarantors, setGuarantors] = useState<any[]>(initialData?.guarantors || [{ name: "", phone: "", nin: "", address: "" }]);
+    const [guarantors, setGuarantors] = useState<any[]>(
+        (initialData?.guarantors || []).filter((g: any) => g?.name || g?.phone)
+    );
     const [selectedProduct, setSelectedProduct] = useState<any>(null);
     const [uploadedFiles, setUploadedFiles] = useState<Record<string, File | null>>({
         national_id: null,
@@ -115,22 +128,29 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
     const form = useForm<FormValues>({
         resolver: zodResolver(formSchema),
         defaultValues: {
+            borrower_id: initialData?.borrower_id || "",
+            application_type: (initialData?.application_type as "individual" | "group") || "individual",
+            loan_product: initialData?.loan_product || "",
+            loan_category: initialData?.loan_category || "Business",
+            loan_amount: initialData?.loan_amount?.toString() || "",
+            loan_duration: initialData?.loan_duration_months?.toString() || initialData?.loan_duration?.toString() || "",
+            duration_unit: (initialData?.duration_unit as "weeks" | "months" | "years") || "months",
+            repayment_frequency: (initialData?.repayment_frequency as "weekly" | "biweekly" | "monthly") || "monthly",
+            interest_method: (initialData?.interest_method as "flat_rate" | "reducing_balance" | "interest_only" | "fixed_fee") || "flat_rate",
+            interest_rate: initialData?.interest_rate?.toString() || "30",
+            interest_fixed_amount: initialData?.interest_fixed_amount?.toString() || "",
+            loan_purpose: initialData?.loan_purpose || "",
             full_name: initialData?.full_name || "",
             email: initialData?.email || "",
             phone_number: initialData?.phone_number || "",
             id_number: initialData?.id_number || "",
             date_of_birth: initialData?.date_of_birth?.split('T')[0] || "",
-            district: initialData?.address?.split(', ')[3] || "", // Basic parsing, can be improved
+            district: initialData?.address?.split(', ')[3] || "",
             division: "",
             county: initialData?.address?.split(', ')[2] || "",
             sub_county: initialData?.address?.split(', ')[2] || "",
             parish: initialData?.address?.split(', ')[1] || "",
             village: initialData?.address?.split(', ')[0] || "",
-            loan_product: initialData?.loan_product || "",
-            loan_category: initialData?.loan_category || "Business",
-            loan_amount: initialData?.loan_amount?.toString() || "",
-            loan_duration_months: initialData?.loan_duration_months?.toString() || "",
-            loan_purpose: initialData?.loan_purpose || "",
             business_location: initialData?.business_location || "",
             security_type: initialData?.security_type || "",
             security_value: initialData?.security_value?.toString() || "",
@@ -159,6 +179,9 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
     }, []);
 
     const watchProduct = form.watch("loan_product");
+    const watchAppType = form.watch("application_type");
+    const watchLoanAmount = useWatch({ control: form.control, name: "loan_amount", defaultValue: "" });
+    const watchLoanDuration = useWatch({ control: form.control, name: "loan_duration", defaultValue: "" });
     useEffect(() => {
         if (watchProduct) {
             const product = loanProducts.find(p => p.name === watchProduct);
@@ -166,22 +189,42 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
         }
     }, [watchProduct, loanProducts]);
 
-    const addGuarantor = () => {
-        if (guarantors.length < 2) { // Max 2 guarantors usually
-            setGuarantors([...guarantors, { name: "", phone: "", nin: "", address: "" }]);
+    // When application type changes: auto-set Group Loan for group, clear for individual
+    useEffect(() => {
+        const currentProduct = form.getValues("loan_product");
+        const isGroup = watchAppType === "group";
+        const groupLoan = loanProducts.find(p => p.name === "Group Loan");
+        if (isGroup && groupLoan) {
+            form.setValue("loan_product", "Group Loan");
+        } else if (!isGroup && currentProduct === "Group Loan") {
+            form.setValue("loan_product", "");
+            setSelectedGroupLeader(null);
+            setGroupLeaderAmount(0);
         }
+    }, [watchAppType, loanProducts]);
+
+    const addGuarantorFromDirectory = (g: any) => {
+        if (guarantors.length >= 2) return;
+        const alreadySelected = guarantors.some(
+            (x) => (x.id && x.id === g.id) || (x.phone === g.phone_number && x.name === g.full_name)
+        );
+        if (alreadySelected) return;
+        setGuarantors([
+            ...guarantors.filter((x) => x.name || x.phone),
+            {
+                name: g.full_name || "",
+                phone: g.phone_number || "",
+                nin: g.id_number || "",
+                address: g.address || "",
+                id: g.id,
+            },
+        ]);
     };
 
     const removeGuarantor = (index: number) => {
         const newGuarantors = [...guarantors];
         newGuarantors.splice(index, 1);
-        setGuarantors(newGuarantors);
-    };
-
-    const updateGuarantor = (index: number, field: string, value: string) => {
-        const newGuarantors = [...guarantors];
-        newGuarantors[index] = { ...newGuarantors[index], [field]: value };
-        setGuarantors(newGuarantors);
+        setGuarantors(newGuarantors.length ? newGuarantors : []);
     };
 
     const handleFileChange = (fileType: string, e: React.ChangeEvent<HTMLInputElement>) => {
@@ -203,33 +246,151 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
         }
     };
 
-    const [groupMembers, setGroupMembers] = useState<any[]>(initialData?.group_members || []);
+    const [groupMembers, setGroupMembers] = useState<any[]>(() => {
+        const raw = initialData?.group_members || [];
+        const leaderId = initialData?.borrower_id;
+        return raw
+            .filter((m: any) => m.borrower_id !== leaderId)
+            .map((m: any) => m.id ? m : {
+                id: m.borrower_id,
+                full_name: m.name,
+                phone_number: m.phone,
+                id_number: m.id_number,
+                email: m.email,
+                date_of_birth: m.date_of_birth,
+                district: m.district,
+                province_state: m.county,
+                county: m.county,
+                address: m.village,
+                village: m.village,
+                parish: m.parish,
+                sub_county: m.sub_county,
+                amount: m.amount ?? 0,
+                ...m,
+            });
+    });
+    const [groupLeaderAmount, setGroupLeaderAmount] = useState<number>(() => {
+        const raw = initialData?.group_members || [];
+        const leaderId = initialData?.borrower_id;
+        const leader = raw.find((m: any) => m.borrower_id === leaderId);
+        return leader?.amount ?? 0;
+    });
+    const [borrowers, setBorrowers] = useState<any[]>([]);
+    const [selectedBorrowerForIndividual, setSelectedBorrowerForIndividual] = useState<any>(null);
+    const [selectedGroupLeader, setSelectedGroupLeader] = useState<any>(null);
+    const [groupLeaderOpen, setGroupLeaderOpen] = useState(false);
+    const [individualBorrowerOpen, setIndividualBorrowerOpen] = useState(false);
+    const [addMemberOpen, setAddMemberOpen] = useState(false);
+    const [availableCollateral, setAvailableCollateral] = useState<any[]>([]);
+    const [selectedCollateral, setSelectedCollateral] = useState<any>(null);
+    const [collateralOpen, setCollateralOpen] = useState(false);
+    const [guarantorsDirectory, setGuarantorsDirectory] = useState<any[]>([]);
+    const [addGuarantorOpen, setAddGuarantorOpen] = useState(false);
 
-    const addGroupMember = () => {
-        setGroupMembers([...groupMembers, {
-            name: "",
-            phone: "",
-            id_number: "",
-            email: "",
-            date_of_birth: "",
-            district: "",
-            county: "",
-            sub_county: "",
-            parish: "",
-            village: ""
-        }]);
+    useEffect(() => {
+        if (form.watch("application_type") === "individual") {
+            api.guarantors.getAll().then(setGuarantorsDirectory).catch(() => setGuarantorsDirectory([]));
+        }
+    }, [form.watch("application_type")]);
+
+    useEffect(() => {
+        api.borrowers.getAll(false).then(setBorrowers).catch(() => api.clients.getAll(false).then(setBorrowers).catch(() => setBorrowers([])));
+    }, []);
+
+    useEffect(() => {
+        api.collateral.getAll(true).then(setAvailableCollateral).catch(() => setAvailableCollateral([]));
+    }, []);
+
+    const memberBorrowerIds = useMemo(() => {
+        const appType = form.watch("application_type");
+        if (appType === "group") {
+            const ids = [selectedGroupLeader?.id, ...groupMembers.map((m: any) => m.id)].filter(Boolean);
+            return ids;
+        }
+        if (appType === "individual" && initialData?.borrower_id) {
+            return [initialData.borrower_id];
+        }
+        return [];
+    }, [form.watch("application_type"), selectedGroupLeader?.id, groupMembers, initialData?.borrower_id]);
+
+    const memberOwnedCollateral = useMemo(() => {
+        if (memberBorrowerIds.length === 0) return [];
+        return availableCollateral.filter((c: any) => c.borrower_id && memberBorrowerIds.includes(c.borrower_id));
+    }, [availableCollateral, memberBorrowerIds]);
+
+    useEffect(() => {
+        if (selectedCollateral && !memberOwnedCollateral.some((c: any) => c.id === selectedCollateral.id)) {
+            setSelectedCollateral(null);
+            form.setValue("security_type", "");
+            form.setValue("security_value", "");
+        }
+    }, [memberOwnedCollateral, selectedCollateral]);
+
+    useEffect(() => {
+        if (initialData?.application_type === "group" && initialData?.borrower_id) {
+            api.borrowers.get(initialData.borrower_id).then(setSelectedGroupLeader).catch(() => {});
+        }
+        if (initialData?.application_type === "individual" && initialData?.borrower_id) {
+            api.borrowers.get(initialData.borrower_id).then(setSelectedBorrowerForIndividual).catch(() => {});
+        }
+    }, [initialData?.application_type, initialData?.borrower_id]);
+
+    const handleSelectCollateral = (collateral: any) => {
+        setSelectedCollateral(collateral);
+        if (collateral) {
+            form.setValue("security_type", collateral.type || "");
+            form.setValue("security_value", String(collateral.estimated_value || collateral.current_value || ""));
+        } else {
+            form.setValue("security_type", "");
+            form.setValue("security_value", "");
+        }
+    };
+
+    const [borrowerAttachments, setBorrowerAttachments] = useState<Record<string, string> | null>(null);
+
+    const handleSelectGroupLeader = (borrower: any) => {
+        setSelectedGroupLeader(borrower);
+        setBorrowerAttachments(null);
+        if (borrower) {
+            const addr = (borrower.address || "").split(", ");
+            form.setValue("full_name", borrower.full_name || "");
+            form.setValue("email", borrower.email || `${(borrower.full_name || "").replace(/\s+/g, "").toLowerCase()}@placeholder.com`);
+            form.setValue("phone_number", borrower.phone_number || "");
+            form.setValue("id_number", borrower.id_number || "");
+            form.setValue("date_of_birth", borrower.date_of_birth ? String(borrower.date_of_birth).split("T")[0] : "");
+            form.setValue("district", borrower.district || addr[addr.length - 1] || "");
+            form.setValue("village", addr[0] || "");
+            form.setValue("parish", addr[1] || "");
+            form.setValue("county", borrower.province_state || borrower.county || "");
+            api.borrowers.getAttachments(borrower.id).then((att) => {
+                if (att && Object.keys(att).length > 0) setBorrowerAttachments(att);
+            }).catch(() => {});
+        }
+    };
+
+    const addGroupMember = (borrower: any) => {
+        if (!borrower?.id) return;
+        const alreadySelected = selectedGroupLeader?.id === borrower.id || groupMembers.some((m: any) => m.id === borrower.id);
+        if (alreadySelected) return;
+        setGroupMembers([...groupMembers, { ...borrower, amount: 0 }]);
     };
 
     const removeGroupMember = (index: number) => {
-        const newMembers = [...groupMembers];
-        newMembers.splice(index, 1);
-        setGroupMembers(newMembers);
+        setGroupMembers(groupMembers.filter((_, i) => i !== index));
     };
 
-    const updateGroupMember = (index: number, field: string, value: string) => {
-        const newMembers = [...groupMembers];
-        newMembers[index] = { ...newMembers[index], [field]: value };
-        setGroupMembers(newMembers);
+    const updateGroupMemberAmount = (index: number, amount: number) => {
+        setGroupMembers(prev => prev.map((m, i) => i === index ? { ...m, amount } : m));
+    };
+
+    const distributeEqually = () => {
+        const total = Number(form.getValues("loan_amount")) || 0;
+        const count = (selectedGroupLeader ? 1 : 0) + groupMembers.length;
+        if (count === 0 || total <= 0) return;
+        const each = Math.floor(total / count);
+        const remainder = total - each * count;
+        if (selectedGroupLeader) setGroupLeaderAmount(each + remainder);
+        setGroupMembers(prev => prev.map(m => ({ ...m, amount: each })));
     };
 
     const onSubmit = async (values: FormValues) => {
@@ -239,6 +400,44 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
             if (!user) {
                 toast({ title: "Error", description: "You must be logged in", variant: "destructive" });
                 return;
+            }
+
+            // Individual applications require a selected borrower
+            if (values.application_type === "individual") {
+                if (!selectedBorrowerForIndividual?.id) {
+                    toast({ title: "Validation Error", description: "Please select a borrower from the directory.", variant: "destructive" });
+                    return;
+                }
+            }
+
+            // Group applications require group name, group leader, and member amounts
+            if (values.application_type === "group") {
+                if (!values.group_name?.trim()) {
+                    toast({
+                        title: "Group Name Required",
+                        description: "Please enter the group name for group applications.",
+                        variant: "destructive"
+                    });
+                    return;
+                }
+                if (!selectedGroupLeader?.id) {
+                    toast({
+                        title: "Group Leader Required",
+                        description: "Please select an existing borrower to be the group leader.",
+                        variant: "destructive"
+                    });
+                    return;
+                }
+                const totalAmount = Number(values.loan_amount) || 0;
+                const allocatedTotal = groupLeaderAmount + groupMembers.reduce((sum, m) => sum + (m.amount ?? 0), 0);
+                if (Math.abs(allocatedTotal - totalAmount) > 1) {
+                    toast({
+                        title: "Amount Mismatch",
+                        description: `Member amounts (${allocatedTotal.toLocaleString()} UGX) must equal the total loan amount (${totalAmount.toLocaleString()} UGX). Use "Distribute equally" or adjust each member's share.`,
+                        variant: "destructive"
+                    });
+                    return;
+                }
             }
 
             // Check product limits
@@ -281,28 +480,49 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                 }
             }
 
+            const durationVal = Number(values.loan_duration) || 1;
+            const durationUnit = values.duration_unit || "months";
+            const loanDurationMonths = durationUnit === "weeks" ? durationVal / 4.33 : durationUnit === "years" ? durationVal * 12 : durationVal;
+
+            const borrowerData = values.application_type === "individual" ? selectedBorrowerForIndividual : selectedGroupLeader;
+            const addr = (borrowerData?.address || "").split(", ");
+            const fullName = borrowerData?.full_name || values.full_name || "";
+            const emailVal = borrowerData?.email || values.email || `${fullName.replace(/\s+/g, '').toLowerCase()}@placeholder.com`;
+            const phoneVal = borrowerData?.phone_number || values.phone_number || "";
+            const idNum = borrowerData?.id_number || values.id_number || "";
+            const dob = borrowerData?.date_of_birth ? String(borrowerData.date_of_birth).split("T")[0] : values.date_of_birth || "1990-01-01";
+            const districtVal = borrowerData?.district || addr[addr.length - 1] || values.district || "";
+            const villageVal = addr[0] || values.village || "";
+            const parishVal = addr[1] || values.parish || "";
+            const countyVal = borrowerData?.province_state || borrowerData?.county || values.county || "";
+            const addressVal = [villageVal, parishVal, values.sub_county, districtVal].filter(Boolean).join(", ") || "N/A";
+
             const applicationData = {
-                user_id: user.id, // Loan Officer ID
-                full_name: values.full_name,
-                email: values.email || `${values.full_name.replace(/\s+/g, '').toLowerCase()}@placeholder.com`,
-                phone_number: values.phone_number,
-                id_number: values.id_number,
-                date_of_birth: values.date_of_birth,
-
-                // Address
-                district: values.district,
+                user_id: user.id,
+                borrower_id: values.application_type === "group" ? selectedGroupLeader?.id : selectedBorrowerForIndividual?.id,
+                full_name: fullName,
+                email: emailVal,
+                phone_number: phoneVal,
+                id_number: idNum,
+                date_of_birth: dob,
+                district: districtVal,
                 division: values.division,
-                county: values.county,
+                county: countyVal,
                 sub_county: values.sub_county,
-                parish: values.parish,
-                village: values.village,
-                address: `${values.village}, ${values.parish}, ${values.sub_county}, ${values.district}`,
-
-                // Loan Info
+                parish: parishVal,
+                village: villageVal,
+                address: addressVal,
+                application_type: values.application_type,
                 loan_product: values.loan_product,
                 loan_category: values.loan_category,
                 loan_amount: Number(values.loan_amount),
-                loan_duration_months: Number(values.loan_duration_months),
+                loan_duration_months: Math.ceil(loanDurationMonths),
+                loan_duration: durationVal,
+                duration_unit: durationUnit,
+                repayment_frequency: values.repayment_frequency || "monthly",
+                interest_method: values.interest_method || "flat_rate",
+                interest_rate: values.interest_rate ? parseFloat(values.interest_rate) : null,
+                interest_fixed_amount: values.interest_fixed_amount ? parseFloat(values.interest_fixed_amount) : null,
                 loan_purpose: values.loan_purpose,
                 business_location: values.business_location,
                 employment_status: "Self-Employed",
@@ -312,19 +532,63 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                 security_value: values.security_value ? Number(values.security_value) : null,
                 insurance_status: values.insurance_status || "Not Insured",
 
-                // Document Attachments
-                // Document Attachments - Use new upload URL or fallback to existing URL
-                attachment_national_id: uploadedUrls.national_id || initialData?.attachment_national_id || null,
-                attachment_lc1_letter: uploadedUrls.lc1_letter || initialData?.attachment_lc1_letter || null,
-                attachment_recommendation_letter: uploadedUrls.recommendation_letter || initialData?.attachment_recommendation_letter || null,
-                attachment_passport_photo: uploadedUrls.passport_photo || initialData?.attachment_passport_photo || null,
-                attachment_income_statement: uploadedUrls.income_statement || initialData?.attachment_income_statement || null,
+                // Document Attachments - new upload, borrower's from previous loan, or existing
+                attachment_national_id: uploadedUrls.national_id || borrowerAttachments?.attachment_national_id || initialData?.attachment_national_id || null,
+                attachment_lc1_letter: uploadedUrls.lc1_letter || borrowerAttachments?.attachment_lc1_letter || initialData?.attachment_lc1_letter || null,
+                attachment_recommendation_letter: uploadedUrls.recommendation_letter || borrowerAttachments?.attachment_recommendation_letter || initialData?.attachment_recommendation_letter || null,
+                attachment_passport_photo: uploadedUrls.passport_photo || borrowerAttachments?.attachment_passport_photo || initialData?.attachment_passport_photo || null,
+                attachment_income_statement: uploadedUrls.income_statement || borrowerAttachments?.attachment_income_statement || initialData?.attachment_income_statement || null,
                 attachment_uploaded_at: uploadedUrls.national_id ? new Date().toISOString() : null,
 
                 // JSON Fields
                 guarantors: guarantors,
                 group_name: values.group_name || null,
-                group_members: form.watch("loan_product") === "Group Loan" ? groupMembers : [],
+                group_leader_amount: values.application_type === "group" ? groupLeaderAmount : undefined,
+                group_members: values.application_type === "group"
+                    ? initialData
+                        ? [
+                            ...(selectedGroupLeader ? [{
+                                borrower_id: selectedGroupLeader.id,
+                                name: fullName,
+                                phone: phoneVal,
+                                id_number: idNum,
+                                email: emailVal,
+                                date_of_birth: dob,
+                                district: districtVal,
+                                county: countyVal,
+                                village: villageVal,
+                                amount: groupLeaderAmount,
+                            }] : []),
+                            ...groupMembers.map((b: any) => ({
+                                borrower_id: b.id,
+                                name: b.full_name,
+                                phone: b.phone_number,
+                                id_number: b.id_number,
+                                email: b.email,
+                                date_of_birth: b.date_of_birth,
+                                district: b.district,
+                                county: b.province_state || b.county,
+                                village: b.address || b.village,
+                                parish: b.parish,
+                                sub_county: b.sub_county,
+                                amount: b.amount ?? 0,
+                            })),
+                        ]
+                        : groupMembers.map((b: any) => ({
+                            borrower_id: b.id,
+                            name: b.full_name,
+                            phone: b.phone_number,
+                            id_number: b.id_number,
+                            email: b.email,
+                            date_of_birth: b.date_of_birth,
+                            district: b.district,
+                            county: b.province_state || b.county,
+                            village: b.address || b.village,
+                            parish: b.parish,
+                            sub_county: b.sub_county,
+                            amount: b.amount ?? 0,
+                        }))
+                    : [],
                 status: initialData ? initialData.status : "pending"
             };
 
@@ -336,20 +600,12 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                 // Create new application
                 const loanData = await api.applications.create(applicationData);
 
-                // Automatically Register Collateral in the register if available (only on create for now)
-                if (values.security_type && values.security_value) {
+                // Link collateral from register (no manual entry)
+                if (selectedCollateral?.id) {
                     try {
-                        await api.collateral.create({
-                            loan_application_id: loanData.id,
-                            type: values.security_type,
-                            description: `Pledged for loan application: ${values.loan_purpose.substring(0, 50)}...`,
-                            estimated_value: Number(values.security_value),
-                            current_value: Number(values.security_value),
-                            status: 'active',
-                            notes: `Automatically registered from loan application on ${new Date().toLocaleDateString()}`
-                        });
+                        await api.collateral.update(selectedCollateral.id, { loan_application_id: loanData.id });
                     } catch (collateralError) {
-                        console.error("Error registering collateral:", collateralError);
+                        console.error("Error linking collateral:", collateralError);
                     }
                 }
                 toast({ title: "Success", description: "Loan application submitted successfully" });
@@ -364,14 +620,65 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
 
     return (
         <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit, (errors) => {
-                console.error("Form Validation Errors:", errors);
+            <            form onSubmit={form.handleSubmit(onSubmit, (errors) => {
+                const firstError = errors && typeof errors === "object" && Object.keys(errors).length > 0
+                    ? Object.entries(errors).map(([k, v]) => (v as { message?: string })?.message || `${k} is invalid`).join(". ")
+                    : "Please check the form for missing or invalid fields.";
                 toast({
                     title: "Validation Error",
-                    description: "Please check the form for missing or invalid fields.",
+                    description: firstError,
                     variant: "destructive"
                 });
             })} className="space-y-6">
+                {/* Application Type - Individual vs Group */}
+                <Card className="border-2 border-primary/20">
+                    <CardHeader className="pb-3">
+                        <CardTitle className="text-base">Application Type</CardTitle>
+                        <FormDescription>Select whether this is an individual or group loan application. The requirements differ for each.</FormDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <FormField
+                            control={form.control}
+                            name="application_type"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormControl>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <button
+                                                type="button"
+                                                onClick={() => field.onChange("individual")}
+                                                className={`flex flex-col items-center gap-2 p-6 rounded-lg border-2 transition-all ${
+                                                    field.value === "individual"
+                                                        ? "border-primary bg-primary/10"
+                                                        : "border-muted hover:border-muted-foreground/30"
+                                                }`}
+                                            >
+                                                <User className="h-10 w-10 text-muted-foreground" />
+                                                <span className="font-semibold">Individual</span>
+                                                <span className="text-xs text-muted-foreground text-center">Single borrower application</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => field.onChange("group")}
+                                                className={`flex flex-col items-center gap-2 p-6 rounded-lg border-2 transition-all ${
+                                                    field.value === "group"
+                                                        ? "border-primary bg-primary/10"
+                                                        : "border-muted hover:border-muted-foreground/30"
+                                                }`}
+                                            >
+                                                <Users className="h-10 w-10 text-muted-foreground" />
+                                                <span className="font-semibold">Group</span>
+                                                <span className="text-xs text-muted-foreground text-center">Group loan with multiple members</span>
+                                            </button>
+                                        </div>
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                    </CardContent>
+                </Card>
+
                 {/* Loan Details */}
                 <div className="space-y-4">
                     <h3 className="text-lg font-semibold">Loan Details</h3>
@@ -381,19 +688,27 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                             name="loan_product"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Loan Product</FormLabel>
+                                    <FormLabel>Category</FormLabel>
                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                                         <FormControl>
                                             <SelectTrigger>
-                                                <SelectValue placeholder="Select Product" />
+                                                <SelectValue placeholder="Select Category" />
                                             </SelectTrigger>
                                         </FormControl>
                                         <SelectContent>
-                                            {loanProducts.map((product) => (
-                                                <SelectItem key={product.id} value={product.name}>
-                                                    {product.name}
-                                                </SelectItem>
-                                            ))}
+                                            {loanProducts
+                                                .filter((p) => {
+                                                    const isGroup = form.watch("application_type") === "group";
+                                                    // Individual: exclude Group Loan; Group: show Group Loan (and any other group products)
+                                                    if (p.name === "Group Loan") return isGroup;
+                                                    if (isGroup) return false;
+                                                    return true;
+                                                })
+                                                .map((product) => (
+                                                    <SelectItem key={product.id} value={product.name}>
+                                                        {product.name}
+                                                    </SelectItem>
+                                                ))}
                                         </SelectContent>
                                     </Select>
                                     <FormMessage />
@@ -405,11 +720,11 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                             name="loan_category"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Loan Category</FormLabel>
+                                    <FormLabel>Product</FormLabel>
                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                                         <FormControl>
                                             <SelectTrigger>
-                                                <SelectValue placeholder="Select Category" />
+                                                <SelectValue placeholder="Select Product" />
                                             </SelectTrigger>
                                         </FormControl>
                                         <SelectContent>
@@ -437,16 +752,191 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                         />
                         <FormField
                             control={form.control}
-                            name="loan_duration_months"
+                            name="loan_duration"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Duration (Months)</FormLabel>
-                                    <FormControl><Input type="number" {...field} /></FormControl>
+                                    <FormLabel>Duration</FormLabel>
+                                    <FormControl><Input type="number" {...field} placeholder="e.g. 12" /></FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )}
                         />
+                        <FormField
+                            control={form.control}
+                            name="duration_unit"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Duration Unit</FormLabel>
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Unit" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            <SelectItem value="weeks">Weeks</SelectItem>
+                                            <SelectItem value="months">Months</SelectItem>
+                                            <SelectItem value="years">Years</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="repayment_frequency"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Repayment Frequency</FormLabel>
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Frequency" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            <SelectItem value="weekly">Weekly</SelectItem>
+                                            <SelectItem value="biweekly">Bi-weekly</SelectItem>
+                                            <SelectItem value="monthly">Monthly</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="interest_method"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Interest Method</FormLabel>
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Method" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            <SelectItem value="flat_rate">Flat Rate</SelectItem>
+                                            <SelectItem value="reducing_balance">Reducing Balance</SelectItem>
+                                            <SelectItem value="interest_only">Interest Only</SelectItem>
+                                            <SelectItem value="fixed_fee">Fixed Fee (UGX)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </FormItem>
+                            )}
+                        />
+                        {form.watch("interest_method") === "fixed_fee" ? (
+                            <FormField
+                                control={form.control}
+                                name="interest_fixed_amount"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Fixed Fee (UGX)</FormLabel>
+                                        <FormControl><Input type="number" {...field} placeholder="e.g. 50000" /></FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                        ) : (
+                            <FormField
+                                control={form.control}
+                                name="interest_rate"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Interest Rate (%)</FormLabel>
+                                        <FormControl><Input type="number" step="0.1" {...field} placeholder="e.g. 30" /></FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                        )}
                     </div>
+
+                    {/* Loan metrics summary - shows when amount is entered */}
+                    {(() => {
+                        const principal = Number(watchLoanAmount) || 0;
+                        const durationVal = Math.max(1, Number(watchLoanDuration) || 1);
+                        const durationUnit = form.watch("duration_unit") || "months";
+                        const repaymentFreq = form.watch("repayment_frequency") || "monthly";
+                        const interestMethod = form.watch("interest_method") || "flat_rate";
+                        const interestRateVal = parseFloat(form.watch("interest_rate") || "0") || (selectedProduct?.base_interest_rate ?? 30);
+                        const interestFixedVal = parseFloat(form.watch("interest_fixed_amount") || "0") || 0;
+
+                        const showMetrics = principal > 0;
+                        if (!showMetrics) return null;
+
+                        const periodsPerMonth = repaymentFreq === "weekly" ? 4.33 : repaymentFreq === "biweekly" ? 2.17 : 1;
+                        const durationInMonths = durationUnit === "weeks" ? durationVal / 4.33 : durationUnit === "years" ? durationVal * 12 : durationVal;
+                        const numInstallments = Math.max(1, Math.ceil(durationInMonths * periodsPerMonth));
+
+                        let totalInterest = 0;
+                        const ratePerPeriod = interestMethod === "fixed_fee" ? 0 : (interestRateVal / 100) / (repaymentFreq === "weekly" ? 4.33 : repaymentFreq === "biweekly" ? 2.17 : 1);
+                        if (interestMethod === "fixed_fee") {
+                            totalInterest = interestFixedVal;
+                        } else if (interestMethod === "flat_rate") {
+                            totalInterest = principal * ratePerPeriod * numInstallments;
+                        } else if (interestMethod === "interest_only") {
+                            totalInterest = principal * ratePerPeriod * numInstallments;
+                        } else if (interestMethod === "reducing_balance" && ratePerPeriod > 0) {
+                            const r = ratePerPeriod;
+                            const n = numInstallments;
+                            const pmt = (principal * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
+                            totalInterest = pmt * numInstallments - principal;
+                        }
+                        const totalRepayment = principal + totalInterest;
+                        const installmentAmount = totalRepayment / numInstallments;
+
+                        const cycleLabel = repaymentFreq === "weekly" ? "Weekly" : repaymentFreq === "biweekly" ? "Bi-weekly" : "Monthly";
+                        const startDate = new Date();
+                        const maturityDate = new Date(startDate);
+                        const daysToAdd = repaymentFreq === "weekly" ? numInstallments * 7 : repaymentFreq === "biweekly" ? numInstallments * 14 : Math.ceil(durationInMonths * 30.44);
+                        maturityDate.setDate(maturityDate.getDate() + daysToAdd);
+
+                        return (
+                            <div className="space-y-2">
+                                <p className="text-sm font-medium text-muted-foreground">Loan Summary</p>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 rounded-lg border bg-primary/5 p-4">
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Principal</p>
+                                        <p className="font-semibold">{principal.toLocaleString()} UGX</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Interest</p>
+                                        <p className="font-semibold">{interestMethod === "fixed_fee" ? `${interestFixedVal.toLocaleString()} UGX (fixed)` : `${interestRateVal}%`}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Total interest</p>
+                                        <p className="font-semibold">{totalInterest.toLocaleString(undefined, { maximumFractionDigits: 0 })} UGX</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Total repayment</p>
+                                        <p className="font-semibold text-primary">{totalRepayment.toLocaleString(undefined, { maximumFractionDigits: 0 })} UGX</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">No. of installments</p>
+                                        <p className="font-semibold">{numInstallments}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Repayment cycle</p>
+                                        <p className="font-semibold">{cycleLabel}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Installment amount</p>
+                                        <p className="font-semibold">{installmentAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })} UGX</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Term</p>
+                                        <p className="font-semibold">{numInstallments} {repaymentFreq === "weekly" ? "weeks" : repaymentFreq === "biweekly" ? "fortnights" : "months"}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-muted-foreground">Maturity date</p>
+                                        <p className="font-semibold">{maturityDate.toLocaleDateString()}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <FormField
                             control={form.control}
@@ -459,7 +949,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                 </FormItem>
                             )}
                         />
-                        {form.watch("loan_product") === "Group Loan" && (
+                        {form.watch("application_type") === "group" && (
                             <FormField
                                 control={form.control}
                                 name="group_name"
@@ -484,9 +974,15 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                 {/* Application Stage Fees */}
                                 <div>
                                     <p className="font-semibold text-xs text-muted-foreground mb-2">A. Application Stage (Payable Regardless of Approval)</p>
-                                    <div className="flex justify-between">
-                                        <span>Loan Processing Fee (Non-refundable):</span>
-                                        <span className="font-semibold">15,000 UGX</span>
+                                    <div className="space-y-1">
+                                        <div className="flex justify-between">
+                                            <span>Application Fee:</span>
+                                            <span className="font-semibold">5,000 UGX</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span>Processing Fee:</span>
+                                            <span className="font-semibold">5,000 UGX</span>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -495,13 +991,17 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                     <p className="font-semibold text-xs text-muted-foreground mb-2">B. Upon Approval (Before Disbursement)</p>
                                     <div className="space-y-1">
                                         <div className="flex justify-between">
-                                            <span>Admission & Passbook Fee:</span>
-                                            <span className="font-semibold">10,000 UGX</span>
+                                            <span>Admission Fee:</span>
+                                            <span className="font-semibold">5,000 UGX</span>
                                         </div>
                                         <div className="flex justify-between">
-                                            <span>Monitoring Fee (3%):</span>
+                                            <span>Passbook Fee:</span>
+                                            <span className="font-semibold">5,000 UGX</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span>Insurance (1% of principal):</span>
                                             <span className="font-semibold">
-                                                {(Number(form.watch("loan_amount")) * 0.03).toLocaleString()} UGX
+                                                {(Number(form.watch("loan_amount")) * 0.01).toLocaleString()} UGX
                                             </span>
                                         </div>
                                         <div className="flex justify-between">
@@ -519,19 +1019,19 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                         <span>Total Upfront Fees:</span>
                                         <span>
                                             {(
-                                                15000 + 10000 +
-                                                (Number(form.watch("loan_amount")) * 0.03) +
+                                                5000 + 5000 + 5000 + 5000 + 5000 +
+                                                (Number(form.watch("loan_amount")) * 0.01) +
                                                 (Number(form.watch("loan_amount")) * 0.10)
                                             ).toLocaleString()} UGX
                                         </span>
                                     </div>
-                                    {form.watch("loan_product") === "Group Loan" && (
+                                    {form.watch("application_type") === "group" && (groupMembers.length + 1) > 0 && (
                                         <div className="flex justify-between text-blue-600 font-semibold mt-1">
                                             <span>Per Member (Total Members: {groupMembers.length + 1}):</span>
                                             <span>
                                                 {(
-                                                    (15000 + 10000 +
-                                                        (Number(form.watch("loan_amount")) * 0.03) +
+                                                    (5000 + 5000 + 5000 + 5000 + 5000 +
+                                                        (Number(form.watch("loan_amount")) * 0.01) +
                                                         (Number(form.watch("loan_amount")) * 0.10)) / (groupMembers.length + 1)
                                                 ).toLocaleString(undefined, { maximumFractionDigits: 0 })} UGX
                                             </span>
@@ -540,8 +1040,8 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                     <p className="text-xs text-muted-foreground mt-1">
                                         Net disbursement: {(
                                             Number(form.watch("loan_amount")) -
-                                            (15000 + 10000 + (Number(form.watch("loan_amount")) * 0.03))
-                                        ).toLocaleString()} UGX
+                                            (5000 + 5000 + 5000 + 5000 + 5000 + (Number(form.watch("loan_amount")) * 0.01))
+                                        ).toLocaleString()} UGX (excl. refundable security deposit)
                                     </p>
                                 </div>
 
@@ -551,7 +1051,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                     <div className="space-y-1 text-xs">
                                         <div className="flex justify-between">
                                             <span>Late Payment Penalty (per missed installment):</span>
-                                            <span className="font-medium">10,000 UGX</span>
+                                            <span className="font-medium">5,000 UGX</span>
                                         </div>
                                         <div className="flex justify-between">
                                             <span>Loan Restructuring (≤ 600,000 UGX):</span>
@@ -571,492 +1071,580 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                 <Separator />
 
                 <div className="space-y-6">
-                    {/* Member 1 (Group Leader) Section */}
-                    <Card className="border-2 border-primary/20">
-                        <CardHeader className="bg-primary/5 pb-3">
-                            <CardTitle className="text-base font-bold flex items-center gap-2">
-                                {form.watch("loan_product") === "Group Loan" && (
-                                    <span className="bg-primary text-primary-foreground px-2 py-0.5 rounded text-xs">MEMBER 1</span>
-                                )}
-                                {form.watch("loan_product") === "Group Loan" ? "Group Leader Information" : "Borrower Information"}
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="pt-6 space-y-6">
-                            <div className="space-y-4">
-                                <h4 className="text-xs font-bold uppercase text-muted-foreground border-b pb-1">Personal Details</h4>
-                                <FormField
-                                    control={form.control}
-                                    name="full_name"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Full Name</FormLabel>
-                                            <FormControl><Input {...field} placeholder="Full legal name" /></FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <FormField
-                                        control={form.control}
-                                        name="phone_number"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Phone Number</FormLabel>
-                                                <FormControl><Input {...field} /></FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={form.control}
-                                        name="id_number"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>National ID (NIN)</FormLabel>
-                                                <FormControl><Input {...field} /></FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={form.control}
-                                        name="email"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Email (Optional)</FormLabel>
-                                                <FormControl><Input {...field} /></FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={form.control}
-                                        name="date_of_birth"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Date of Birth</FormLabel>
-                                                <FormControl><Input type="date" {...field} /></FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="space-y-4 pt-2">
-                                <h4 className="text-xs font-bold uppercase text-muted-foreground border-b pb-1">Address & Business</h4>
-                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                    <FormField
-                                        control={form.control}
-                                        name="district"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>District</FormLabel>
-                                                <FormControl><Input {...field} /></FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={form.control}
-                                        name="county"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>County</FormLabel>
-                                                <FormControl><Input {...field} /></FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={form.control}
-                                        name="sub_county"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Sub-County/Division</FormLabel>
-                                                <FormControl><Input {...field} /></FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={form.control}
-                                        name="parish"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Parish</FormLabel>
-                                                <FormControl><Input {...field} /></FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={form.control}
-                                        name="village"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Village</FormLabel>
-                                                <FormControl><Input {...field} /></FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                </div>
-                                <FormField
-                                    control={form.control}
-                                    name="business_location"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Business Location</FormLabel>
-                                            <FormControl><Input {...field} placeholder="Where the business is located" /></FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    {/* Group Members Section */}
-                    {form.watch("loan_product") === "Group Loan" && (
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <h3 className="text-lg font-semibold">Other Group Members</h3>
-                                <Button type="button" variant="outline" size="sm" onClick={addGroupMember}>
-                                    <Plus className="mr-2 h-4 w-4" /> Add Member
-                                </Button>
-                            </div>
-                            <div className="bg-blue-50 p-3 rounded-md mb-4 flex items-start gap-2 border border-blue-100">
-                                <div className="bg-blue-500 text-white rounded-full p-1 mt-0.5">
-                                    <Plus className="h-3 w-3" />
-                                </div>
-                                <p className="text-xs text-blue-700 leading-tight">
-                                    <strong>Co-Guarantee Notice:</strong> All group members serve as co-guarantors for the group's total loan liability.
+                    {/* Group: Select Group Leader (existing borrower) | Individual: Borrower Information */}
+                    {form.watch("application_type") === "group" ? (
+                        <Card className="border-2 border-primary/10">
+                            <CardHeader className="pb-3">
+                                <CardTitle className="text-base flex items-center gap-2">
+                                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600">
+                                        <Crown className="h-5 w-5" />
+                                    </div>
+                                    Group Leader
+                                </CardTitle>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                    Select the borrower who will lead this group loan.
                                 </p>
-                            </div>
-
-                            <div className="grid grid-cols-1 gap-6">
-                                {groupMembers.map((member, index) => (
-                                    <Card key={index} className="border-2 border-muted shadow-sm">
-                                        <CardHeader className="bg-muted/30 py-2">
-                                            <div className="flex justify-between items-center">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="bg-muted-foreground text-white px-2 py-0.5 rounded text-[10px] font-bold">MEMBER {index + 2}</span>
-                                                    <span className="text-sm font-semibold uppercase tracking-wider">Group Member</span>
+                            </CardHeader>
+                            <CardContent className="pt-0">
+                                <Popover open={groupLeaderOpen} onOpenChange={setGroupLeaderOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            role="combobox"
+                                            aria-expanded={groupLeaderOpen}
+                                            className="w-full justify-between font-normal h-12 px-4 hover:bg-muted/50"
+                                        >
+                                            {selectedGroupLeader ? (
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                                        <User className="h-4 w-4" />
+                                                    </div>
+                                                    <div className="flex flex-col items-start text-left min-w-0">
+                                                        <span className="font-medium truncate">{selectedGroupLeader.full_name}</span>
+                                                        <span className="text-xs text-muted-foreground truncate">{selectedGroupLeader.phone_number}</span>
+                                                    </div>
                                                 </div>
-                                                <Button type="button" variant="ghost" size="sm" onClick={() => removeGroupMember(index)}>
-                                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                            ) : (
+                                                <div className="flex items-center gap-3 text-muted-foreground">
+                                                    <Search className="h-5 w-5 shrink-0" />
+                                                    <span>Search borrower to be group leader...</span>
+                                                </div>
+                                            )}
+                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent
+                                        className="w-[520px] max-w-[calc(100vw-2rem)] p-0"
+                                        align="start"
+                                        side="bottom"
+                                        sideOffset={8}
+                                        avoidCollisions={false}
+                                    >
+                                        <Command className="rounded-lg border-0">
+                                            <CommandInput placeholder="Search by name, phone, or email..." />
+                                            <CommandList className="max-h-[280px]">
+                                                <CommandEmpty>No borrower found.</CommandEmpty>
+                                                <CommandGroup>
+                                                    {borrowers.map((b) => (
+                                                        <CommandItem
+                                                            key={b.id}
+                                                            value={`${b.full_name} ${b.phone_number} ${b.email || ""}`}
+                                                            onSelect={() => {
+                                                                handleSelectGroupLeader(b);
+                                                                setGroupLeaderOpen(false);
+                                                            }}
+                                                            className="py-3"
+                                                        >
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                                                                    <User className="h-4 w-4 text-muted-foreground" />
+                                                                </div>
+                                                                <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                                                    <span className="font-medium">{b.full_name}</span>
+                                                                    <span className="text-xs text-muted-foreground">{b.phone_number}{b.email ? ` · ${b.email}` : ""}</span>
+                                                                </div>
+                                                            </div>
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
+                                {selectedGroupLeader && form.watch("loan_amount") && (
+                                    <div className="mt-4 space-y-2">
+                                        <Label className="text-sm">Group Leader&apos;s Share (UGX)</Label>
+                                        <Input
+                                            type="number"
+                                            min={0}
+                                            value={groupLeaderAmount || ""}
+                                            onChange={(e) => setGroupLeaderAmount(Number(e.target.value) || 0)}
+                                            placeholder="Amount for group leader"
+                                        />
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <Card className="border-2 border-primary/10">
+                            <CardHeader className="pb-3">
+                                <CardTitle className="text-base flex items-center gap-2">
+                                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                                        <User className="h-5 w-5" />
+                                    </div>
+                                    Select Borrower
+                                </CardTitle>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                    Select a registered borrower from the directory. Borrowers are registered first, then attached to loans.
+                                </p>
+                            </CardHeader>
+                            <CardContent className="pt-0">
+                                <Popover open={individualBorrowerOpen} onOpenChange={setIndividualBorrowerOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            role="combobox"
+                                            aria-expanded={individualBorrowerOpen}
+                                            className="w-full justify-between font-normal h-12 px-4 hover:bg-muted/50"
+                                        >
+                                            {selectedBorrowerForIndividual ? (
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                                        <User className="h-4 w-4" />
+                                                    </div>
+                                                    <div className="flex flex-col items-start text-left min-w-0">
+                                                        <span className="font-medium truncate">{selectedBorrowerForIndividual.full_name}</span>
+                                                        <span className="text-xs text-muted-foreground truncate">{selectedBorrowerForIndividual.phone_number}</span>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-center gap-3 text-muted-foreground">
+                                                    <Search className="h-5 w-5 shrink-0" />
+                                                    <span>Search borrower to attach to this loan...</span>
+                                                </div>
+                                            )}
+                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent
+                                        className="w-[520px] max-w-[calc(100vw-2rem)] p-0"
+                                        align="start"
+                                        side="bottom"
+                                        sideOffset={8}
+                                        avoidCollisions={false}
+                                    >
+                                        <Command className="rounded-lg border-0">
+                                            <CommandInput placeholder="Search by name, phone, or email..." />
+                                            <CommandList className="max-h-[280px]">
+                                                <CommandEmpty>No borrower found.</CommandEmpty>
+                                                <CommandGroup>
+                                                    {borrowers.map((b) => (
+                                                        <CommandItem
+                                                            key={b.id}
+                                                            value={`${b.full_name} ${b.phone_number} ${b.email || ""}`}
+                                                            onSelect={() => {
+                                                                setSelectedBorrowerForIndividual(b);
+                                                                form.setValue("borrower_id", b.id);
+                                                                setIndividualBorrowerOpen(false);
+                                                            }}
+                                                            className="py-3"
+                                                        >
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                                                                    <User className="h-4 w-4 text-muted-foreground" />
+                                                                </div>
+                                                                <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                                                    <span className="font-medium">{b.full_name}</span>
+                                                                    <span className="text-xs text-muted-foreground">{b.phone_number}{b.email ? ` · ${b.email}` : ""}</span>
+                                                                </div>
+                                                            </div>
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
+                                {selectedBorrowerForIndividual && (
+                                    <p className="text-xs text-muted-foreground mt-2">
+                                        Borrower: {selectedBorrowerForIndividual.full_name} · {selectedBorrowerForIndividual.phone_number}
+                                    </p>
+                                )}
+                            </CardContent>
+                        </Card>
+                    )}
+
+                    {/* Group Members Section - select existing borrowers */}
+                    {form.watch("application_type") === "group" && (
+                        <Card className="border-2 border-primary/10">
+                            <CardHeader className="pb-3">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <CardTitle className="text-base flex items-center gap-2">
+                                            <Users className="h-5 w-5 text-primary" />
+                                            Other Group Members
+                                        </CardTitle>
+                                        <p className="text-sm text-muted-foreground mt-1">
+                                            Select existing borrowers. All members serve as co-guarantors for the group&apos;s total loan liability.
+                                        </p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={distributeEqually}
+                                            disabled={!form.watch("loan_amount") || (groupMembers.length === 0 && !selectedGroupLeader)}
+                                        >
+                                            Distribute equally
+                                        </Button>
+                                        <Popover open={addMemberOpen} onOpenChange={setAddMemberOpen}>
+                                            <PopoverTrigger asChild>
+                                                <Button type="button" size="sm">
+                                                    <Plus className="mr-2 h-4 w-4" /> Add Member
+                                                </Button>
+                                            </PopoverTrigger>
+                                        <PopoverContent
+                                            className="w-[520px] max-w-[calc(100vw-2rem)] p-0"
+                                            align="center"
+                                            side="bottom"
+                                            sideOffset={8}
+                                            avoidCollisions={false}
+                                        >
+                                            <Command className="rounded-lg border-0">
+                                                <CommandInput placeholder="Search by name, phone, or email..." />
+                                                <CommandList className="max-h-[280px]">
+                                                    <CommandEmpty>No borrower found.</CommandEmpty>
+                                                    <CommandGroup>
+                                                        {borrowers
+                                                            .filter((b) => b.id !== selectedGroupLeader?.id && !groupMembers.some((m: any) => m.id === b.id))
+                                                            .map((b) => (
+                                                                <CommandItem
+                                                                    key={b.id}
+                                                                    value={`${b.full_name} ${b.phone_number} ${b.email || ""}`}
+                                                                    onSelect={() => {
+                                                                        addGroupMember(b);
+                                                                        setAddMemberOpen(false);
+                                                                    }}
+                                                                    className="py-3"
+                                                                >
+                                                                    <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                                                        <span className="font-medium">{b.full_name}</span>
+                                                                        <span className="text-xs text-muted-foreground">{b.phone_number}{b.email ? ` · ${b.email}` : ""}</span>
+                                                                    </div>
+                                                                </CommandItem>
+                                                            ))}
+                                                    </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
+                                    </div>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="pt-0">
+                                {form.watch("loan_amount") && (selectedGroupLeader || groupMembers.length > 0) && (
+                                    <div className="mb-4 p-3 rounded-lg bg-muted/50 text-sm">
+                                        <span className="font-medium">Total allocated: </span>
+                                        <span className={Math.abs((groupLeaderAmount + groupMembers.reduce((s, m) => s + (m.amount ?? 0), 0)) - Number(form.watch("loan_amount") || 0)) <= 1 ? "text-green-600" : "text-amber-600"}>
+                                            {(groupLeaderAmount + groupMembers.reduce((s, m) => s + (m.amount ?? 0), 0)).toLocaleString()} UGX
+                                        </span>
+                                        <span className="text-muted-foreground"> / {Number(form.watch("loan_amount")).toLocaleString()} UGX</span>
+                                    </div>
+                                )}
+                                {groupMembers.length > 0 ? (
+                                    <div className="grid gap-3 sm:grid-cols-2">
+                                        {groupMembers.map((member, index) => (
+                                            <div
+                                                key={member.id || index}
+                                                className="flex items-center justify-between gap-3 rounded-lg border bg-muted/40 px-4 py-3 shadow-sm transition-colors hover:bg-muted/60"
+                                            >
+                                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                                        <User className="h-4 w-4" />
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="font-medium truncate">{member.full_name || member.name}</p>
+                                                        <p className="text-xs text-muted-foreground truncate">{member.phone_number || member.phone}</p>
+                                                        {form.watch("loan_amount") && (
+                                                            <div className="mt-2">
+                                                                <Input
+                                                                    type="number"
+                                                                    min={0}
+                                                                    placeholder="Amount (UGX)"
+                                                                    className="h-8 text-sm"
+                                                                    value={member.amount ?? ""}
+                                                                    onChange={(e) => updateGroupMemberAmount(index, Number(e.target.value) || 0)}
+                                                                />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="shrink-0 text-muted-foreground hover:text-destructive"
+                                                    onClick={() => removeGroupMember(index)}
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
                                                 </Button>
                                             </div>
-                                        </CardHeader>
-                                        <CardContent className="pt-6 space-y-4">
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                <div className="space-y-4">
-                                                    <h5 className="text-[10px] font-bold uppercase text-muted-foreground border-b pb-1">Personal Details</h5>
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                        <div className="space-y-1">
-                                                            <label className="text-[10px] text-muted-foreground uppercase font-semibold">Full Name</label>
-                                                            <Input
-                                                                placeholder="Member Name"
-                                                                value={member.name}
-                                                                onChange={(e) => updateGroupMember(index, 'name', e.target.value)}
-                                                            />
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <label className="text-[10px] text-muted-foreground uppercase font-semibold">Phone Number</label>
-                                                            <Input
-                                                                placeholder="Phone"
-                                                                value={member.phone}
-                                                                onChange={(e) => updateGroupMember(index, 'phone', e.target.value)}
-                                                            />
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <label className="text-[10px] text-muted-foreground uppercase font-semibold">National ID / NIN</label>
-                                                            <Input
-                                                                placeholder="NIN"
-                                                                value={member.id_number}
-                                                                onChange={(e) => updateGroupMember(index, 'id_number', e.target.value)}
-                                                            />
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <label className="text-[10px] text-muted-foreground uppercase font-semibold">Email (Optional)</label>
-                                                            <Input
-                                                                placeholder="Email"
-                                                                value={member.email}
-                                                                onChange={(e) => updateGroupMember(index, 'email', e.target.value)}
-                                                            />
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <label className="text-[10px] text-muted-foreground uppercase font-semibold">Date of Birth</label>
-                                                            <Input
-                                                                type="date"
-                                                                value={member.date_of_birth}
-                                                                onChange={(e) => updateGroupMember(index, 'date_of_birth', e.target.value)}
-                                                            />
-                                                        </div>
-                                                    </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 bg-muted/20 py-12 px-6 text-center">
+                                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted mb-3">
+                                            <UserPlus className="h-6 w-6 text-muted-foreground" />
+                                        </div>
+                                        <p className="font-medium text-muted-foreground">No members added yet</p>
+                                        <p className="text-sm text-muted-foreground mt-1">
+                                            Click &quot;Add Member&quot; to select from existing borrowers in the system.
+                                        </p>
+                                    </div>
+                                )}
+                                {form.watch("application_type") === "group" &&
+                                    form.watch("loan_amount") &&
+                                    form.watch("loan_duration") &&
+                                    Math.abs((groupLeaderAmount + groupMembers.reduce((s, m) => s + (m.amount ?? 0), 0)) - Number(form.watch("loan_amount") || 0)) <= 1 && (
+                                    <div className="mt-4 rounded-lg border bg-primary/5 p-4">
+                                        <p className="text-sm font-semibold mb-3">Per-member repayment schedule</p>
+                                        <div className="space-y-2 text-sm">
+                                            {selectedGroupLeader && groupLeaderAmount > 0 && (
+                                                <div className="flex justify-between items-center py-2 border-b">
+                                                    <span className="font-medium">{selectedGroupLeader.full_name} (Leader)</span>
+                                                    <span>UGX {(() => {
+                                                        const d = Number(form.watch("loan_duration")) || 1;
+                                                        const du = form.watch("duration_unit") || "months";
+                                                        const rf = form.watch("repayment_frequency") || "monthly";
+                                                        const months = du === "weeks" ? d / 4.33 : du === "years" ? d * 12 : d;
+                                                        const periodsPerMonth = rf === "weekly" ? 4.33 : rf === "biweekly" ? 2.17 : 1;
+                                                        const numPeriods = Math.ceil(months * periodsPerMonth);
+                                                        const rate = parseFloat(form.watch("interest_rate") || "30") / 100 || 0.30;
+                                                        const totalPerLeader = groupLeaderAmount * (1 + rate);
+                                                        return `${(totalPerLeader / numPeriods).toLocaleString(undefined, { maximumFractionDigits: 0 })}/${rf === "weekly" ? "week" : rf === "biweekly" ? "fortnight" : "month"} × ${numPeriods} ${rf === "weekly" ? "weeks" : rf === "biweekly" ? "fortnights" : "months"}`;
+                                                    })()}</span>
                                                 </div>
-
-                                                <div className="space-y-4">
-                                                    <h5 className="text-[10px] font-bold uppercase text-muted-foreground border-b pb-1">Address Details</h5>
-                                                    <div className="grid grid-cols-2 gap-2">
-                                                        <div className="space-y-1">
-                                                            <label className="text-[10px] text-muted-foreground uppercase font-semibold">District</label>
-                                                            <Input
-                                                                placeholder="District"
-                                                                value={member.district}
-                                                                onChange={(e) => updateGroupMember(index, 'district', e.target.value)}
-                                                            />
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <label className="text-[10px] text-muted-foreground uppercase font-semibold">County</label>
-                                                            <Input
-                                                                placeholder="County"
-                                                                value={member.county}
-                                                                onChange={(e) => updateGroupMember(index, 'county', e.target.value)}
-                                                            />
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <label className="text-[10px] text-muted-foreground uppercase font-semibold">Sub-County</label>
-                                                            <Input
-                                                                placeholder="Sub-County"
-                                                                value={member.sub_county}
-                                                                onChange={(e) => updateGroupMember(index, 'sub_county', e.target.value)}
-                                                            />
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <label className="text-[10px] text-muted-foreground uppercase font-semibold">Parish</label>
-                                                            <Input
-                                                                placeholder="Parish"
-                                                                value={member.parish}
-                                                                onChange={(e) => updateGroupMember(index, 'parish', e.target.value)}
-                                                            />
-                                                        </div>
-                                                        <div className="space-y-1 col-span-2">
-                                                            <label className="text-[10px] text-muted-foreground uppercase font-semibold">Village / Residence</label>
-                                                            <Input
-                                                                placeholder="Village"
-                                                                value={member.village}
-                                                                onChange={(e) => updateGroupMember(index, 'village', e.target.value)}
-                                                            />
-                                                        </div>
+                                            )}
+                                            {groupMembers.filter((m: any) => (m.amount ?? 0) > 0).map((m: any, i: number) => {
+                                                const amt = m.amount ?? 0;
+                                                const d = Number(form.watch("loan_duration")) || 1;
+                                                const du = form.watch("duration_unit") || "months";
+                                                const rf = form.watch("repayment_frequency") || "monthly";
+                                                const months = du === "weeks" ? d / 4.33 : du === "years" ? d * 12 : d;
+                                                const periodsPerMonth = rf === "weekly" ? 4.33 : rf === "biweekly" ? 2.17 : 1;
+                                                const numPeriods = Math.ceil(months * periodsPerMonth);
+                                                const rate = parseFloat(form.watch("interest_rate") || "30") / 100 || 0.30;
+                                                const totalPerMember = amt * (1 + rate);
+                                                const periodLabel = rf === "weekly" ? "week" : rf === "biweekly" ? "fortnight" : "month";
+                                                const termLabel = rf === "weekly" ? "weeks" : rf === "biweekly" ? "fortnights" : "months";
+                                                return (
+                                                    <div key={i} className="flex justify-between items-center py-2 border-b last:border-0">
+                                                        <span className="font-medium">{m.full_name || m.name}</span>
+                                                        <span>UGX {(totalPerMember / numPeriods).toLocaleString(undefined, { maximumFractionDigits: 0 })}/{periodLabel} × {numPeriods} {termLabel}</span>
                                                     </div>
-                                                </div>
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                ))}
-                            </div>
-                        </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
                     )}
                 </div>
 
                 <Separator />
 
-                {/* Security & Collateral (Secured Loans Only) */}
-                <div className="space-y-4">
-                    <h3 className="text-lg font-semibold">Security & Collateral (Secured Loans Only)</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <FormField
-                            control={form.control}
-                            name="security_type"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Type of Security</FormLabel>
-                                    <FormControl>
-                                        <Input {...field} placeholder="e.g., Land Title, Vehicle, Equipment" />
-                                    </FormControl>
-                                    <FormDescription className="text-xs">
-                                        Leave blank if not applicable (unsecured loan)
+                {/* Security & Collateral - Only shown when a member owns collateral */}
+                {memberOwnedCollateral.length > 0 && (
+                    <>
+                        <Card className="border-2 border-primary/10">
+                            <CardHeader className="pb-3">
+                                <CardTitle className="text-base flex items-center gap-2">
+                                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                                        <Shield className="h-5 w-5" />
+                                    </div>
+                                    Security & Collateral (Secured Loans Only)
+                                </CardTitle>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                    Attach collateral from the register owned by a loan member. Leave blank for unsecured loans.
+                                </p>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div>
+                                    <Label className="text-sm font-medium">Attach from Collateral Register</Label>
+                                    <Popover open={collateralOpen} onOpenChange={setCollateralOpen}>
+                                        <PopoverTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                role="combobox"
+                                                aria-expanded={collateralOpen}
+                                                className="w-full justify-between font-normal h-12 px-4 mt-2 hover:bg-muted/50"
+                                            >
+                                                {selectedCollateral ? (
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                                            <Shield className="h-4 w-4" />
+                                                        </div>
+                                                        <div className="flex flex-col items-start text-left min-w-0">
+                                                            <span className="font-medium truncate">{selectedCollateral.type} — {selectedCollateral.description?.slice(0, 40)}{selectedCollateral.description?.length > 40 ? "…" : ""}</span>
+                                                            <span className="text-xs text-muted-foreground">
+                                                                {selectedCollateral.client_name ? `Owner: ${selectedCollateral.client_name} · ` : ""}UGX {(selectedCollateral.estimated_value || selectedCollateral.current_value || 0).toLocaleString()}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center gap-3 text-muted-foreground">
+                                                        <Search className="h-5 w-5 shrink-0" />
+                                                        <span>Select collateral from register...</span>
+                                                    </div>
+                                                )}
+                                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent
+                                            className="w-[520px] max-w-[calc(100vw-2rem)] p-0"
+                                            align="start"
+                                            side="bottom"
+                                            sideOffset={8}
+                                            avoidCollisions={false}
+                                        >
+                                            <Command className="rounded-lg border-0">
+                                                <CommandInput placeholder="Search by type, description or owner..." />
+                                                <CommandList className="max-h-[280px]">
+                                                    <CommandEmpty>No collateral owned by members.</CommandEmpty>
+                                                    <CommandGroup>
+                                                        <CommandItem
+                                                            value="clear selection"
+                                                            onSelect={() => {
+                                                                handleSelectCollateral(null);
+                                                                setCollateralOpen(false);
+                                                            }}
+                                                        >
+                                                            <span className="text-muted-foreground italic">Clear selection</span>
+                                                        </CommandItem>
+                                                        {memberOwnedCollateral.map((c) => (
+                                                            <CommandItem
+                                                                key={c.id}
+                                                                value={`${c.type} ${c.description || ""} ${c.client_name || ""} ${c.estimated_value || c.current_value || ""}`}
+                                                                onSelect={() => {
+                                                                    handleSelectCollateral(c);
+                                                                    setCollateralOpen(false);
+                                                                }}
+                                                                className="py-3"
+                                                            >
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                                                                        <Shield className="h-4 w-4 text-muted-foreground" />
+                                                                    </div>
+                                                                    <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                                                        <span className="font-medium">{c.type}</span>
+                                                                        <span className="text-xs text-muted-foreground truncate">{c.description || "No description"}</span>
+                                                                        <span className="text-xs text-muted-foreground">{c.client_name ? `Owner: ${c.client_name}` : ""}</span>
+                                                                        <span className="text-xs font-medium text-primary">UGX {(c.estimated_value || c.current_value || 0).toLocaleString()}</span>
+                                                                    </div>
+                                                                </div>
+                                                            </CommandItem>
+                                                        ))}
+                                                    </CommandGroup>
+                                                </CommandList>
+                                            </Command>
+                                        </PopoverContent>
+                                    </Popover>
+                                    <FormDescription className="text-xs mt-1">
+                                        Select from collateral owned by a loan member, not yet linked to a loan.
                                     </FormDescription>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <FormField
-                            control={form.control}
-                            name="security_value"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Estimated Value (UGX)</FormLabel>
-                                    <FormControl>
-                                        <Input type="number" {...field} placeholder="e.g., 5000000" />
-                                    </FormControl>
-                                    <FormDescription className="text-xs">
-                                        Approximate value of the pledged security
-                                    </FormDescription>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                    </div>
-                    <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded-md border">
-                        <p className="font-medium mb-1">Security Confirmation:</p>
-                        <p>✓ The Borrower confirms lawful ownership of pledged security</p>
-                        <p>✓ Security is free from third-party claims</p>
-                        <p>✓ The Borrower grants peaceful access to pledged security in the event of default</p>
-                    </div>
-                </div>
+                                </div>
 
-                <Separator />
-
-                {/* Guarantors (Only for Individual Loans) */}
-                {form.watch("loan_product") !== "Group Loan" && (
-                    <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                            <h3 className="text-lg font-semibold">Guarantors Information</h3>
-                            <Button type="button" variant="outline" size="sm" onClick={addGuarantor}>
-                                <Plus className="mr-2 h-4 w-4" /> Add Guarantor
-                            </Button>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {guarantors.map((guarantor, index) => (
-                                <Card key={index}>
-                                    <CardContent className="pt-6 space-y-3">
-                                        <div className="flex justify-between">
-                                            <h4 className="font-medium">Guarantor {index + 1}</h4>
-                                            {index > 0 && (
-                                                <Button type="button" variant="ghost" size="sm" onClick={() => removeGuarantor(index)}>
-                                                    <Trash2 className="h-4 w-4 text-destructive" />
-                                                </Button>
-                                            )}
-                                        </div>
-                                        <Input
-                                            placeholder="Full Name"
-                                            value={guarantor.name}
-                                            onChange={(e) => updateGuarantor(index, 'name', e.target.value)}
-                                        />
-                                        <Input
-                                            placeholder="Phone Number"
-                                            value={guarantor.phone}
-                                            onChange={(e) => updateGuarantor(index, 'phone', e.target.value)}
-                                        />
-                                        <Input
-                                            placeholder="National ID / NIN"
-                                            value={guarantor.nin}
-                                            onChange={(e) => updateGuarantor(index, 'nin', e.target.value)}
-                                        />
-                                        <Input
-                                            placeholder="Address / Residence"
-                                            value={guarantor.address}
-                                            onChange={(e) => updateGuarantor(index, 'address', e.target.value)}
-                                        />
-                                    </CardContent>
-                                </Card>
-                            ))}
-                        </div>
-                    </div>
+                                <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded-md border">
+                                    <p className="font-medium mb-1">Security Confirmation:</p>
+                                    <p>✓ The Borrower confirms lawful ownership of pledged security</p>
+                                    <p>✓ Security is free from third-party claims</p>
+                                    <p>✓ The Borrower grants peaceful access to pledged security in the event of default</p>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </>
                 )}
 
                 <Separator />
 
-                {/* Document Attachments */}
-                <div className="space-y-4">
-                    <div>
-                        <h3 className="text-lg font-semibold">Required Attachments</h3>
-                        <p className="text-sm text-muted-foreground">Please upload the following documents (PDF, JPG, or PNG, max 5MB each)</p>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* National ID */}
-                        <div className="space-y-2">
-                            <FormLabel className="flex items-center gap-2">
-                                <span className="text-destructive">*</span>
-                                1. National Identity Card (Photocopy)
-                            </FormLabel>
-                            <Input
-                                type="file"
-                                accept=".pdf,.jpg,.jpeg,.png"
-                                onChange={(e) => handleFileChange('national_id', e)}
-                                className="cursor-pointer"
-                            />
-                            {uploadedFiles.national_id && (
-                                <p className="text-xs text-green-600">✓ {uploadedFiles.national_id.name}</p>
+                {/* Guarantors (Only for Individual Loans) - Search and select from directory */}
+                {form.watch("application_type") === "individual" && (
+                    <Card className="border-2 border-primary/10">
+                        <CardHeader className="pb-3">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <Shield className="h-5 w-5 text-primary" />
+                                        Guarantors
+                                    </CardTitle>
+                                    <p className="text-sm text-muted-foreground mt-1">
+                                        Search and add guarantors from the guarantors directory (max 2).
+                                    </p>
+                                </div>
+                                <Popover open={addGuarantorOpen} onOpenChange={setAddGuarantorOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button type="button" size="sm" disabled={guarantors.length >= 2}>
+                                            <Plus className="mr-2 h-4 w-4" /> Add Guarantor
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent
+                                        className="w-[520px] max-w-[calc(100vw-2rem)] p-0"
+                                        align="center"
+                                        side="bottom"
+                                        sideOffset={8}
+                                        avoidCollisions={false}
+                                    >
+                                        <Command className="rounded-lg border-0">
+                                            <CommandInput placeholder="Search by name, phone, or ID number..." />
+                                            <CommandList className="max-h-[280px]">
+                                                <CommandEmpty>No guarantor found.</CommandEmpty>
+                                                <CommandGroup>
+                                                    {guarantorsDirectory
+                                                        .filter((g) => !guarantors.some((x) => (x.id && x.id === g.id) || (x.phone === g.phone_number && x.name === g.full_name)))
+                                                        .map((g) => (
+                                                            <CommandItem
+                                                                key={g.id}
+                                                                value={`${g.full_name} ${g.phone_number} ${g.id_number || ""} ${g.address || ""}`}
+                                                                onSelect={() => {
+                                                                    addGuarantorFromDirectory(g);
+                                                                    setAddGuarantorOpen(false);
+                                                                }}
+                                                                className="py-3"
+                                                            >
+                                                                <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                                                    <span className="font-medium">{g.full_name}</span>
+                                                                    <span className="text-xs text-muted-foreground">{g.phone_number}{g.id_number ? ` · NIN: ${g.id_number}` : ""}</span>
+                                                                    {g.address && <span className="text-xs text-muted-foreground truncate">{g.address}</span>}
+                                                                </div>
+                                                            </CommandItem>
+                                                        ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="pt-0">
+                            {guarantors.length > 0 ? (
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                    {guarantors.map((guarantor, index) => (
+                                        <div
+                                            key={guarantor.id || index}
+                                            className="flex items-center justify-between rounded-lg border bg-muted/40 px-4 py-3 shadow-sm transition-colors hover:bg-muted/60"
+                                        >
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                                    <Shield className="h-4 w-4" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="font-medium truncate">{guarantor.name}</p>
+                                                    <p className="text-xs text-muted-foreground truncate">{guarantor.phone}</p>
+                                                    {(guarantor.nin || guarantor.id_number) && (
+                                                        <p className="text-xs text-muted-foreground font-mono">NIN: {guarantor.nin || guarantor.id_number}</p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                className="shrink-0 text-muted-foreground hover:text-destructive"
+                                                onClick={() => removeGuarantor(index)}
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="text-sm text-muted-foreground italic py-2">No guarantors added. Use &quot;Add Guarantor&quot; to search and select from the directory.</p>
                             )}
-                        </div>
-
-                        {/* LC1 Letter */}
-                        <div className="space-y-2">
-                            <FormLabel className="flex items-center gap-2">
-                                <span className="text-destructive">*</span>
-                                2. LC1 Recommendation Letter
-                            </FormLabel>
-                            <Input
-                                type="file"
-                                accept=".pdf,.jpg,.jpeg,.png"
-                                onChange={(e) => handleFileChange('lc1_letter', e)}
-                                className="cursor-pointer"
-                            />
-                            {uploadedFiles.lc1_letter && (
-                                <p className="text-xs text-green-600">✓ {uploadedFiles.lc1_letter.name}</p>
-                            )}
-                        </div>
-
-                        {/* Other Recommendation Letter */}
-                        <div className="space-y-2">
-                            <FormLabel className="flex items-center gap-2">
-                                <span className="text-destructive">*</span>
-                                3. Recommendation Letter
-                            </FormLabel>
-                            <FormDescription className="text-xs">
-                                (e.g., Market Chairperson, Boda stage Chairman)
-                            </FormDescription>
-                            <Input
-                                type="file"
-                                accept=".pdf,.jpg,.jpeg,.png"
-                                onChange={(e) => handleFileChange('recommendation_letter', e)}
-                                className="cursor-pointer"
-                            />
-                            {uploadedFiles.recommendation_letter && (
-                                <p className="text-xs text-green-600">✓ {uploadedFiles.recommendation_letter.name}</p>
-                            )}
-                        </div>
-
-                        {/* Passport Photo */}
-                        <div className="space-y-2">
-                            <FormLabel className="flex items-center gap-2">
-                                <span className="text-destructive">*</span>
-                                4. Passport Size Photo
-                            </FormLabel>
-                            <FormDescription className="text-xs">
-                                (Recently taken, for applicant and group leaders)
-                            </FormDescription>
-                            <Input
-                                type="file"
-                                accept=".jpg,.jpeg,.png"
-                                onChange={(e) => handleFileChange('passport_photo', e)}
-                                className="cursor-pointer"
-                            />
-                            {uploadedFiles.passport_photo && (
-                                <p className="text-xs text-green-600">✓ {uploadedFiles.passport_photo.name}</p>
-                            )}
-                        </div>
-
-                        {/* Income Statement */}
-                        <div className="space-y-2 md:col-span-2">
-                            <FormLabel className="flex items-center gap-2">
-                                <span className="text-destructive">*</span>
-                                5. Detailed Monthly Income and Expenditure Statement
-                            </FormLabel>
-                            <Input
-                                type="file"
-                                accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls"
-                                onChange={(e) => handleFileChange('income_statement', e)}
-                                className="cursor-pointer"
-                            />
-                            {uploadedFiles.income_statement && (
-                                <p className="text-xs text-green-600">✓ {uploadedFiles.income_statement.name}</p>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="bg-amber-50 border border-amber-200 rounded-md p-3">
-                        <p className="text-xs text-amber-800">
-                            <strong>Note:</strong> All marked documents (*) are required for loan processing.
-                            Files will be uploaded securely when you submit the application.
-                        </p>
-                    </div>
-                </div>
+                        </CardContent>
+                    </Card>
+                )}
 
                 <div className="flex justify-end gap-2 pt-4">
                     <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>

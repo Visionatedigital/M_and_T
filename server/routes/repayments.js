@@ -9,10 +9,11 @@ router.get('/', async (req, res) => {
         const { rows: loans } = await db.query(`
             SELECT 
                 la.*,
-                p.full_name as client_name,
+                COALESCE(la.full_name, p.full_name) as full_name,
+                COALESCE(la.phone_number, p.phone_number) as phone_number,
                 g.group_name
             FROM loan_applications la
-            JOIN profiles p ON la.user_id = p.id
+            LEFT JOIN profiles p ON la.user_id = p.id
             LEFT JOIN groups g ON la.group_id = g.id
             WHERE la.status IN ('approved', 'disbursed')
             ORDER BY la.created_at DESC
