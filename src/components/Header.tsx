@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import logo from "@/assets/logo.jpg";
+const appIcon = `${import.meta.env.BASE_URL}icon.png`;
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -12,7 +12,7 @@ const Header = () => {
       <div className="container mx-auto px-4">
         <div className="flex h-20 items-center justify-between">
           <Link to="/" className="flex items-center">
-            <img src={logo} alt="M&T Microfinance" className="h-14 w-auto" />
+            <img src={appIcon} alt="M&T Microfinance" className="h-14 w-auto" />
           </Link>
 
           {/* Desktop Navigation */}

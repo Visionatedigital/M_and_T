@@ -104,7 +104,12 @@ const LoanApplications = () => {
     try {
       const user = await api.auth.getMe();
       if (user) {
-        setUserRole(user.role);
+        setUserRole(
+          String(user.role || "")
+            .toLowerCase()
+            .trim()
+            .replace(/[\s-]+/g, "_")
+        );
         loadApplications();
       }
     } catch (err) {

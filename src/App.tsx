@@ -46,6 +46,8 @@ import { StaffManagement } from "./pages/staff/StaffManagement";
 import Payroll from "./pages/staff/Payroll";
 import BorrowerDetails from "./pages/staff/BorrowerDetails";
 import AddBorrower from "./pages/staff/AddBorrower";
+import { RequireAdmin } from "./components/staff/RequireAdmin";
+import { ElectronUpdateNotifier } from "./components/electron/ElectronUpdateNotifier";
 
 const queryClient = new QueryClient();
 
@@ -54,6 +56,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <ElectronUpdateNotifier />
       <HashRouter>
         <Routes>
           {/* Desktop app: go straight to staff login */}
@@ -75,7 +78,7 @@ const App = () => (
           <Route path="/staff-dashboard/staff/payroll" element={<Payroll />} />
           <Route path="/staff-dashboard/loans" element={<ActiveLoans />} />
           <Route path="/staff-dashboard/loans/add" element={<AddLoan />} />
-          <Route path="/staff-dashboard/loans/approve" element={<ApproveLoans />} />
+          <Route path="/staff-dashboard/loans/approve" element={<RequireAdmin><ApproveLoans /></RequireAdmin>} />
           <Route path="/staff-dashboard/loans/due" element={<DueLoans />} />
           <Route path="/staff-dashboard/loans/missed" element={<MissedRepayments />} />
           <Route path="/staff-dashboard/loans/arrears" element={<ArrearsLoans />} />
@@ -91,28 +94,28 @@ const App = () => (
           <Route path="/staff-dashboard/repayments" element={<Repayments />} />
           <Route path="/staff-dashboard/repayments/add" element={<Repayments />} />
           <Route path="/staff-dashboard/repayments/schedule" element={<Repayments />} />
-          <Route path="/staff-dashboard/reports/loans" element={<Reports />} />
-          <Route path="/staff-dashboard/reports/financial" element={<Reports />} />
-          <Route path="/staff-dashboard/reports/borrowers" element={<Reports />} />
-          <Route path="/staff-dashboard/reports/aging" element={<AgingReport />} />
-          <Route path="/staff-dashboard/reports/cash-books" element={<CashBooks />} />
-          <Route path="/staff-dashboard/reports/comprehensive-income" element={<ComprehensiveIncome />} />
+          <Route path="/staff-dashboard/reports/loans" element={<RequireAdmin><Reports /></RequireAdmin>} />
+          <Route path="/staff-dashboard/reports/financial" element={<RequireAdmin><Reports /></RequireAdmin>} />
+          <Route path="/staff-dashboard/reports/borrowers" element={<RequireAdmin><Reports /></RequireAdmin>} />
+          <Route path="/staff-dashboard/reports/aging" element={<RequireAdmin><AgingReport /></RequireAdmin>} />
+          <Route path="/staff-dashboard/reports/cash-books" element={<RequireAdmin><CashBooks /></RequireAdmin>} />
+          <Route path="/staff-dashboard/reports/comprehensive-income" element={<RequireAdmin><ComprehensiveIncome /></RequireAdmin>} />
           <Route path="/staff-dashboard/collateral" element={<CollateralRegister />} />
           <Route path="/staff-dashboard/collateral/add" element={<AddCollateral />} />
           <Route path="/staff-dashboard/collateral/valuations" element={<CollateralRegister />} />
           <Route path="/staff-dashboard/collateral/insurance" element={<CollateralRegister />} />
-          <Route path="/staff-dashboard/branches/performance" element={<BranchManagement />} />
-          <Route path="/staff-dashboard/branches/territories" element={<BranchManagement />} />
-          <Route path="/staff-dashboard/branches/transfers" element={<BranchManagement />} />
-          <Route path="/staff-dashboard/products" element={<ProductManagement />} />
-          <Route path="/staff-dashboard/products/rates" element={<ProductManagement />} />
-          <Route path="/staff-dashboard/products/performance" element={<ProductManagement />} />
-          <Route path="/staff-dashboard/creditors" element={<Creditors />} />
-          <Route path="/staff-dashboard/creditors/add" element={<AddCreditor />} />
-          <Route path="/staff-dashboard/assets" element={<AssetManagement />} />
-          <Route path="/staff-dashboard/accounting" element={<Accounting />} />
+          <Route path="/staff-dashboard/branches/performance" element={<RequireAdmin><BranchManagement /></RequireAdmin>} />
+          <Route path="/staff-dashboard/branches/territories" element={<RequireAdmin><BranchManagement /></RequireAdmin>} />
+          <Route path="/staff-dashboard/branches/transfers" element={<RequireAdmin><BranchManagement /></RequireAdmin>} />
+          <Route path="/staff-dashboard/products" element={<RequireAdmin><ProductManagement /></RequireAdmin>} />
+          <Route path="/staff-dashboard/products/rates" element={<RequireAdmin><ProductManagement /></RequireAdmin>} />
+          <Route path="/staff-dashboard/products/performance" element={<RequireAdmin><ProductManagement /></RequireAdmin>} />
+          <Route path="/staff-dashboard/creditors" element={<RequireAdmin><Creditors /></RequireAdmin>} />
+          <Route path="/staff-dashboard/creditors/add" element={<RequireAdmin><AddCreditor /></RequireAdmin>} />
+          <Route path="/staff-dashboard/assets" element={<RequireAdmin><AssetManagement /></RequireAdmin>} />
+          <Route path="/staff-dashboard/accounting" element={<RequireAdmin><Accounting /></RequireAdmin>} />
           <Route path="/staff-dashboard/guarantors" element={<Guarantors />} />
-          <Route path="/staff-dashboard/settings" element={<Settings />} />
+          <Route path="/staff-dashboard/settings" element={<RequireAdmin><Settings /></RequireAdmin>} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

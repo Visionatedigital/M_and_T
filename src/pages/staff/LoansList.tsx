@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Search, Eye, Download, Printer, Filter, Plus } from "lucide-react";
+import { Search, Eye, Download, Printer, Filter, Plus, Banknote } from "lucide-react";
+import { RecordPaymentDialog, suggestInstallmentAmount } from "@/components/staff/RecordPaymentDialog";
 import { useToast } from "@/hooks/use-toast";
 
 interface Loan {
@@ -24,6 +25,8 @@ interface Loan {
     balance: number;
     last_payment_date: string;
     status: string;
+    loan_duration_months?: number;
+    group_id?: string | null;
 }
 
 interface LoansListProps {
@@ -39,6 +42,7 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
     const [loans, setLoans] = useState<Loan[]>([]);
     const [searchTerm, setSearchTerm] = useState("");
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [payLoan, setPayLoan] = useState<Loan | null>(null);
 
     useEffect(() => {
         loadLoans();
@@ -199,7 +203,7 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
                                         <Table>
                                             <TableHeader className="bg-muted/50">
                                                 <TableRow>
-                                                    <TableHead className="w-[80px]">View</TableHead>
+                                                    <TableHead className="w-[140px]">Actions</TableHead>
                                                     <TableHead>Released</TableHead>
                                                     <TableHead>Name</TableHead>
                                                     <TableHead>Loan#</TableHead>
@@ -232,13 +236,26 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
                                                     filteredLoans.map((loan) => (
                                                         <TableRow key={loan.id} className="hover:bg-muted/30 transition-colors">
                                                             <TableCell>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    onClick={() => navigate(`/staff-dashboard/loans/details/${loan.id}`)}
-                                                                >
-                                                                    <Eye className="h-4 w-4 text-primary" />
-                                                                </Button>
+                                                                <div className="flex items-center gap-1">
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        title="View loan"
+                                                                        onClick={() => navigate(`/staff-dashboard/loans/details/${loan.id}`)}
+                                                                    >
+                                                                        <Eye className="h-4 w-4 text-primary" />
+                                                                    </Button>
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        className="h-8 gap-1 text-primary"
+                                                                        title="Record payment"
+                                                                        onClick={() => setPayLoan(loan)}
+                                                                    >
+                                                                        <Banknote className="h-3.5 w-3.5" />
+                                                                        Pay
+                                                                    </Button>
+                                                                </div>
                                                             </TableCell>
                                                             <TableCell className="text-xs">
                                                                 {new Date(loan.released_date).toLocaleDateString()}
@@ -275,6 +292,32 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
                     </main>
                 </div>
             </div>
+
+            <RecordPaymentDialog
+                open={!!payLoan}
+                onOpenChange={(open) => !open && setPayLoan(null)}
+                loanApplicationId={payLoan?.id ?? null}
+                borrowerLabel={payLoan ? `${payLoan.borrower_name} (${payLoan.loan_number})` : ""}
+                defaultAmount={
+                    payLoan
+                        ? (() => {
+                              const s = suggestInstallmentAmount({
+                                  total_amount: payLoan.total_due,
+                                  loan_amount: payLoan.principal,
+                                  loan_duration_months: payLoan.loan_duration_months,
+                                  group_id: payLoan.group_id,
+                              });
+                              const rem = payLoan.balance;
+                              return rem > 0 ? Math.min(s, rem) : s;
+                          })()
+                        : undefined
+                }
+                amountHint={
+                    payLoan ? `Remaining balance: UGX ${payLoan.balance.toLocaleString()}` : undefined
+                }
+                memberBreakdownName={payLoan?.borrower_name}
+                onSuccess={loadLoans}
+            />
         </SidebarProvider>
     );
 };

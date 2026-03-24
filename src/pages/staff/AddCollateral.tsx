@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useState, useEffect, useRef } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -10,11 +10,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowLeft, Save, Loader2, Car, Home, Smartphone, Briefcase, Ruler, ShieldCheck } from "lucide-react";
+import { BorrowerCombobox } from "@/components/staff/BorrowerCombobox";
 import { api } from "@/services/api";
 import { useToast } from "@/hooks/use-toast";
+import { clearFormDraft, DRAFT_KEYS, formatDraftAge, loadFormDraft, saveFormDraft } from "@/lib/formDrafts";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const AddCollateral = () => {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [borrowers, setBorrowers] = useState<any[]>([]);
@@ -41,6 +45,34 @@ const AddCollateral = () => {
         notes: ""
     });
 
+    const draftLoadedRef = useRef(false);
+    const suppressDraftSaveRef = useRef(false);
+
+    useEffect(() => {
+        if (draftLoadedRef.current) return;
+        draftLoadedRef.current = true;
+        const d = loadFormDraft<{ formData: typeof formData }>(DRAFT_KEYS.ADD_COLLATERAL);
+        if (!d?.formData) return;
+        suppressDraftSaveRef.current = true;
+        setFormData(d.formData);
+        toast({
+            title: "Draft restored",
+            description: `Continued from ${formatDraftAge(d._savedAt)}.`,
+        });
+        window.setTimeout(() => {
+            suppressDraftSaveRef.current = false;
+        }, 600);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useEffect(() => {
+        if (suppressDraftSaveRef.current) return;
+        const id = window.setTimeout(() => {
+            saveFormDraft(DRAFT_KEYS.ADD_COLLATERAL, { formData });
+        }, 2500);
+        return () => clearTimeout(id);
+    }, [formData]);
+
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -54,6 +86,13 @@ const AddCollateral = () => {
         };
         fetchData();
     }, []);
+
+    /** e.g. /collateral/add?borrower=<uuid> from loan application flow */
+    useEffect(() => {
+        const bid = searchParams.get("borrower");
+        if (!bid) return;
+        setFormData((prev) => (prev.borrower_id === bid ? prev : { ...prev, borrower_id: bid }));
+    }, [searchParams]);
 
     const handleSave = async () => {
         if (!formData.borrower_id || !formData.type || !formData.description) {
@@ -78,6 +117,7 @@ const AddCollateral = () => {
                 title: "Success",
                 description: "Collateral asset registered successfully"
             });
+            clearFormDraft(DRAFT_KEYS.ADD_COLLATERAL);
             navigate("/staff-dashboard/collateral");
         } catch (err: any) {
             toast({
@@ -127,22 +167,56 @@ const AddCollateral = () => {
                                         <CardDescription>Enter detailed specifications for the collateral asset.</CardDescription>
                                     </CardHeader>
                                     <CardContent className="space-y-4">
+                                        <Alert className="border-primary/30 bg-muted/40">
+                                            <Save className="h-4 w-4" />
+                                            <AlertTitle>Draft auto-save</AlertTitle>
+                                            <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                                <span>Your entries are saved in this browser every few seconds.</span>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="shrink-0"
+                                                    onClick={() => {
+                                                        clearFormDraft(DRAFT_KEYS.ADD_COLLATERAL);
+                                                        setFormData({
+                                                            borrower_id: "",
+                                                            loan_application_id: "",
+                                                            type: "Automobiles",
+                                                            description: "",
+                                                            make_model: "",
+                                                            serial_number: "",
+                                                            plate_number: "",
+                                                            chassis_number: "",
+                                                            location: "",
+                                                            area_size: "",
+                                                            condition: "Good",
+                                                            estimated_value: "",
+                                                            current_value: "",
+                                                            forced_sale_value: "",
+                                                            valuation_date: new Date().toISOString().split("T")[0],
+                                                            valuation_gwa: "",
+                                                            valuation_report_file: "",
+                                                            status: "Deposited into Branch",
+                                                            notes: ""
+                                                        });
+                                                        toast({ title: "Draft discarded" });
+                                                    }}
+                                                >
+                                                    Discard draft
+                                                </Button>
+                                            </AlertDescription>
+                                        </Alert>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <div className="space-y-2">
                                                 <Label className="text-blue-700 font-bold">Owner / Borrower *</Label>
-                                                <Select
+                                                <BorrowerCombobox
+                                                    borrowers={borrowers}
                                                     value={formData.borrower_id}
-                                                    onValueChange={(val) => setFormData({ ...formData, borrower_id: val })}
-                                                >
-                                                    <SelectTrigger className="border-blue-200">
-                                                        <SelectValue placeholder="Select asset owner" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {borrowers.map((b) => (
-                                                            <SelectItem key={b.id} value={b.id}>{b.full_name}</SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
+                                                    onChange={(id) => setFormData({ ...formData, borrower_id: id })}
+                                                    placeholder="Search borrower by name, phone, or email…"
+                                                    className="border-blue-200"
+                                                />
                                             </div>
                                             <div className="space-y-2">
                                                 <Label>Linked Loan (Optional)</Label>

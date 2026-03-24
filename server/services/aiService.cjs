@@ -126,4 +126,62 @@ Be concise. Use bullet points where helpful. Focus on actionable insights for th
     }
 };
 
-module.exports = { generateFinancialSummary, analyzeApplication };
+/**
+ * AI narrative for Altman Z-Score / financial risk export (Word report).
+ */
+const generateFinancialRiskAnalysis = async ({ zScore, components, interpretation }) => {
+    const apiKey = process.env.OPENAI_API_KEY;
+
+    if (!apiKey || apiKey === 'mock' || apiKey.includes('sk-proj-placeholder')) {
+        return [
+            `The score is about ${Number(zScore).toFixed(2)} (${interpretation || 'see the gauge'}).`,
+            '',
+            'Turn on AI on the server to get a short plain-English summary here and in Word export.',
+        ].join('\n');
+    }
+
+    const openai = new OpenAI({ apiKey });
+    const compLines = (components || []).map((c) =>
+        `${c.id} ${c.method}: ratio ${Number(c.ratio).toFixed(4)} × weight ${c.standard} → contribution ${(c.ratio * c.standard).toFixed(4)}`
+    ).join('\n');
+
+    const prompt = `M&T Growth Gateway (Uganda, microfinance).
+
+Z-score (rounded): ${Number(zScore).toFixed(2)}. Band: ${interpretation || 'n/a'}.
+
+Background numbers (use only to write simply, do not copy jargon):
+${compLines}
+
+Write for loan officers and managers who are NOT accountants. Rules:
+- Very easy English. Short sentences. No academic tone.
+- Do NOT use labels like "Grey Zone" alone — if you mention the band, add plain words (e.g. "some risk, in the middle").
+- Avoid "X1, X2…" unless you rename them in plain words (e.g. "cash vs assets").
+- Maximum 110 words in total.
+- Format exactly:
+  (1) One paragraph: 2–3 sentences only — what this score means for the institution in simple terms.
+  (2) One paragraph: 2 sentences — the one or two things that matter most (liquidity, debt, or profit) in plain language.
+  (3) Three lines, each starting with "• ", each line one short sentence with a simple action (no long clauses).
+
+No titles. No markdown. No numbered lists except the bullets with "• ".`;
+
+    try {
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [
+                {
+                    role: 'system',
+                    content:
+                        'You explain financial risk in very simple English for non-experts. Be brief. Never write long paragraphs.',
+                },
+                { role: 'user', content: prompt },
+            ],
+            temperature: 0.35,
+        });
+        return response.choices[0].message.content || '';
+    } catch (error) {
+        console.error('Error generating financial risk AI narrative:', error);
+        return 'AI summary could not run. The Z-score numbers in the report are still valid.';
+    }
+};
+
+module.exports = { generateFinancialSummary, analyzeApplication, generateFinancialRiskAnalysis };

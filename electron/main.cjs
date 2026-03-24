@@ -7,6 +7,9 @@ if (require('electron-squirrel-startup')) app.quit();
 
 const isDev = !app.isPackaged;
 
+const { setupAutoUpdater, registerUpdateIpc, getUpdater, ensureFeedConfigured } = require('./update.cjs');
+registerUpdateIpc(isDev);
+
 // App icon path — use public/ for the source
 const iconPath = path.join(__dirname, '..', 'public', 'icon.png');
 
@@ -90,6 +93,31 @@ function createMenu() {
             label: 'M&T Gateway',
             submenu: [
                 { role: 'about' },
+                { type: 'separator' },
+                {
+                    label: 'Check for Updates…',
+                    click: async () => {
+                        if (isDev || !app.isPackaged) {
+                            dialog.showMessageBox(mainWindow || undefined, {
+                                type: 'info',
+                                title: 'Updates',
+                                message: 'Automatic updates run in the installed desktop app. Use a release build to test updates.',
+                            });
+                            return;
+                        }
+                        try {
+                            ensureFeedConfigured();
+                            await getUpdater().checkForUpdates();
+                            dialog.showMessageBox(mainWindow || undefined, {
+                                type: 'info',
+                                title: 'Updates',
+                                message: 'If a newer version exists, it will download in the background. You will be prompted when it is ready to install.',
+                            });
+                        } catch (e) {
+                            dialog.showErrorBox('Update check failed', e.message || String(e));
+                        }
+                    },
+                },
                 { type: 'separator' },
                 {
                     label: 'Database Location',
@@ -189,7 +217,20 @@ app.whenReady().then(async () => {
     require('dotenv').config({ path: envPath });
 
     let useSupabase = process.env.VITE_USE_SUPABASE === 'true';
-    let remoteUrl = process.env.VITE_REMOTE_API_URL || 'http://localhost:5001';
+
+    // Must match src/services/api.ts (VITE_REMOTE_API_URL || http://localhost:5000) or login fails in the packaged app.
+    function getRemoteApiPort() {
+        const fromEnv = process.env.VITE_REMOTE_API_URL;
+        if (fromEnv) {
+            try {
+                const p = new URL(fromEnv).port;
+                if (p) return Number(p);
+            } catch (_) { /* ignore */ }
+        }
+        const fromPort = Number(process.env.PORT);
+        if (Number.isFinite(fromPort) && fromPort > 0) return fromPort;
+        return 5000;
+    }
 
     console.log(`🌐 Mode: ${useSupabase ? 'SUPABASE (Remote DB)' : 'LOCAL (SQLite)'}`);
 
@@ -197,8 +238,9 @@ app.whenReady().then(async () => {
         if (useSupabase) {
             // ── Connect directly to Supabase via server/index.cjs ──
             const remoteServer = require('../server/index.cjs');
-            serverInstance = await remoteServer.startServer(5001); // Standardize on 5001 for remote
-            console.log('✅ Remote (Supabase) backend server started on port 5001');
+            const remotePort = getRemoteApiPort();
+            serverInstance = await remoteServer.startServer(remotePort);
+            console.log(`✅ Remote (Supabase) backend server started on port ${remotePort} (must match VITE_REMOTE_API_URL / default in api.ts)`);
         } else {
             // ── Local Mode: Start embedded SQLite server (on port 3000) ──
             const { startServer: startLocalServer } = require('./server.cjs');
@@ -214,6 +256,11 @@ app.whenReady().then(async () => {
 
     createMenu();
     createWindow();
+
+    setupAutoUpdater({
+        isDev,
+        getMainWindow: () => mainWindow,
+    });
 });
 
 app.on('window-all-closed', () => {

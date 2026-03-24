@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
@@ -7,7 +7,8 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { BarChart3, DollarSign, Users, TrendingUp, FileText, FileSpreadsheet, Loader2 } from "lucide-react";
+import { BarChart3, DollarSign, Users, TrendingUp, FileText, FileSpreadsheet, Loader2, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 
 interface LoanStats {
@@ -55,6 +56,17 @@ const Reports = () => {
   const [isExportingAI, setIsExportingAI] = useState(false);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [isExportingZScore, setIsExportingZScore] = useState(false);
+  const [productSearch, setProductSearch] = useState("");
+
+  const filteredProductStats = useMemo(() => {
+    const q = productSearch.toLowerCase().trim();
+    if (!q) return productStats;
+    return productStats.filter((p) =>
+      (p.product || "").toLowerCase().includes(q) ||
+      String(p.applications).includes(q) ||
+      String(p.totalAmount).includes(q)
+    );
+  }, [productStats, productSearch]);
 
   const handleAiExport = async () => {
     setIsExportingAI(true);
@@ -344,9 +356,20 @@ const Reports = () => {
                   </div>
 
                   <Card>
-                    <CardHeader>
-                      <CardTitle>Product Performance</CardTitle>
-                      <CardDescription>Breakdown by loan product</CardDescription>
+                    <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between space-y-0">
+                      <div>
+                        <CardTitle>Product Performance</CardTitle>
+                        <CardDescription>Breakdown by loan product</CardDescription>
+                      </div>
+                      <div className="relative w-full sm:w-72">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search products..."
+                          className="pl-9"
+                          value={productSearch}
+                          onChange={(e) => setProductSearch(e.target.value)}
+                        />
+                      </div>
                     </CardHeader>
                     <CardContent>
                       <Table>
@@ -367,8 +390,14 @@ const Reports = () => {
                                 No product data available
                               </TableCell>
                             </TableRow>
+                          ) : filteredProductStats.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                No products match your search.
+                              </TableCell>
+                            </TableRow>
                           ) : (
-                            productStats.map((product) => (
+                            filteredProductStats.map((product) => (
                               <TableRow key={product.product}>
                                 <TableCell className="font-medium">{product.product}</TableCell>
                                 <TableCell>{product.applications}</TableCell>

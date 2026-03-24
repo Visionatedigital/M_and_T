@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../db.cjs');
 const notificationService = require('../services/notificationService');
 const { analyzeApplication } = require('../services/aiService.cjs');
+const { isAdmin } = require('../lib/roles.cjs');
 
 const ALLOWED_PAYMENT_METHODS = ['cash', 'bank_transfer', 'mobile_money'];
 const normalizePaymentMethod = (value) => {
@@ -414,38 +415,37 @@ router.post('/:id/analyze', async (req, res) => {
     }
 });
 
-// Update status
+// Update status (approve / reject / disburse) — administrators only
 router.patch('/:id/status', async (req, res) => {
+    if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: 'Only administrators can change application status (approve, reject, disburse).' });
+    }
     const { id } = req.params;
     const { status } = req.body;
     const actingUser = req.user?.user_id || '00000000-0000-0000-0000-000000000000';
 
     try {
-        const viewScope = getOfficerScope(req, 'la', 2);
-        const scopedLoanQuery = `
-            SELECT la.status, la.loan_amount, la.full_name, la.loan_product
+        const { rows: prevRows } = await db.query(
+            `
+            SELECT la.status, la.loan_amount, la.full_name, la.loan_product, la.phone_number
             FROM loan_applications la
-            ${viewScope.joinSql}
             WHERE la.id = $1
-            ${viewScope.whereSql ? `AND ${viewScope.whereSql}` : ''}
-        `;
-        const { rows: prevRows } = await db.query(scopedLoanQuery, [id, ...viewScope.values]);
+            `,
+            [id]
+        );
         const prevLoan = prevRows[0];
         if (!prevLoan) return res.status(404).json({ error: 'Application not found' });
 
-        const updateScope = getOfficerScope(req, 'la2', 3);
-        const updateQuery = `
+        const { rows } = await db.query(
+            `
             UPDATE loan_applications la
             SET status = $1, updated_at = NOW(),
                 approved_at = CASE WHEN $1 IN ('approved', 'disbursed') AND approved_at IS NULL THEN NOW() ELSE approved_at END
-            FROM loan_applications la2
-            ${updateScope.joinSql}
-            WHERE la.id = la2.id
-              AND la.id = $2
-              ${updateScope.whereSql ? `AND ${updateScope.whereSql}` : ''}
+            WHERE la.id = $2
             RETURNING la.*
-        `;
-        const { rows } = await db.query(updateQuery, [status, id, ...updateScope.values]);
+            `,
+            [status, id]
+        );
 
         if (rows.length === 0) return res.status(404).json({ error: 'Application not found' });
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { UserPlus, Save, ArrowLeft } from "lucide-react";
+import { clearFormDraft, DRAFT_KEYS, formatDraftAge, loadFormDraft, saveFormDraft } from "@/lib/formDrafts";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const AddBorrower = () => {
     const navigate = useNavigate();
@@ -19,6 +21,8 @@ const AddBorrower = () => {
     };
 
     const [isLoading, setIsLoading] = useState(false);
+    /** Personal = individual; Business = show business name + full street address + zip */
+    const [clientType, setClientType] = useState<"personal" | "business">("personal");
     const [formData, setFormData] = useState({
         first_name: "",
         last_middle_name: "",
@@ -29,10 +33,14 @@ const AddBorrower = () => {
         phone_number: "",
         email: "",
         dob: "",
+        /** Business clients only (street-style) */
         address: "",
         city: "",
         province_state: "",
         zipcode: "",
+        /** Personal clients: district + village (Uganda-style) */
+        district: "",
+        village: "",
         landline_phone: "",
         working_status: "",
         credit_score: "500",
@@ -46,6 +54,35 @@ const AddBorrower = () => {
     });
 
     const [staffList, setStaffList] = useState<any[]>([]);
+
+    const draftLoadedRef = useRef(false);
+    const suppressDraftSaveRef = useRef(false);
+
+    useEffect(() => {
+        if (draftLoadedRef.current) return;
+        draftLoadedRef.current = true;
+        const d = loadFormDraft<{ formData: typeof formData; clientType?: "personal" | "business" }>(DRAFT_KEYS.ADD_BORROWER);
+        if (!d?.formData) return;
+        suppressDraftSaveRef.current = true;
+        setFormData(d.formData);
+        if (d.clientType) setClientType(d.clientType);
+        toast({
+            title: "Draft restored",
+            description: `Continued from ${formatDraftAge(d._savedAt)}. File attachments are not saved in drafts.`,
+        });
+        window.setTimeout(() => {
+            suppressDraftSaveRef.current = false;
+        }, 600);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- restore once on mount
+    }, []);
+
+    useEffect(() => {
+        if (suppressDraftSaveRef.current) return;
+        const id = window.setTimeout(() => {
+            saveFormDraft(DRAFT_KEYS.ADD_BORROWER, { formData, clientType });
+        }, 2500);
+        return () => clearTimeout(id);
+    }, [formData, clientType]);
 
     useEffect(() => {
         // Fetch staff for loan officer assignment
@@ -75,10 +112,19 @@ const AddBorrower = () => {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!formData.first_name && !formData.business_name) {
+        if (clientType === "business") {
+            if (!formData.business_name?.trim() && !formData.first_name?.trim()) {
+                toast({
+                    title: "Error",
+                    description: "Enter a business name or the borrower’s first name.",
+                    variant: "destructive",
+                });
+                return;
+            }
+        } else if (!formData.first_name?.trim()) {
             toast({
                 title: "Error",
-                description: "You must enter at least First Name or Business Name",
+                description: "First name is required for personal borrowers.",
                 variant: "destructive",
             });
             return;
@@ -86,15 +132,40 @@ const AddBorrower = () => {
 
         setIsLoading(true);
         try {
-            // In a real app, we would upload files to storage (Supabase S3, etc.)
-            // For now, we'll just pass the metadata if available
-            const personalName = `${formData.first_name || ''} ${formData.last_middle_name || ''}`.trim();
+            let photoUrl: string | null = null;
+            if (files.borrower_photo) {
+                const up = await api.upload(files.borrower_photo);
+                photoUrl = up.url || null;
+            }
+
+            let filesUrl: string | null = null;
+            if (files.borrower_files) {
+                const up = await api.upload(files.borrower_files);
+                filesUrl = up.url || null;
+            }
+
+            const personalName = `${formData.first_name || ""} ${formData.last_middle_name || ""}`.trim();
+            const isBusiness = clientType === "business";
+
+            const addressForDb = isBusiness
+                ? (formData.address || "").trim()
+                : [formData.village, formData.district].filter(Boolean).join(", ");
+
             const submissionData = {
                 ...formData,
-                full_name: personalName || formData.business_name,
+                business_name: isBusiness ? formData.business_name : "",
+                address: addressForDb || (isBusiness ? "" : ""),
+                city: isBusiness ? formData.city : "",
+                province_state: isBusiness ? formData.province_state : "",
+                zipcode: isBusiness ? formData.zipcode : "",
+                district: isBusiness ? "" : formData.district,
+                village: isBusiness ? "" : formData.village,
+                full_name: isBusiness
+                    ? (personalName || formData.business_name.trim())
+                    : personalName,
                 unique_number: formData.unique_number || generateUniqueId(),
-                borrower_photo: files.borrower_photo ? files.borrower_photo.name : null,
-                borrower_files: files.borrower_files ? files.borrower_files.name : null,
+                borrower_photo: photoUrl,
+                borrower_files: filesUrl,
             };
 
             const result = await api.borrowers.create(submissionData);
@@ -104,6 +175,7 @@ const AddBorrower = () => {
                 description: "Borrower added successfully",
             });
 
+            clearFormDraft(DRAFT_KEYS.ADD_BORROWER);
             navigate(`/staff-dashboard/borrowers/history?id=${result.id}`);
         } catch (error: any) {
             toast({
@@ -138,11 +210,76 @@ const AddBorrower = () => {
                                         <UserPlus className="h-5 w-5 text-primary" />
                                         Borrower Registration Form
                                     </CardTitle>
-                                    <CardDescription>All fields are optional, but at least First Name or Business Name is required.</CardDescription>
+                                    <CardDescription>
+                                        Choose <strong>Personal</strong> or <strong>Business</strong>. Business name and full address (including zip) are only for business clients.
+                                    </CardDescription>
                                 </CardHeader>
                                 <CardContent>
+                                    <Alert className="mb-6 border-primary/30 bg-muted/40">
+                                        <Save className="h-4 w-4" />
+                                        <AlertTitle>Draft auto-save</AlertTitle>
+                                        <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                            <span>Progress is saved in this browser every few seconds. Files must be re-selected after refresh.</span>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                className="shrink-0"
+                                                onClick={() => {
+                                                    clearFormDraft(DRAFT_KEYS.ADD_BORROWER);
+                                                    setClientType("personal");
+                                                    setFormData({
+                                                        first_name: "",
+                                                        last_middle_name: "",
+                                                        business_name: "",
+                                                        unique_number: generateUniqueId(),
+                                                        gender: "",
+                                                        title: "",
+                                                        phone_number: "",
+                                                        email: "",
+                                                        dob: "",
+                                                        address: "",
+                                                        city: "",
+                                                        province_state: "",
+                                                        zipcode: "",
+                                                        district: "",
+                                                        village: "",
+                                                        landline_phone: "",
+                                                        working_status: "",
+                                                        credit_score: "500",
+                                                        description: "",
+                                                        assigned_officer_id: "",
+                                                    });
+                                                    toast({ title: "Draft discarded" });
+                                                }}
+                                            >
+                                                Discard draft
+                                            </Button>
+                                        </AlertDescription>
+                                    </Alert>
                                     <form onSubmit={handleSubmit} className="space-y-8">
 
+                                        <div className="flex flex-wrap gap-4 items-center p-4 bg-muted/30 rounded-lg">
+                                            <span className="text-sm font-medium">Borrower type</span>
+                                            <div className="flex gap-2">
+                                                <Button
+                                                    type="button"
+                                                    variant={clientType === "personal" ? "default" : "outline"}
+                                                    size="sm"
+                                                    onClick={() => setClientType("personal")}
+                                                >
+                                                    Personal
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant={clientType === "business" ? "default" : "outline"}
+                                                    size="sm"
+                                                    onClick={() => setClientType("business")}
+                                                >
+                                                    Business
+                                                </Button>
+                                            </div>
+                                        </div>
 
                                         {/* Section: Personal / Business Names */}
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-4 bg-muted/30 rounded-lg">
@@ -154,10 +291,12 @@ const AddBorrower = () => {
                                                 <Label htmlFor="last_middle_name">Middle / Last Name</Label>
                                                 <Input id="last_middle_name" value={formData.last_middle_name} onChange={handleChange} placeholder="Middle and Last Name" />
                                             </div>
-                                            <div className="space-y-2">
-                                                <Label htmlFor="business_name">Business Name</Label>
-                                                <Input id="business_name" value={formData.business_name} onChange={handleChange} placeholder="Business Name" />
-                                            </div>
+                                            {clientType === "business" && (
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="business_name">Business Name</Label>
+                                                    <Input id="business_name" value={formData.business_name} onChange={handleChange} placeholder="Registered business name" />
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* Section: Unique Info & Gender */}
@@ -215,27 +354,46 @@ const AddBorrower = () => {
                                                 <Label htmlFor="dob">Date of Birth</Label>
                                                 <Input id="dob" type="date" value={formData.dob} onChange={handleChange} />
                                             </div>
-                                            <div className="space-y-2">
-                                                <Label htmlFor="address">Address</Label>
-                                                <Input id="address" value={formData.address} onChange={handleChange} placeholder="Address" />
-                                            </div>
+                                            {clientType === "personal" ? (
+                                                <div className="space-y-2 md:col-span-1">
+                                                    <p className="text-sm font-medium">Location (District &amp; Village)</p>
+                                                    <p className="text-xs text-muted-foreground mb-2">Street address and zip are hidden for personal borrowers.</p>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                        <div>
+                                                            <Label htmlFor="district">District</Label>
+                                                            <Input id="district" value={formData.district} onChange={handleChange} placeholder="District" />
+                                                        </div>
+                                                        <div>
+                                                            <Label htmlFor="village">Village / Parish</Label>
+                                                            <Input id="village" value={formData.village} onChange={handleChange} placeholder="Village or parish" />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="address">Street address</Label>
+                                                    <Input id="address" value={formData.address} onChange={handleChange} placeholder="Plot, street, building" />
+                                                </div>
+                                            )}
                                         </div>
 
-                                        {/* Section: Location Details */}
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                            <div className="space-y-2">
-                                                <Label htmlFor="city">City</Label>
-                                                <Input id="city" value={formData.city} onChange={handleChange} placeholder="City" />
+                                        {/* Section: Location Details — business only */}
+                                        {clientType === "business" && (
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="city">City</Label>
+                                                    <Input id="city" value={formData.city} onChange={handleChange} placeholder="City" />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="province_state">Province / State</Label>
+                                                    <Input id="province_state" value={formData.province_state} onChange={handleChange} placeholder="Province or State" />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="zipcode">Zip / Postal code</Label>
+                                                    <Input id="zipcode" value={formData.zipcode} onChange={handleChange} placeholder="Zipcode" />
+                                                </div>
                                             </div>
-                                            <div className="space-y-2">
-                                                <Label htmlFor="province_state">Province / State</Label>
-                                                <Input id="province_state" value={formData.province_state} onChange={handleChange} placeholder="Province or State" />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label htmlFor="zipcode">Zipcode</Label>
-                                                <Input id="zipcode" value={formData.zipcode} onChange={handleChange} placeholder="Zipcode" />
-                                            </div>
-                                        </div>
+                                        )}
 
                                         {/* Section: Financial / Work */}
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -273,7 +431,10 @@ const AddBorrower = () => {
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                             <div className="space-y-2">
                                                 <Label htmlFor="borrower_photo">Borrower Photo</Label>
-                                                <Input id="borrower_photo" type="file" onChange={handleFileChange} className="cursor-pointer" />
+                                                <Input id="borrower_photo" type="file" accept="image/*" onChange={handleFileChange} className="cursor-pointer" />
+                                                {files.borrower_photo && (
+                                                    <p className="text-xs text-muted-foreground">Selected: {files.borrower_photo.name} (uploads on save)</p>
+                                                )}
                                             </div>
                                             <div className="space-y-2">
                                                 <Label htmlFor="borrower_files">Borrower Files</Label>

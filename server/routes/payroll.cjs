@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db.cjs');
+const { requireAdmin } = require('../lib/roles.cjs');
+
+router.use(requireAdmin);
 
 const ALLOWED_PAYMENT_METHODS = ['cash', 'bank_transfer', 'mobile_money'];
 const normalizePaymentMethod = (value) => {

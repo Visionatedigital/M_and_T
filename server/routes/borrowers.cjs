@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db.cjs');
+const { isAdmin, isLoanOfficer } = require('../lib/roles.cjs');
 
 const { calculateClientScore } = require('../services/scoreService');
 
@@ -145,6 +146,92 @@ router.get('/:id/attachments', async (req, res) => {
   }
 });
 
+// Update borrower profile (staff)
+router.put('/:id', async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user?.user_id || req.user?.id;
+  const role = req.user?.role;
+
+  if (!isAdmin(role) && !isLoanOfficer(role)) {
+    return res.status(403).json({ error: 'Staff access required.' });
+  }
+
+  if (isLoanOfficer(role) && userId) {
+    const { rows: access } = await db.query(
+      'SELECT id FROM borrowers WHERE id = $1 AND assigned_officer_id = $2',
+      [id, userId]
+    );
+    if (access.length === 0) {
+      return res.status(403).json({ error: 'You can only edit borrowers assigned to you.' });
+    }
+  }
+
+  const allowed = [
+    'full_name', 'email', 'phone_number', 'first_name', 'last_middle_name',
+    'business_name', 'address', 'district', 'village', 'landline_phone', 'description',
+    'city', 'province_state', 'zipcode', 'gender', 'title', 'working_status', 'unique_number',
+    'country', 'id_number', 'borrower_photo',
+  ];
+  const body = req.body || {};
+  const updates = [];
+  const values = [];
+  let idx = 1;
+  for (const key of allowed) {
+    if (Object.prototype.hasOwnProperty.call(body, key)) {
+      updates.push(`${key} = $${idx}`);
+      values.push(body[key] === '' ? null : body[key]);
+      idx += 1;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'borrower_files')) {
+    const bf = body.borrower_files;
+    const arr = bf == null ? null : (Array.isArray(bf) ? bf : [bf]);
+    updates.push(`borrower_files = $${idx}`);
+    values.push(arr);
+    idx += 1;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'assigned_officer_id')) {
+    if (!isAdmin(role)) {
+      return res.status(403).json({ error: 'Only administrators can change loan officer assignment.' });
+    }
+    const aid = body.assigned_officer_id;
+    updates.push(`assigned_officer_id = $${idx}`);
+    values.push(aid === '' || aid == null ? null : aid);
+    idx += 1;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'credit_score')) {
+    if (!isAdmin(role)) {
+      return res.status(403).json({ error: 'Only administrators can edit credit score.' });
+    }
+    updates.push(`credit_score = $${idx}`);
+    const cs = body.credit_score;
+    values.push(cs === '' || cs == null ? null : Number(cs));
+    idx += 1;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'dob') || Object.prototype.hasOwnProperty.call(body, 'date_of_birth')) {
+    const d = body.dob !== undefined ? body.dob : body.date_of_birth;
+    updates.push(`date_of_birth = $${idx}`);
+    values.push(d === '' || d == null ? null : d);
+    idx += 1;
+  }
+  if (updates.length === 0) {
+    return res.status(400).json({ error: 'No fields to update' });
+  }
+  values.push(id);
+
+  try {
+    const { rows } = await db.query(
+      `UPDATE borrowers SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx} RETURNING *`,
+      values
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Borrower not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update borrower' });
+  }
+});
+
 // Get borrower by ID
 router.get('/:id', async (req, res) => {
   try {
@@ -194,7 +281,8 @@ router.post('/', async (req, res) => {
     business_name, unique_number, country, address, city,
     province_state, zipcode, gender, title, working_status, credit_score,
     dob, landline_phone, description,
-    borrower_photo, borrower_files, assigned_officer_id
+    borrower_photo, borrower_files, assigned_officer_id,
+    district, village
   } = req.body;
 
   try {
@@ -204,8 +292,9 @@ router.post('/', async (req, res) => {
                 business_name, unique_number, country, address, city,
                 province_state, zipcode, gender, title, working_status, credit_score,
                 date_of_birth, landline_phone, description,
-                borrower_photo, borrower_files, assigned_officer_id
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+                borrower_photo, borrower_files, assigned_officer_id,
+                district, village
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
             RETURNING *
         `;
     const assignedOfficerId = (assigned_officer_id && typeof assigned_officer_id === 'string' && assigned_officer_id.length > 10) ? assigned_officer_id : null;
@@ -215,7 +304,8 @@ router.post('/', async (req, res) => {
       business_name, unique_number, country || 'Uganda', address, city,
       province_state, zipcode, gender, title, working_status, credit_score || 300,
       dob || null, landline_phone, description,
-      borrower_photo, borrower_files ? [borrower_files] : null, assignedOfficerId
+      borrower_photo, borrower_files ? [borrower_files] : null, assignedOfficerId,
+      district || null, village || null
     ];
 
     const { rows } = await db.query(query, values);

@@ -1,11 +1,14 @@
 // ── Mode Detection ──────────────────────────────────────────
-// VITE_USE_SUPABASE=true  → connects to remote Supabase/PostgreSQL (Port 5000)
-// VITE_USE_SUPABASE=false → uses local SQLite (Port 3000)
+// VITE_USE_SUPABASE=true  → remote API (default http://localhost:5000 — must match Electron + PORT in .env)
+// VITE_USE_SUPABASE=false → local SQLite in desktop (Port 3000)
 const useSupabase = import.meta.env.VITE_USE_SUPABASE === 'true';
 const REMOTE_URL = import.meta.env.VITE_REMOTE_API_URL || 'http://localhost:5000';
 const LOCAL_URL = 'http://localhost:3000';
 
 const API_URL = `${useSupabase ? REMOTE_URL : LOCAL_URL}/api`;
+
+/** Base URL for uploaded files (e.g. `/uploads/...` or full URLs from POST /upload) */
+export const API_ORIGIN = useSupabase ? REMOTE_URL : LOCAL_URL;
 
 export const isRemoteMode = useSupabase;
 console.log(`🌐 API Mode: ${useSupabase ? 'SUPABASE' : 'LOCAL'} → ${API_URL}`);
@@ -57,14 +60,22 @@ export const api = {
             if (!response.ok) throw new Error('Failed to fetch repayments');
             return response.json();
         },
-        create: (data: any) => fetch(`${API_URL}/repayments`, {
-            method: 'POST',
-            headers: getHeaders(),
-            body: JSON.stringify(data),
-        }).then(r => {
-            if (!r.ok) throw new Error('Failed to record repayment');
+        create: async (data: any) => {
+            const r = await fetch(`${API_URL}/repayments`, {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify(data),
+            });
+            if (!r.ok) {
+                let msg = 'Failed to record repayment';
+                try {
+                    const err = await r.json();
+                    msg = err.error || msg;
+                } catch { /* ignore */ }
+                throw new Error(msg);
+            }
             return r.json();
-        }),
+        },
         reallocateHistory: (data: any) => fetch(`${API_URL}/repayments/reallocate-history`, {
             method: 'POST',
             headers: getHeaders(),
@@ -140,16 +151,44 @@ export const api = {
             method: 'PUT',
             headers: getHeaders(),
             body: JSON.stringify(data),
-        }).then(r => {
-            if (!r.ok) throw new Error('Failed to update product');
+        }).then(async r => {
+            if (!r.ok) {
+                let msg = 'Failed to update product';
+                try {
+                    const j = await r.json();
+                    msg = j.error || msg;
+                } catch { /* ignore */ }
+                throw new Error(msg);
+            }
             return r.json();
         }),
         create: (data: any) => fetch(`${API_URL}/products`, {
             method: 'POST',
             headers: getHeaders(),
             body: JSON.stringify(data),
-        }).then(r => {
-            if (!r.ok) throw new Error('Failed to create product');
+        }).then(async r => {
+            if (!r.ok) {
+                let msg = 'Failed to create product';
+                try {
+                    const j = await r.json();
+                    msg = j.error || msg;
+                } catch { /* ignore */ }
+                throw new Error(msg);
+            }
+            return r.json();
+        }),
+        delete: (id: string) => fetch(`${API_URL}/products/${id}`, {
+            method: 'DELETE',
+            headers: getHeaders(),
+        }).then(async r => {
+            if (!r.ok) {
+                let msg = 'Failed to delete product';
+                try {
+                    const j = await r.json();
+                    msg = j.error || msg;
+                } catch { /* ignore */ }
+                throw new Error(msg);
+            }
             return r.json();
         }),
     },
@@ -205,16 +244,25 @@ export const api = {
             const response = await fetch(`${API_URL}/reports/financial-analysis-docx`, { headers: getHeaders() });
             if (!response.ok) throw new Error('Failed to generate financial analysis');
             const blob = await response.blob();
+            const cd = response.headers.get('Content-Disposition') || '';
+            const fnMatch = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(cd);
+            let filename = 'Financial_Analysis.docx';
+            if (fnMatch?.[1]) filename = fnMatch[1].replace(/['"]/g, '').trim();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'MT_Financial_Analysis.docx';
+            a.download = filename;
             a.click();
         },
         getFinancialAnalysis: () => fetch(`${API_URL}/reports/financial-analysis`, { headers: getHeaders() }).then(r => {
             if (!r.ok) throw new Error('Failed to fetch financial analysis');
             return r.json();
         }),
+        getFinancialAnalysisAi: (): Promise<{ zScore: number; interpretation: string; narrative: string }> =>
+            fetch(`${API_URL}/reports/financial-analysis-ai`, { headers: getHeaders() }).then(r => {
+                if (!r.ok) throw new Error('Failed to generate AI analysis');
+                return r.json();
+            }),
         getAgingReport: (params?: { from?: string; to?: string }) => {
             const qs = new URLSearchParams();
             if (params?.from) qs.append('from', params.from);
@@ -234,14 +282,22 @@ export const api = {
                 return r.json();
             });
         },
-        downloadComprehensiveIncomeDocx: async (year?: number) => {
-            const response = await fetch(`${API_URL}/reports/comprehensive-income-docx?year=${year || ''}`, { headers: getHeaders() });
+        downloadComprehensiveIncomeDocx: async (params?: { from?: string; to?: string; year?: number }) => {
+            const qs = new URLSearchParams();
+            if (params?.from) qs.append('from', params.from);
+            if (params?.to) qs.append('to', params.to);
+            if (typeof params?.year === 'number' && !Number.isNaN(params.year)) qs.append('year', String(params.year));
+            const response = await fetch(`${API_URL}/reports/comprehensive-income-docx?${qs}`, { headers: getHeaders() });
             if (!response.ok) throw new Error('Failed to export comprehensive income');
             const blob = await response.blob();
+            const cd = response.headers.get('Content-Disposition') || '';
+            const fnMatch = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(cd);
+            let filename = 'ComprehensiveIncome.docx';
+            if (fnMatch?.[1]) filename = fnMatch[1].replace(/['"]/g, '').trim();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `ComprehensiveIncome_${year || 2025}.docx`;
+            a.download = filename;
             a.click();
         },
         getFinancialPosition: (params?: { from?: string; to?: string; year?: number }) => {
@@ -253,6 +309,24 @@ export const api = {
                 if (!r.ok) throw new Error('Failed to fetch financial position');
                 return r.json();
             });
+        },
+        downloadFinancialPositionDocx: async (params?: { from?: string; to?: string; year?: number }) => {
+            const qs = new URLSearchParams();
+            if (params?.from) qs.append('from', params.from);
+            if (params?.to) qs.append('to', params.to);
+            if (typeof params?.year === 'number' && !Number.isNaN(params.year)) qs.append('year', String(params.year));
+            const response = await fetch(`${API_URL}/reports/financial-position-docx?${qs}`, { headers: getHeaders() });
+            if (!response.ok) throw new Error('Failed to export financial position');
+            const blob = await response.blob();
+            const cd = response.headers.get('Content-Disposition') || '';
+            const fnMatch = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(cd);
+            let filename = 'Financial_Position.docx';
+            if (fnMatch?.[1]) filename = fnMatch[1].replace(/['"]/g, '').trim();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
         },
         getCashflowStatement: (to?: string) => fetch(`${API_URL}/reports/cashflow-statement?to=${to || ''}`, { headers: getHeaders() }).then(r => {
             if (!r.ok) throw new Error('Failed to fetch cashflow statement');
@@ -395,6 +469,18 @@ export const api = {
             if (!response.ok) throw new Error('Failed to update borrower location');
             return response.json();
         },
+        update: async (id: string, data: Record<string, unknown>) => {
+            const response = await fetch(`${API_URL}/borrowers/${id}`, {
+                method: 'PUT',
+                headers: getHeaders(),
+                body: JSON.stringify(data),
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error((err as { error?: string }).error || 'Failed to update borrower');
+            }
+            return response.json();
+        },
     },
     groups: {
         getAll: async () => {
@@ -512,7 +598,16 @@ export const api = {
             },
             body: formData,
         });
-        if (!response.ok) throw new Error('Failed to upload file');
+        if (!response.ok) {
+            const detail = response.status === 401
+                ? 'Not signed in or session expired — log in again.'
+                : response.status === 404
+                    ? 'Upload API not found — is the backend running with /api/upload?'
+                    : `HTTP ${response.status}`;
+            let body = '';
+            try { body = (await response.clone().json()).error; } catch { /* ignore */ }
+            throw new Error(body || detail);
+        }
         return response.json();
     },
     users: {
@@ -560,6 +655,22 @@ export const api = {
             body: JSON.stringify(data),
         }).then(r => {
             if (!r.ok) return r.json().then((e: any) => { throw new Error(e.error || 'Failed to create entry'); });
+            return r.json();
+        }),
+        updateEntry: (id: string, data: {
+            entry_type?: 'revenue' | 'expense';
+            category?: string;
+            description?: string | null;
+            narration?: string | null;
+            amount?: number;
+            entry_date?: string;
+            payment_method?: string;
+        }) => fetch(`${API_URL}/accounting/entries/${id}`, {
+            method: 'PATCH',
+            headers: getHeaders(),
+            body: JSON.stringify(data),
+        }).then(r => {
+            if (!r.ok) return r.json().then((e: any) => { throw new Error(e.error || 'Failed to update entry'); });
             return r.json();
         }),
         deleteEntry: (id: string) => fetch(`${API_URL}/accounting/entries/${id}`, {

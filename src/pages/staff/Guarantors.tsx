@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -12,14 +12,15 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { api } from "@/services/api";
-import { Loader2, UserPlus, Search, Edit2, Trash2, ShieldCheck, Users } from "lucide-react";
+import { Loader2, UserPlus, Search, Edit2, Trash2, ShieldCheck, Users, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-
+import { clearFormDraft, DRAFT_KEYS, formatDraftAge, loadFormDraft, saveFormDraft } from "@/lib/formDrafts";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 interface Guarantor {
     id: string;
     full_name: string;
@@ -39,13 +40,25 @@ export function Guarantors() {
     const [editingGuarantor, setEditingGuarantor] = useState<Guarantor | null>(null);
     const [activeTab, setActiveTab] = useState("view");
 
-    const [formData, setFormData] = useState({
+    const emptyForm = {
         full_name: "",
         email: "",
         phone_number: "",
         id_number: "",
         address: ""
-    });
+    };
+    const [formData, setFormData] = useState(emptyForm);
+
+    const suppressDraftSaveRef = useRef(false);
+
+    useEffect(() => {
+        if (activeTab !== "add" || editingGuarantor) return;
+        if (suppressDraftSaveRef.current) return;
+        const id = window.setTimeout(() => {
+            saveFormDraft(DRAFT_KEYS.GUARANTOR_ADD, { formData });
+        }, 2000);
+        return () => clearTimeout(id);
+    }, [formData, activeTab, editingGuarantor]);
 
     const fetchData = async () => {
         setLoading(true);
@@ -64,13 +77,7 @@ export function Guarantors() {
     }, []);
 
     const resetForm = () => {
-        setFormData({
-            full_name: "",
-            email: "",
-            phone_number: "",
-            id_number: "",
-            address: ""
-        });
+        setFormData(emptyForm);
         setEditingGuarantor(null);
     };
 
@@ -88,6 +95,7 @@ export function Guarantors() {
             } else {
                 await api.guarantors.create(data);
                 toast({ title: "Success", description: "Guarantor registered successfully." });
+                clearFormDraft(DRAFT_KEYS.GUARANTOR_ADD);
                 setActiveTab("view");
             }
             resetForm();
@@ -130,7 +138,32 @@ export function Guarantors() {
                                 </p>
                             </div>
 
-                            <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); if (v === "add") resetForm(); }} className="space-y-4">
+                            <Tabs
+                                value={activeTab}
+                                onValueChange={(v) => {
+                                    setActiveTab(v);
+                                    if (v === "add" && !editingGuarantor) {
+                                        const d = loadFormDraft<{ formData: typeof formData }>(DRAFT_KEYS.GUARANTOR_ADD);
+                                        if (
+                                            d?.formData &&
+                                            (d.formData.full_name?.trim() || d.formData.phone_number?.trim())
+                                        ) {
+                                            suppressDraftSaveRef.current = true;
+                                            setFormData(d.formData);
+                                            toast({
+                                                title: "Draft restored",
+                                                description: `Continued from ${formatDraftAge(d._savedAt)}.`,
+                                            });
+                                            window.setTimeout(() => {
+                                                suppressDraftSaveRef.current = false;
+                                            }, 600);
+                                        } else {
+                                            resetForm();
+                                        }
+                                    }
+                                }}
+                                className="space-y-4"
+                            >
                                 <TabsList className="h-11 p-1 bg-muted/50">
                                     <TabsTrigger value="view" className="gap-2">
                                         <Users className="h-4 w-4" /> View Guarantors
@@ -268,6 +301,26 @@ export function Guarantors() {
                                             <CardDescription>Enter the personal and contact details of the guarantor.</CardDescription>
                                         </CardHeader>
                                         <CardContent>
+                                            <Alert className="mb-4 border-primary/30 bg-muted/40">
+                                                <Save className="h-4 w-4" />
+                                                <AlertTitle>Draft auto-save</AlertTitle>
+                                                <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                                    <span>Progress is saved while you are on this tab.</span>
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="shrink-0"
+                                                        onClick={() => {
+                                                            clearFormDraft(DRAFT_KEYS.GUARANTOR_ADD);
+                                                            setFormData(emptyForm);
+                                                            toast({ title: "Draft discarded" });
+                                                        }}
+                                                    >
+                                                        Discard draft
+                                                    </Button>
+                                                </AlertDescription>
+                                            </Alert>
                                             <form onSubmit={handleSubmit} className="space-y-4">
                                                 <div className="space-y-2">
                                                     <Label htmlFor="add_full_name">Full Name *</Label>

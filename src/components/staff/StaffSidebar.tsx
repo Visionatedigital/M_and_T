@@ -179,6 +179,7 @@ export function StaffSidebar() {
       // Filter sub-items
       if (item.items) {
         const filteredSubItems = item.items.filter(subItem => {
+          if (subItem.url === '/staff-dashboard/loans/approve') return false;
           // Hide sensitive reports
           if (item.title === 'Reports' && subItem.title === 'Financial Reports') return false;
           // Hide advanced client analytics if needed

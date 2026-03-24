@@ -13,7 +13,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart, Line, AreaChart, Area, ComposedChart
 } from "recharts";
 import {
-  Maximize2, Wallet, Coins, TrendingUp, AlertTriangle, AlertCircle, FileText, Users,
+  Maximize2, Wallet, Coins, TrendingUp, FileText, Users,
   DollarSign, Clock
 } from "lucide-react";
 import { DisbursementChart } from "@/components/staff/DisbursementChart";
@@ -77,8 +77,6 @@ const StaffDashboard = () => {
   const totalOutstanding = stats.outstandingPortfolio || 0;
   const outstandingPrincipal = totalOutstanding * 0.85;
   const outstandingInterest = totalOutstanding * 0.13;
-  const outstandingFees = 0;
-  const outstandingPenalty = totalOutstanding * 0.02;
 
   let cumCol = 0, cumDue = 0;
   const monthlyFinancials = (chartData || []).map((d: any) => {
@@ -227,7 +225,7 @@ const StaffDashboard = () => {
               </div>
 
               {/* Top row: Outstanding balances (Diamond-style) */}
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <Card className="bg-white border shadow-sm relative overflow-hidden">
                   <div className="absolute top-0 right-0 -mt-2 -mr-2 opacity-10"><Wallet className="w-16 h-16" /></div>
                   <CardContent className="p-4 flex flex-col justify-center h-full relative z-10">
@@ -261,32 +259,10 @@ const StaffDashboard = () => {
                     <p className="text-[10px] text-slate-400 font-medium mt-1">Open Loans</p>
                   </CardContent>
                 </Card>
-                <Card className="bg-white border shadow-sm relative overflow-hidden">
-                  <div className="absolute top-0 right-0 -mt-2 -mr-2 opacity-10 text-amber-600"><AlertCircle className="w-16 h-16" /></div>
-                  <CardContent className="p-4 flex flex-col justify-center h-full relative z-10">
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <div className="p-1 rounded bg-amber-50 text-amber-600"><AlertCircle className="w-3 h-3" /></div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Fees</p>
-                    </div>
-                    <span className="text-xl font-black text-slate-800">{formatCurrency(outstandingFees)}</span>
-                    <p className="text-[10px] text-slate-400 font-medium mt-1">Open Loans</p>
-                  </CardContent>
-                </Card>
-                <Card className="bg-white border shadow-sm relative overflow-hidden">
-                  <div className="absolute top-0 right-0 -mt-2 -mr-2 opacity-10 text-red-600"><AlertTriangle className="w-16 h-16" /></div>
-                  <CardContent className="p-4 flex flex-col justify-center h-full relative z-10">
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <div className="p-1 rounded bg-red-50 text-red-600"><AlertTriangle className="w-3 h-3" /></div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Penalty</p>
-                    </div>
-                    <span className="text-xl font-black text-slate-800">{formatCurrency(outstandingPenalty)}</span>
-                    <p className="text-[10px] text-slate-400 font-medium mt-1">Open Loans</p>
-                  </CardContent>
-                </Card>
               </div>
 
               {/* Secondary KPIs + M-T volume stats */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Card className="bg-white shadow-sm border border-l-[3px] border-l-green-500">
                   <CardContent className="p-4 flex flex-col h-full justify-center">
                     <p className="text-[11px] font-semibold text-slate-500 mb-1">Rate of Recovery (All)</p>
@@ -299,20 +275,6 @@ const StaffDashboard = () => {
                     <p className="text-[11px] font-semibold text-slate-500 mb-1">Rate of Recovery (Open)</p>
                     <p className="text-[10px] text-slate-400 mb-2 leading-tight">% of due paid for open loans</p>
                     <p className="text-2xl font-bold text-slate-800">42.84%</p>
-                  </CardContent>
-                </Card>
-                <Card className="bg-white shadow-sm border">
-                  <CardContent className="p-4 flex flex-col h-full justify-center">
-                    <p className="text-[11px] font-semibold text-slate-500 mb-1">Average Loan Tenure</p>
-                    <p className="text-[10px] text-slate-400 mb-2">Avg days for loans fully paid</p>
-                    <p className="text-xl font-bold text-slate-800">38 days</p>
-                  </CardContent>
-                </Card>
-                <Card className="bg-white shadow-sm border">
-                  <CardContent className="p-4 flex flex-col h-full justify-center">
-                    <p className="text-[11px] font-semibold text-slate-500 mb-1">Average Disbursement Size</p>
-                    <p className="text-[10px] text-slate-400 mb-2">All Time</p>
-                    <p className="text-xl font-bold text-slate-800">{formatCurrency(stats.totalDisbursed / Math.max(1, stats.activeLoans || 1))}</p>
                   </CardContent>
                 </Card>
               </div>

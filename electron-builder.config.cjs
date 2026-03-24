@@ -1,6 +1,26 @@
 /**
  * Electron Builder Configuration for M&T Growth Gateway
+ *
+ * Auto-update metadata (latest.yml + blockmap) is generated when `publish` is set.
+ * Set at build time (CI or local):
+ *   UPDATE_BASE_URL=https://your-cdn.example.com/app-releases/   (generic — must be HTTPS, public)
+ *   or
+ *   GITHUB_OWNER=org  GITHUB_REPO=m-t-growth-gateway  (+ GH_TOKEN for `electron-builder publish`)
  */
+
+function getPublish() {
+    const ghOwner = process.env.GITHUB_OWNER;
+    const ghRepo = process.env.GITHUB_REPO;
+    const genericUrl = process.env.UPDATE_BASE_URL;
+    if (ghOwner && ghRepo) {
+        return { provider: 'github', owner: ghOwner, repo: ghRepo };
+    }
+    if (genericUrl) {
+        return { provider: 'generic', url: genericUrl.replace(/\/?$/, '/') };
+    }
+    return null;
+}
+
 module.exports = {
     appId: 'com.mt-microfinance.growth-gateway',
     productName: 'M&T Growth Gateway',
@@ -70,6 +90,5 @@ module.exports = {
     // Rebuild native modules for Electron
     npmRebuild: true,
     nodeGypRebuild: false,
-    // Auto-update (can be configured later)
-    publish: null,
+    publish: getPublish(),
 };

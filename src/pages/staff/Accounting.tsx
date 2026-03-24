@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback, Fragment } from "react";
+// Accounting & reports — uses Card/Table only (no Alert UI component)
+import React, { useEffect, useState, useCallback, Fragment, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
@@ -19,10 +20,10 @@ import {
   PieChart, Pie, Cell, Area, AreaChart,
 } from "recharts";
 import {
-  TrendingUp, TrendingDown, Plus, Trash2, RefreshCw, ArrowUpRight, ArrowDownRight,
+  TrendingUp, TrendingDown, Plus, Pencil, Trash2, RefreshCw, ArrowUpRight, ArrowDownRight,
   BookOpen, ChevronLeft, ChevronRight, FileText, Wallet, Receipt, AlertTriangle,
   PiggyBank, Scale, Download, Smartphone, Landmark, MoveRight, MoveLeft,
-  BarChart3, Users, FileSpreadsheet, Loader2, Calendar as CalendarIcon, Search, Filter
+  BarChart3, Users, FileSpreadsheet, Loader2, Calendar as CalendarIcon, Search, Filter, Sparkles
 } from "lucide-react";
 
 interface LoanStats {
@@ -66,6 +67,32 @@ const fmt = (n: number) =>
 
 const formatDate = (d: string) => new Date(d).toLocaleDateString("en-UG", { day: "numeric", month: "short", year: "numeric" });
 
+/** Strip legacy import prefix from Details (old rows stored as "Cashbook Import | YYYY | …"). */
+function cashBookLineDetails(description: string | null | undefined) {
+  const s = String(description ?? "");
+  const m = s.match(/^cashbook\s+import\s*\|\s*\d{4}\s*\|\s*(.+)$/i);
+  if (m) return m[1].trim();
+  return s;
+}
+
+/** Last column: user narration, or year · category for sheet imports, or defaults for loan lines. */
+function cashBookLineNarration(t: { narration?: string | null; description?: string | null; category?: string | null; source?: string }) {
+  const raw = t.narration != null ? String(t.narration).trim() : "";
+  if (raw && !raw.startsWith("Sheet ")) return raw;
+
+  const yearFromTag = raw.startsWith("Sheet ") ? raw.slice(6).trim() : null;
+  const legacyYear = String(t.description ?? "").match(/^cashbook\s+import\s*\|\s*(\d{4})\s*\|/i);
+  const year = yearFromTag || (legacyYear ? legacyYear[1] : null);
+
+  if (t.source === "manual" && t.category) {
+    if (year) return `${year} · ${t.category}`;
+    return t.category;
+  }
+  if (t.source === "disbursement") return "Loan issue";
+  if (t.source === "repayment") return "Loan repayment";
+  return "—";
+}
+
 // ─────────────────── Component ──────────────────────────────
 const Accounting = () => {
   const navigate = useNavigate();
@@ -86,6 +113,7 @@ const Accounting = () => {
   const [filterCategory, setFilterCategory] = useState("all");
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 15;
+  const [entrySearch, setEntrySearch] = useState("");
 
   // Report tabs state
   const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "pl");
@@ -105,6 +133,9 @@ const Accounting = () => {
   const [equityStatementData, setEquityStatementData] = useState<any>(null);
   const [cashflowStmtData, setCashflowStmtData] = useState<any>(null);
   const [financialAnalysisData, setFinancialAnalysisData] = useState<any>(null);
+  const [financialAiOpen, setFinancialAiOpen] = useState(false);
+  const [financialAiLoading, setFinancialAiLoading] = useState(false);
+  const [financialAiNarrative, setFinancialAiNarrative] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState("2025-01");
 
   useEffect(() => {
@@ -147,11 +178,39 @@ const Accounting = () => {
     entry_type: "expense",
     category: "",
     description: "",
+    narration: "",
     amount: "",
     entry_date: new Date().toISOString().split("T")[0],
     payment_method: "cash",
     fee_type: "",
   });
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<any>(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editForm, setEditForm] = useState({
+    entry_type: "expense" as "expense" | "revenue",
+    category: "",
+    description: "",
+    narration: "",
+    amount: "",
+    entry_date: "",
+    payment_method: "cash",
+  });
+
+  const filteredEntries = useMemo(() => {
+    const q = entrySearch.toLowerCase().trim();
+    if (!q) return entries;
+    return entries.filter(
+      (e: any) =>
+        (e.category || "").toLowerCase().includes(q) ||
+        (e.description || "").toLowerCase().includes(q) ||
+        (e.narration || "").toLowerCase().includes(q) ||
+        (e.entry_type || "").toLowerCase().includes(q) ||
+        (e.payment_method || "").toLowerCase().includes(q) ||
+        String(e.amount ?? "").includes(q),
+    );
+  }, [entries, entrySearch]);
 
   // ─── Load P&L Summary ──────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -224,7 +283,7 @@ const Accounting = () => {
 
         toast({ title: "Client fee split entries recorded successfully ✓" });
         setDialogOpen(false);
-        setForm({ entry_type: "expense", category: "", description: "", amount: "", entry_date: new Date().toISOString().split("T")[0], payment_method: "cash", fee_type: "" });
+        setForm({ entry_type: "expense", category: "", description: "", narration: "", amount: "", entry_date: new Date().toISOString().split("T")[0], payment_method: "cash", fee_type: "" });
         setRefreshKey(k => k + 1);
       } catch (err: any) {
         toast({ title: err.message || "Failed to save fee entries", variant: "destructive" });
@@ -242,7 +301,7 @@ const Accounting = () => {
       await api.accounting.createEntry({ ...form, amount: parseFloat(form.amount) });
       toast({ title: "Entry recorded successfully ✓" });
       setDialogOpen(false);
-      setForm({ entry_type: "expense", category: "", description: "", amount: "", entry_date: new Date().toISOString().split("T")[0], payment_method: "cash", fee_type: "" });
+      setForm({ entry_type: "expense", category: "", description: "", narration: "", amount: "", entry_date: new Date().toISOString().split("T")[0], payment_method: "cash", fee_type: "" });
       setRefreshKey(k => k + 1);
     } catch (err: any) {
       toast({ title: err.message || "Failed to save entry", variant: "destructive" });
@@ -353,6 +412,32 @@ const Accounting = () => {
     }
   };
 
+  const handleFinancialAiAnalysis = async () => {
+    setFinancialAiNarrative(null);
+    setFinancialAiOpen(true);
+    setFinancialAiLoading(true);
+    try {
+      const r = await api.reports.getFinancialAnalysisAi();
+      setFinancialAiNarrative(r.narrative || "");
+    } catch (e: any) {
+      toast({ title: "Could not load AI summary", description: e?.message || "Could not reach the server", variant: "destructive" });
+      setFinancialAiOpen(false);
+    } finally {
+      setFinancialAiLoading(false);
+    }
+  };
+
+  const handleFinancialPositionWordExport = async () => {
+    try {
+      const to = reportTo || new Date().toISOString().split("T")[0];
+      const from = reportFrom || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0];
+      await api.reports.downloadFinancialPositionDocx({ from, to });
+      toast({ title: "Financial Position (Word) exported ✓" });
+    } catch (e: any) {
+      toast({ title: "Export failed", description: e?.message || "Could not export Word", variant: "destructive" });
+    }
+  };
+
   const handleExcelExport = async () => {
     setIsExportingExcel(true);
     try {
@@ -451,8 +536,9 @@ const Accounting = () => {
     if (!cashBookData || !cashBookData.transactions) return;
     const rows = cashBookData.transactions.map((t: any) => ({
       Date: t.date,
-      Description: t.description,
+      Description: cashBookLineDetails(t.description),
       Category: t.category,
+      Narration: cashBookLineNarration(t),
       Account: t.payment_method?.replace('_', ' ').toUpperCase(),
       Type: t.entry_type === 'revenue' ? 'IN' : 'OUT',
       Amount: t.amount,
@@ -493,6 +579,8 @@ const Accounting = () => {
     const rows = loanPortfolio.loans.map((l: any) => ({
       Client: l.client_name,
       Product: l.loan_product,
+      Principal: l.principal ?? 0,
+      Interest: l.interest ?? 0,
       Outstanding: l.total_outstanding || 0,
       "Days Overdue": l.days_overdue > 0 ? l.days_overdue : 0,
       Status: l.status
@@ -623,6 +711,50 @@ const Accounting = () => {
       setRefreshKey(k => k + 1);
     } catch (err: any) {
       toast({ title: err.message || "Failed to delete", variant: "destructive" });
+    }
+  };
+
+  const openEditEntry = (entry: any) => {
+    setEditingEntry(entry);
+    const d = entry.entry_date ? String(entry.entry_date).split("T")[0] : "";
+    setEditForm({
+      entry_type: entry.entry_type === "revenue" ? "revenue" : "expense",
+      category: entry.category || "",
+      description: entry.description || "",
+      narration: entry.narration || "",
+      amount: String(entry.amount ?? ""),
+      entry_date: d,
+      payment_method: entry.payment_method || "cash",
+    });
+    setEditOpen(true);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingEntry?.id) return;
+    if (!editForm.category?.trim() || !editForm.amount || !editForm.entry_date) {
+      toast({ title: "Category, amount, and date are required", variant: "destructive" });
+      return;
+    }
+    setEditSubmitting(true);
+    try {
+      await api.accounting.updateEntry(editingEntry.id, {
+        entry_type: editForm.entry_type,
+        category: editForm.category.trim(),
+        description: editForm.description?.trim() || null,
+        narration: editForm.narration?.trim() || null,
+        amount: parseFloat(editForm.amount),
+        entry_date: editForm.entry_date,
+        payment_method: editForm.payment_method,
+      });
+      toast({ title: "Entry updated" });
+      setEditOpen(false);
+      setEditingEntry(null);
+      setRefreshKey((k) => k + 1);
+    } catch (err: any) {
+      toast({ title: err.message || "Failed to update", variant: "destructive" });
+    } finally {
+      setEditSubmitting(false);
     }
   };
 
@@ -759,10 +891,102 @@ const Accounting = () => {
                           <Input placeholder="Notes about this entry" value={form.description}
                             onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
                         </div>
+                        <div>
+                          <Label>Narration (optional)</Label>
+                          <Input placeholder="Remarks for cash book / reports" value={form.narration}
+                            onChange={e => setForm(f => ({ ...f, narration: e.target.value }))} />
+                        </div>
                         <div className="flex gap-2 pt-2">
                           <Button type="button" variant="outline" className="flex-1" onClick={() => setDialogOpen(false)}>Cancel</Button>
                           <Button type="submit" className="flex-1 bg-blue-800 hover:bg-blue-900" disabled={submitting}>
                             {submitting ? "Saving..." : "Save Entry"}
+                          </Button>
+                        </div>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+
+                  <Dialog open={editOpen} onOpenChange={(o) => { setEditOpen(o); if (!o) setEditingEntry(null); }}>
+                    <DialogContent className="max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Edit accounting entry</DialogTitle>
+                      </DialogHeader>
+                      <form onSubmit={handleEditSubmit} className="space-y-4 mt-2">
+                        <div>
+                          <Label>Type *</Label>
+                          <Select
+                            value={editForm.entry_type}
+                            onValueChange={(v) =>
+                              setEditForm((f) => ({ ...f, entry_type: v as "revenue" | "expense", category: "" }))
+                            }
+                          >
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="revenue">Revenue</SelectItem>
+                              <SelectItem value="expense">Expense</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label>Category *</Label>
+                          <Select value={editForm.category} onValueChange={(v) => setEditForm((f) => ({ ...f, category: v }))}>
+                            <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                            <SelectContent>
+                              {(editForm.entry_type === "revenue" ? REVENUE_CATEGORIES : EXPENSE_CATEGORIES).map((c) => (
+                                <SelectItem key={c} value={c}>{c}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label>Amount (UGX) *</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            value={editForm.amount}
+                            onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <Label>Date *</Label>
+                          <Input
+                            type="date"
+                            value={editForm.entry_date}
+                            onChange={(e) => setEditForm((f) => ({ ...f, entry_date: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <Label>Payment method</Label>
+                          <Select value={editForm.payment_method} onValueChange={(v) => setEditForm((f) => ({ ...f, payment_method: v }))}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {PAYMENT_METHODS.map((m) => (
+                                <SelectItem key={m} value={m}>{m.replace("_", " ")}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label>Description (optional)</Label>
+                          <Input
+                            value={editForm.description}
+                            onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <Label>Narration (optional)</Label>
+                          <Input
+                            placeholder="Remarks for cash book / reports"
+                            value={editForm.narration}
+                            onChange={(e) => setEditForm((f) => ({ ...f, narration: e.target.value }))}
+                          />
+                        </div>
+                        <div className="flex gap-2 pt-2">
+                          <Button type="button" variant="outline" className="flex-1" onClick={() => setEditOpen(false)}>
+                            Cancel
+                          </Button>
+                          <Button type="submit" className="flex-1 bg-blue-800 hover:bg-blue-900" disabled={editSubmitting}>
+                            {editSubmitting ? "Saving..." : "Save changes"}
                           </Button>
                         </div>
                       </form>
@@ -999,6 +1223,15 @@ const Accounting = () => {
                             onClick={() => { setFilterType("all"); setFilterCategory("all"); setFilterFrom(""); setFilterTo(""); setPage(0); }}>
                             Clear
                           </Button>
+                          <div className="relative w-full sm:w-48">
+                            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                            <Input
+                              placeholder="Search this page..."
+                              className="h-8 text-xs pl-7"
+                              value={entrySearch}
+                              onChange={(e) => setEntrySearch(e.target.value)}
+                            />
+                          </div>
                         </div>
                       </div>
                     </CardHeader>
@@ -1011,15 +1244,18 @@ const Accounting = () => {
                               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
                               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
                               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Description</th>
+                              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Narration</th>
                               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Method</th>
                               <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Amount</th>
-                              <th className="px-4 py-3"></th>
+                              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[88px]">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
                             {entries.length === 0 ? (
-                              <tr><td colSpan={7} className="text-center py-10 text-slate-400">No entries found</td></tr>
-                            ) : entries.map((entry) => (
+                              <tr><td colSpan={9} className="text-center py-10 text-slate-400">No entries found</td></tr>
+                            ) : filteredEntries.length === 0 ? (
+                              <tr><td colSpan={9} className="text-center py-10 text-slate-400">No entries match your search on this page.</td></tr>
+                            ) : filteredEntries.map((entry) => (
                               <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
                                 <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{formatDate(entry.entry_date)}</td>
                                 <td className="px-4 py-3">
@@ -1032,15 +1268,34 @@ const Accounting = () => {
                                 </td>
                                 <td className="px-4 py-3 text-slate-700">{entry.category}</td>
                                 <td className="px-4 py-3 text-slate-500 max-w-[200px] truncate">{entry.description || "—"}</td>
+                                <td className="px-4 py-3 text-slate-500 max-w-[200px] truncate">{entry.narration || "—"}</td>
                                 <td className="px-4 py-3 text-slate-500 capitalize">{(entry.payment_method || "").replace("_", " ")}</td>
                                 <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${entry.entry_type === "revenue" ? "text-emerald-700" : "text-red-700"}`}>
                                   {entry.entry_type === "revenue" ? "+" : "−"} UGX {parseInt(entry.amount).toLocaleString()}
                                 </td>
-                                <td className="px-4 py-3">
-                                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400 hover:text-red-600"
-                                    onClick={() => handleDelete(entry.id)} title="Delete entry">
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
+                                <td className="px-4 py-3 text-right">
+                                  <div className="flex items-center justify-end gap-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 w-7 p-0 text-slate-400 hover:text-blue-700"
+                                      onClick={() => openEditEntry(entry)}
+                                      title="Edit entry"
+                                      type="button"
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 w-7 p-0 text-slate-400 hover:text-red-600"
+                                      onClick={() => handleDelete(entry.id)}
+                                      title="Delete entry"
+                                      type="button"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
                                 </td>
                               </tr>
                             ))}
@@ -1431,7 +1686,7 @@ const Accounting = () => {
                                   <tr key={t.id} className="hover:bg-slate-50 transition-colors border-b border-slate-50 group">
                                     <td className="py-5 px-6 text-[11px] font-bold text-slate-500 font-mono">{new Date(t.date).toLocaleDateString('en-GB')}</td>
                                     <td className="py-5 px-6">
-                                      <div className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{t.description}</div>
+                                      <div className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{cashBookLineDetails(t.description)}</div>
                                       <div className="text-[9px] text-slate-400 mt-0.5 flex items-center gap-1 font-bold">
                                         <Badge variant="outline" className="h-4 py-0 text-[8px] border-slate-200">ID: {t.id.slice(0, 8)}</Badge>
                                       </div>
@@ -1440,7 +1695,7 @@ const Accounting = () => {
                                     <td className="py-5 px-6 text-right">{!isDebit ? <span className="font-black text-red-500 tabular-nums">({fmt(amount)})</span> : "—"}</td>
                                     <td className="py-5 px-6 text-right font-black text-slate-900 bg-slate-50/50 tabular-nums">{fmt(runningBalance)}</td>
                                     <td className="py-5 px-6">
-                                      <div className="text-[10px] font-bold text-slate-600 uppercase italic opacity-70">{t.category}</div>
+                                      <div className="text-[10px] text-slate-500 italic">{cashBookLineNarration(t)}</div>
                                     </td>
                                   </tr>
                                 );
@@ -1463,30 +1718,76 @@ const Accounting = () => {
                   {reportLoading === "financial_analysis" ? (
                     <div className="flex items-center justify-center py-16"><RefreshCw className="h-8 w-8 text-primary animate-spin" /></div>
                   ) : financialAnalysisData ? (
-                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                      <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                        <div>
-                          <h2 className="text-2xl font-black text-slate-900 tracking-tight">Financial Risk Assessment</h2>
-                          <p className="text-slate-500 font-medium tracking-tight">Altman Z-Score Model for Private Firms</p>
+                    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                        <div className="min-w-0">
+                          <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">Financial Risk Assessment</h2>
+                          <p className="text-slate-500 text-sm font-medium tracking-tight">Altman Z-Score Model for Private Firms</p>
                         </div>
-                        <Button variant="outline" className="h-11 px-6 font-bold border-slate-200 hover:bg-slate-50 shadow-sm transition-all" onClick={handleZScoreExport}>
-                          <Download className="h-4 w-4 mr-2" /> Export Word
-                        </Button>
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          <Button
+                            className="h-10 px-4 font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
+                            onClick={() => void handleFinancialAiAnalysis()}
+                            disabled={financialAiLoading}
+                          >
+                            {financialAiLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
+                            AI summary
+                          </Button>
+                          <Button variant="outline" className="h-10 px-4 font-semibold border-slate-200 hover:bg-slate-50" onClick={handleZScoreExport} disabled={isExportingZScore}>
+                            {isExportingZScore ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                            Export Word
+                          </Button>
+                        </div>
                       </div>
 
-                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                        {/* Gauge Card */}
-                        <Card className="lg:col-span-5 overflow-hidden border-none shadow-xl bg-white rounded-3xl">
-                          <CardHeader className="bg-slate-50/50 border-b pb-4">
+                      <Dialog open={financialAiOpen} onOpenChange={setFinancialAiOpen}>
+                        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
+                          <DialogHeader className="px-6 pt-6 pb-4 border-b bg-slate-50/80">
+                            <DialogTitle className="flex items-center gap-2 text-lg">
+                              <Sparkles className="h-5 w-5 text-indigo-600" />
+                              AI summary
+                            </DialogTitle>
+                          </DialogHeader>
+                          <div className="px-6 py-4 overflow-y-auto flex-1 min-h-0 text-sm text-slate-700 leading-relaxed space-y-3">
+                            {financialAiLoading ? (
+                              <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-500">
+                                <Loader2 className="h-10 w-10 animate-spin text-indigo-600" />
+                                <span className="font-medium">Writing a short summary…</span>
+                              </div>
+                            ) : financialAiNarrative ? (
+                              financialAiNarrative.split(/\r?\n/).filter((line) => line.trim()).map((line, i) => {
+                                const t = line.trim();
+                                const bullet = /^[•\-]\s/.test(t) || t.startsWith("•");
+                                return (
+                                  <p
+                                    key={i}
+                                    className={bullet ? "pl-4 border-l-2 border-indigo-200 text-slate-800" : ""}
+                                  >
+                                    {bullet ? t.replace(/^[•\-]\s*/, "• ") : t}
+                                  </p>
+                                );
+                              })
+                            ) : (
+                              <p className="text-slate-500">No content.</p>
+                            )}
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+
+                      {/* Gauge + components: single row on xl — 3-col grid fits 5 cards in 2 rows without tall scroll */}
+                      <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 xl:gap-4 xl:items-start">
+                        <Card className="xl:col-span-4 overflow-hidden border border-slate-100 shadow-md bg-white rounded-2xl">
+                          <CardHeader className="bg-slate-50/50 border-b py-2 px-4">
                             <CardTitle className="text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">Business Health Index</CardTitle>
                           </CardHeader>
-                          <CardContent className="flex flex-col items-center py-12 relative">
-                            {/* Simple SVG Gauge */}
-                            <div className="relative w-72 h-36 overflow-hidden">
+                          <CardContent className="flex flex-col items-center py-5 px-3 relative">
+                            <div className="relative w-[13rem] sm:w-56 max-w-full h-[6.5rem] sm:h-28 overflow-hidden">
                               <svg viewBox="0 0 100 50" className="w-full h-full">
                                 <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#f1f5f9" strokeWidth="10" strokeLinecap="round" />
-                                <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none"
-                                  stroke={financialAnalysisData.z_score > 2.9 ? '#10b981' : financialAnalysisData.z_score > 1.23 ? '#f59e0b' : '#ef4444'}
+                                <path
+                                  d="M 10 50 A 40 40 0 0 1 90 50"
+                                  fill="none"
+                                  stroke={financialAnalysisData.z_score > 2.9 ? "#10b981" : financialAnalysisData.z_score > 1.23 ? "#f59e0b" : "#ef4444"}
                                   strokeWidth="10"
                                   strokeLinecap="round"
                                   strokeDasharray={`${Math.min(125.6, Math.max(0, (financialAnalysisData.z_score / 4) * 125.6))}, 125.6`}
@@ -1494,86 +1795,108 @@ const Accounting = () => {
                                 />
                               </svg>
                               <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-center w-full">
-                                <div className="text-6xl font-black text-slate-900 tracking-tighter tabular-nums leading-none">
+                                <div className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tighter tabular-nums leading-none">
                                   {financialAnalysisData.z_score?.toFixed(2)}
                                 </div>
-                                <div className={`inline-flex items-center gap-1.5 mt-4 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg ${financialAnalysisData.z_score > 2.9 ? 'bg-emerald-500 text-white' :
-                                  financialAnalysisData.z_score > 1.23 ? 'bg-amber-500 text-white' :
-                                    'bg-red-500 text-white'
-                                  }`}>
+                                <div
+                                  className={`inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-md ${
+                                    financialAnalysisData.z_score > 2.9
+                                      ? "bg-emerald-500 text-white"
+                                      : financialAnalysisData.z_score > 1.23
+                                        ? "bg-amber-500 text-white"
+                                        : "bg-red-500 text-white"
+                                  }`}
+                                >
                                   <div className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
                                   {financialAnalysisData.zone} Zone
                                 </div>
                               </div>
                             </div>
 
-                            <div className="mt-12 grid grid-cols-3 w-full gap-6 text-center px-10">
-                              <div className="space-y-1.5">
-                                <div className="text-[9px] font-black text-slate-400 tracking-widest uppercase">Distress</div>
-                                <div className="h-1.5 w-full bg-red-100 rounded-full" />
+                            <div className="mt-5 grid grid-cols-3 w-full gap-3 text-center px-2">
+                              <div className="space-y-1">
+                                <div className="text-[8px] font-black text-slate-400 tracking-widest uppercase">Distress</div>
+                                <div className="h-1 w-full bg-red-100 rounded-full" />
                               </div>
-                              <div className="space-y-1.5">
-                                <div className="text-[9px] font-black text-slate-400 tracking-widest uppercase">Grey</div>
-                                <div className="h-1.5 w-full bg-amber-100 rounded-full" />
+                              <div className="space-y-1">
+                                <div className="text-[8px] font-black text-slate-400 tracking-widest uppercase">Grey</div>
+                                <div className="h-1 w-full bg-amber-100 rounded-full" />
                               </div>
-                              <div className="space-y-1.5">
-                                <div className="text-[9px] font-black text-slate-400 tracking-widest uppercase">Safe</div>
-                                <div className="h-1.5 w-full bg-emerald-100 rounded-full" />
+                              <div className="space-y-1">
+                                <div className="text-[8px] font-black text-slate-400 tracking-widest uppercase">Safe</div>
+                                <div className="h-1 w-full bg-emerald-100 rounded-full" />
                               </div>
                             </div>
                           </CardContent>
                         </Card>
 
-                        {/* Ratio Components */}
-                        <div className="lg:col-span-7 grid grid-cols-2 gap-4">
-                          {(financialAnalysisData.components || []).map((c: any) => (
-                            <Card key={c.id} className="border-none shadow-md bg-white hover:bg-indigo-50/30 transition-all group rounded-2xl">
-                              <CardHeader className="pb-1 pt-5 px-6">
-                                <CardTitle className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{c.id} Component</CardTitle>
-                              </CardHeader>
-                              <CardContent className="px-6 pb-5">
-                                <div className="text-2xl font-black text-slate-900 mb-1 tabular-nums">{c.ratio?.toFixed(3)}</div>
-                                <p className="text-[10px] text-slate-500 font-bold leading-tight h-8 uppercase opacity-60 tracking-tight">{c.method}</p>
-                                <div className="mt-4 pt-4 border-t border-slate-50 flex items-center justify-between">
-                                  <div className="text-[9px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">Weight: {c.standard}</div>
-                                  <div className="text-[11px] font-black text-slate-900 tabular-nums">+{(c.ratio * c.standard).toFixed(3)}</div>
-                                </div>
-                              </CardContent>
-                            </Card>
-                          ))}
+                        <div className="xl:col-span-8 grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3 content-start">
+                          {(financialAnalysisData.components || []).map((c: any) => {
+                            const pts = (c.ratio ?? 0) * (c.standard ?? 0);
+                            const ptsStr = (pts >= 0 ? "+" : "") + pts.toFixed(3);
+                            return (
+                              <Card key={c.id} className="border border-slate-100 shadow-sm bg-white hover:bg-indigo-50/20 transition-all rounded-xl">
+                                <CardHeader className="pb-0 pt-3 px-3 space-y-0">
+                                  <CardTitle className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{c.id} Component</CardTitle>
+                                </CardHeader>
+                                <CardContent className="px-3 pb-3 pt-1">
+                                  <div className="text-lg sm:text-xl font-black text-slate-900 tabular-nums leading-tight">{c.ratio?.toFixed(3)}</div>
+                                  <p className="text-[9px] text-slate-500 font-bold leading-snug min-h-[2.25rem] uppercase opacity-70 tracking-tight line-clamp-2">
+                                    {c.method}
+                                  </p>
+                                  <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between gap-1">
+                                    <div className="text-[8px] font-black text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full shrink-0">W: {c.standard}</div>
+                                    <div className="text-[10px] font-black text-slate-900 tabular-nums truncate" title={ptsStr}>
+                                      {ptsStr}
+                                    </div>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            );
+                          })}
                         </div>
                       </div>
 
-                      <Card className="bg-white border border-slate-200 shadow-xl overflow-hidden rounded-3xl">
-                        <CardHeader className="border-b border-slate-100 bg-slate-50/50">
+                      <Card className="bg-white border border-slate-200 shadow-md overflow-hidden rounded-2xl">
+                        <CardHeader className="border-b border-slate-100 bg-slate-50/50 py-3 px-4">
                           <CardTitle className="text-slate-900 text-xs font-black uppercase tracking-widest flex items-center gap-2">
-                            <div className="h-4 w-4 rounded bg-indigo-600 flex items-center justify-center">
+                            <div className="h-4 w-4 rounded bg-indigo-600 flex items-center justify-center shrink-0">
                               <Scale className="h-2.5 w-2.5 text-white" />
                             </div>
                             Strategic Risk Interpretation
                           </CardTitle>
                         </CardHeader>
-                        <CardContent className="grid md:grid-cols-3 divide-x divide-slate-100 p-0 text-slate-900">
-                          <div className={`p-10 transition-all ${financialAnalysisData.z_score > 2.9 ? 'bg-emerald-50/50' : 'opacity-40'}`}>
-                            <div className="flex items-center gap-3 text-emerald-600 font-black mb-4 text-sm tracking-widest uppercase">
-                              <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" />
+                        <CardContent className="grid md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-100 p-0 text-slate-900">
+                          <div className={`p-4 md:p-5 transition-all ${financialAnalysisData.z_score > 2.9 ? "bg-emerald-50/50" : "opacity-40"}`}>
+                            <div className="flex items-center gap-2 text-emerald-600 font-black mb-2 text-xs tracking-widest uppercase">
+                              <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)] shrink-0" />
                               Secure (Z {'>'} 2.9)
                             </div>
-                            <p className="text-[11px] text-slate-600 leading-relaxed font-bold">The organization demonstrates optimal liquidity and profitability. Risk of failure within 2 years is statistically negligible. Strategic leverage and expansion are recommended.</p>
+                            <p className="text-[10px] text-slate-600 leading-snug font-semibold">
+                              The organization demonstrates optimal liquidity and profitability. Risk of failure within 2 years is statistically negligible. Strategic leverage and expansion are recommended.
+                            </p>
                           </div>
-                          <div className={`p-10 transition-all ${financialAnalysisData.z_score > 1.23 && financialAnalysisData.z_score <= 2.9 ? 'bg-amber-50/50' : 'opacity-40'}`}>
-                            <div className="flex items-center gap-3 text-amber-600 font-black mb-4 text-sm tracking-widest uppercase">
-                              <div className="h-2.5 w-2.5 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]" />
+                          <div
+                            className={`p-4 md:p-5 transition-all ${
+                              financialAnalysisData.z_score > 1.23 && financialAnalysisData.z_score <= 2.9 ? "bg-amber-50/50" : "opacity-40"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 text-amber-600 font-black mb-2 text-xs tracking-widest uppercase">
+                              <div className="h-2 w-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)] shrink-0" />
                               Marginal (1.2 - 2.9)
                             </div>
-                            <p className="text-[11px] text-slate-600 leading-relaxed font-bold">Performance indicators are mixed. The entity resides in the 'Grey Zone'. Management should focus on improving turnover ratios and reducing reliance on short-term liabilities.</p>
+                            <p className="text-[10px] text-slate-600 leading-snug font-semibold">
+                              Performance indicators are mixed. The entity resides in the &apos;Grey Zone&apos;. Management should focus on improving turnover ratios and reducing reliance on short-term liabilities.
+                            </p>
                           </div>
-                          <div className={`p-10 transition-all ${financialAnalysisData.z_score <= 1.23 ? 'bg-red-50/50' : 'opacity-40'}`}>
-                            <div className="flex items-center gap-3 text-red-600 font-black mb-4 text-sm tracking-widest uppercase">
-                              <div className="h-2.5 w-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]" />
+                          <div className={`p-4 md:p-5 transition-all ${financialAnalysisData.z_score <= 1.23 ? "bg-red-50/50" : "opacity-40"}`}>
+                            <div className="flex items-center gap-2 text-red-600 font-black mb-2 text-xs tracking-widest uppercase">
+                              <div className="h-2 w-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)] shrink-0" />
                               Critical (Z {'<'} 1.2)
                             </div>
-                            <p className="text-[11px] text-slate-600 leading-relaxed font-bold">Statistical indicators suggest high correlation with historical bankruptcy cases. Critical re-evaluation of current debt structure and immediate capital injection is likely required.</p>
+                            <p className="text-[10px] text-slate-600 leading-snug font-semibold">
+                              Statistical indicators suggest high correlation with historical bankruptcy cases. Critical re-evaluation of current debt structure and immediate capital injection is likely required.
+                            </p>
                           </div>
                         </CardContent>
                       </Card>
@@ -1713,7 +2036,11 @@ const Accounting = () => {
                           <Button variant="outline" size="sm" className="bg-emerald-50 text-emerald-700 border-emerald-200" onClick={exportComprehensiveIncome}>
                             <Download className="h-3.5 w-3.5 mr-1" /> Export CSV
                           </Button>
-                          <Button variant="outline" size="sm" className="bg-indigo-50 text-indigo-700 border-indigo-200" onClick={() => api.reports.downloadComprehensiveIncomeDocx(comprehensiveIncomeData.year)}>
+                          <Button variant="outline" size="sm" className="bg-indigo-50 text-indigo-700 border-indigo-200" onClick={() => {
+                            const to = reportTo || new Date().toISOString().split("T")[0];
+                            const from = reportFrom || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0];
+                            void api.reports.downloadComprehensiveIncomeDocx({ from, to });
+                          }}>
                             <Download className="h-3.5 w-3.5 mr-1" /> Export Word
                           </Button>
                         </div>
@@ -1783,9 +2110,14 @@ const Accounting = () => {
                           </CardTitle>
                           <CardDescription>Monthly Data (Values in UGX)</CardDescription>
                         </div>
-                        <Button variant="outline" size="sm" className="bg-blue-50 text-blue-700 border-blue-200" onClick={exportFinancialPosition}>
-                          <Download className="h-3.5 w-3.5 mr-1" /> Export CSV
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" className="bg-blue-50 text-blue-700 border-blue-200" onClick={exportFinancialPosition}>
+                            <Download className="h-3.5 w-3.5 mr-1" /> Export CSV
+                          </Button>
+                          <Button variant="outline" size="sm" className="bg-indigo-50 text-indigo-700 border-indigo-200" onClick={() => void handleFinancialPositionWordExport()}>
+                            <Download className="h-3.5 w-3.5 mr-1" /> Export Word
+                          </Button>
+                        </div>
                       </CardHeader>
                       <CardContent className="p-0 overflow-x-auto">
                         <table className="w-full text-[10px] border-collapse min-w-[1000px]">
@@ -1929,62 +2261,69 @@ const Accounting = () => {
                   {reportLoading === "equity_statement" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : equityStatementData ? (
-                    <Card className="shadow-sm max-w-4xl mx-auto border-0">
-                      <CardHeader className="bg-white border-0 flex flex-row items-center justify-between pb-0">
-                        <div className="text-center w-full">
-                          <h2 className="text-xl font-bold uppercase tracking-tight">M-T Growth Gateway</h2>
-                          <h3 className="text-lg font-bold italic text-slate-700">Statement of Changes in Equity</h3>
-                          <p className="font-bold text-slate-600 underline decoration-double underline-offset-4 mb-4">
-                            {equityStatementData.periodLabel || 'Report Period'}
+                    <Card className="shadow-sm max-w-4xl mx-auto border border-slate-200 overflow-hidden">
+                      <CardHeader className="bg-slate-50 border-b flex flex-row items-start justify-between gap-4 py-4 px-4 sm:px-6">
+                        <div className="text-center w-full min-w-0">
+                          <h2 className="text-lg sm:text-xl font-bold uppercase tracking-tight text-[#1F4E79]">M-T Growth Gateway</h2>
+                          <h3 className="text-base font-semibold text-slate-800 mt-1">Statement of Changes in Equity</h3>
+                          <p className="text-sm font-medium text-slate-600 mt-2">
+                            <span className="underline decoration-double underline-offset-2">{equityStatementData.periodLabel || "Report period"}</span>
                           </p>
+                          <p className="text-xs text-slate-500 mt-1 normal-case">Figures from accounting entries (revenue − expense for accumulated profits; categories containing &quot;share capital&quot;).</p>
                         </div>
-                        <div className="absolute top-4 right-4 print:hidden">
-                          <Button variant="ghost" size="sm" onClick={() => window.print()}><Download className="h-4 w-4 mr-1" /> Print</Button>
-                        </div>
+                        <Button variant="outline" size="sm" className="shrink-0 print:hidden" onClick={() => window.print()}>
+                          <Download className="h-4 w-4 mr-1" /> Print
+                        </Button>
                       </CardHeader>
-                      <CardContent className="px-12 py-8 bg-white">
-                        {equityStatementData.data?.map((m: any, idx: number) => (
-                          <div key={idx} className="mb-12">
-                            <table className="w-full text-[12px] uppercase">
-                              <thead>
-                                <tr className="border-0 italic font-bold">
-                                  <th className="w-1/2"></th>
-                                  <th className="text-right px-4 pb-2">Share<br />Capital<br /><span className="text-[10px]">UGX</span></th>
-                                  <th className="text-right px-4 pb-2">Accumulated<br />Profits<br /><span className="text-[10px]">UGX</span></th>
-                                </tr>
-                              </thead>
-                              <tbody className="font-serif">
-                                {/* Opening Row */}
-                                <tr className="border-0">
-                                  <td className="py-1 font-bold">AS AT {m?.dateLabel || m?.month}</td>
-                                  <td className="text-right px-4">{m?.opening?.shareCap?.toLocaleString() || "0"}</td>
-                                  <td className="text-right px-4">{m?.opening?.profit?.toLocaleString() || "0"}</td>
-                                </tr>
-
-                                {/* Movement Rows */}
-                                {m?.movements?.capitalInjected !== 0 && m?.movements && (
-                                  <tr className="border-0">
-                                    <td className="py-1 italic pl-2">Share Capital Injected</td>
-                                    <td className="text-right px-4 border-b border-black">{m?.movements?.capitalInjected?.toLocaleString() || "0"}</td>
-                                    <td className="text-right px-4">0</td>
+                      <CardContent className="p-0 bg-white">
+                        <div className="max-h-[min(72vh,720px)] overflow-y-auto overflow-x-auto">
+                          <table className="w-full min-w-[520px] text-sm">
+                            <thead className="sticky top-0 z-10 bg-white shadow-sm border-b-2 border-slate-200">
+                              <tr className="text-[11px] sm:text-xs uppercase tracking-wide text-slate-700">
+                                <th className="text-left py-3 pl-4 pr-2 font-bold">Description</th>
+                                <th className="text-right py-3 px-3 font-bold whitespace-nowrap">Share capital<br /><span className="font-normal text-slate-500 normal-case">UGX</span></th>
+                                <th className="text-right py-3 pr-4 pl-3 font-bold whitespace-nowrap">Accumulated profits<br /><span className="font-normal text-slate-500 normal-case">UGX</span></th>
+                              </tr>
+                            </thead>
+                            <tbody className="text-slate-900">
+                              {(equityStatementData.data || []).map((m: any, idx: number) => (
+                                <Fragment key={`${m.month}-${idx}`}>
+                                  <tr className="bg-slate-100/90">
+                                    <td colSpan={3} className="py-2 pl-4 pr-4 font-bold text-[#1F4E79] text-xs uppercase tracking-wider border-t border-slate-200">
+                                      {m.month}
+                                    </td>
                                   </tr>
-                                )}
-                                <tr className="border-0">
-                                  <td className="py-1 italic pl-2">Net Profit before tax for {m?.dateLabel || m?.month}</td>
-                                  <td className="text-right px-4">0</td>
-                                  <td className="text-right px-4 border-b border-black">{m?.movements?.periodProfit?.toLocaleString() || "0"}</td>
-                                </tr>
-
-                                {/* Closing Row */}
-                                <tr className="border-b-4 border-double border-black font-bold">
-                                  <td className="py-2">AS AT {m?.dateLabel?.split(' to ')[1] || m?.month || 'END'} (End)</td>
-                                  <td className="text-right px-4">{m?.closing?.shareCap?.toLocaleString() || "0"}</td>
-                                  <td className="text-right px-4">{m?.closing?.profit?.toLocaleString() || "0"}</td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          </div>
-                        ))}
+                                  <tr className="border-b border-slate-100 hover:bg-slate-50/80">
+                                    <td className="py-2.5 pl-4 pr-2 text-xs sm:text-sm">
+                                      Opening balance <span className="text-slate-500 font-normal">(as at {m.openingLabel || "—"})</span>
+                                    </td>
+                                    <td className="text-right py-2.5 px-3 tabular-nums font-medium">{(m.opening?.shareCap ?? 0).toLocaleString()}</td>
+                                    <td className="text-right py-2.5 pr-4 pl-3 tabular-nums font-medium">{(m.opening?.profit ?? 0).toLocaleString()}</td>
+                                  </tr>
+                                  {(m.movements?.capitalInjected ?? 0) !== 0 && (
+                                    <tr className="border-b border-slate-100 hover:bg-slate-50/80">
+                                      <td className="py-2.5 pl-6 pr-2 text-xs sm:text-sm italic text-slate-700">Share capital movements</td>
+                                      <td className="text-right py-2.5 px-3 tabular-nums border-b border-slate-300">{(m.movements?.capitalInjected ?? 0).toLocaleString()}</td>
+                                      <td className="text-right py-2.5 pr-4 pl-3 tabular-nums text-slate-400">—</td>
+                                    </tr>
+                                  )}
+                                  <tr className="border-b border-slate-100 hover:bg-slate-50/80">
+                                    <td className="py-2.5 pl-6 pr-2 text-xs sm:text-sm italic text-slate-700">Net profit before tax ({m.dateLabel || m.month})</td>
+                                    <td className="text-right py-2.5 px-3 tabular-nums text-slate-400">—</td>
+                                    <td className="text-right py-2.5 pr-4 pl-3 tabular-nums border-b border-slate-300">{(m.movements?.periodProfit ?? 0).toLocaleString()}</td>
+                                  </tr>
+                                  <tr className="bg-slate-50 font-semibold border-b-2 border-slate-300">
+                                    <td className="py-3 pl-4 pr-2 text-xs sm:text-sm">
+                                      Closing balance <span className="text-slate-500 font-normal">(as at {m.closingLabel || "—"})</span>
+                                    </td>
+                                    <td className="text-right py-3 px-3 tabular-nums text-[#1F4E79]">{(m.closing?.shareCap ?? 0).toLocaleString()}</td>
+                                    <td className="text-right py-3 pr-4 pl-3 tabular-nums text-[#1F4E79]">{(m.closing?.profit ?? 0).toLocaleString()}</td>
+                                  </tr>
+                                </Fragment>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </CardContent>
                     </Card>
                   ) : (

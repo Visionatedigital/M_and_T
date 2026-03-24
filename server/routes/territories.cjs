@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db.cjs');
+const { requireAdmin } = require('../lib/roles.cjs');
 
 router.get('/', async (req, res) => {
     try {
@@ -12,7 +13,7 @@ router.get('/', async (req, res) => {
     }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireAdmin, async (req, res) => {
     const { name, description } = req.body;
     if (!name) return res.status(400).json({ error: 'Territory name is required' });
     try {
@@ -29,7 +30,7 @@ router.post('/', async (req, res) => {
     }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAdmin, async (req, res) => {
     try {
         const { rowCount } = await db.query('DELETE FROM territories WHERE id=$1', [req.params.id]);
         if (rowCount === 0) return res.status(404).json({ error: 'Territory not found' });

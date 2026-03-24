@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
@@ -89,6 +89,29 @@ const AssetManagement = () => {
     const totalValue = assets.reduce((sum, a) => sum + a.value, 0);
     const maintenanceCount = assets.filter(a => a.status === "Maintenance").length;
 
+    const filteredAssets = useMemo(() => {
+        const q = searchTerm.trim().toLowerCase();
+        if (!q) return assets;
+        return assets.filter(
+            (a) =>
+                String(a.name || "")
+                    .toLowerCase()
+                    .includes(q) ||
+                String(a.category || "")
+                    .toLowerCase()
+                    .includes(q) ||
+                String(a.serial || "")
+                    .toLowerCase()
+                    .includes(q) ||
+                String(a.location || "")
+                    .toLowerCase()
+                    .includes(q) ||
+                String(a.status || "")
+                    .toLowerCase()
+                    .includes(q)
+        );
+    }, [assets, searchTerm]);
+
     return (
         <SidebarProvider>
             <div className="min-h-screen flex w-full">
@@ -97,7 +120,7 @@ const AssetManagement = () => {
                     <StaffHeader />
                     <main className="flex-1 p-4 md:p-8 bg-muted/20">
                         <div className="max-w-7xl mx-auto space-y-6">
-                            <div className="flex justify-between items-center">
+                            <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
                                 <div>
                                     <h1 className="text-3xl font-bold tracking-tight">Asset Management</h1>
                                     <p className="text-muted-foreground font-medium">Track and manage company assets and equipment.</p>
@@ -169,6 +192,18 @@ const AssetManagement = () => {
                                 </Dialog>
                             </div>
 
+                            <div className="relative w-full max-w-xl">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none z-10" />
+                                <Input
+                                    type="search"
+                                    placeholder="Search by name, serial, category, location, or status…"
+                                    className="pl-9 h-10 w-full bg-background border-slate-200 shadow-sm"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    aria-label="Search assets"
+                                />
+                            </div>
+
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                 <Card className="bg-blue-50 border-blue-200 shadow-sm">
                                     <CardHeader className="pb-2">
@@ -201,21 +236,15 @@ const AssetManagement = () => {
 
                             <Card className="shadow-sm border-muted">
                                 <CardHeader className="pb-3 border-b bg-muted/10">
-                                    <div className="flex items-center justify-between">
-                                        <CardTitle className="text-lg flex items-center gap-2">
-                                            <Package className="h-5 w-5 text-primary" />
-                                            Asset Register
-                                        </CardTitle>
-                                        <div className="relative w-80">
-                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                            <Input
-                                                placeholder="Search by name, serial, or category..."
-                                                className="pl-10 h-10 w-full bg-white shadow-sm border-muted focus:ring-primary/10"
-                                                value={searchTerm}
-                                                onChange={(e) => setSearchTerm(e.target.value)}
-                                            />
-                                        </div>
-                                    </div>
+                                    <CardTitle className="text-lg flex items-center gap-2">
+                                        <Package className="h-5 w-5 text-primary" />
+                                        Asset Register
+                                    </CardTitle>
+                                    <CardDescription>
+                                        {searchTerm.trim()
+                                            ? `Showing ${filteredAssets.length} of ${assets.length} assets`
+                                            : `${assets.length} asset${assets.length === 1 ? "" : "s"} in the register`}
+                                    </CardDescription>
                                 </CardHeader>
                                 <CardContent className="p-0">
                                     <div className="rounded-md overflow-hidden">
@@ -238,8 +267,14 @@ const AssetManagement = () => {
                                                             No assets registered in the registry.
                                                         </TableCell>
                                                     </TableRow>
+                                                ) : filteredAssets.length === 0 ? (
+                                                    <TableRow>
+                                                        <TableCell colSpan={7} className="h-32 text-center text-muted-foreground italic">
+                                                            No assets match &quot;{searchTerm.trim()}&quot;. Try a different search.
+                                                        </TableCell>
+                                                    </TableRow>
                                                 ) : (
-                                                    assets.map((asset) => (
+                                                    filteredAssets.map((asset) => (
                                                         <TableRow key={asset.id} className="hover:bg-slate-50 transition-colors group">
                                                             <TableCell>
                                                                 <div className="font-bold text-slate-900">{asset.name}</div>

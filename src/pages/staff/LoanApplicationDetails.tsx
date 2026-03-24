@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, CheckCircle, XCircle, Users, DollarSign, Calendar, MapPin, Briefcase, FileText, Eye, Sparkles, Loader2 } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, Users, User, DollarSign, Calendar, MapPin, Briefcase, FileText, Eye, Sparkles, Loader2 } from "lucide-react";
+import { resolveMediaUrl } from "@/lib/resolveMediaUrl";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -70,6 +71,7 @@ interface LoanApplication {
     interest_method?: "flat_rate" | "reducing_balance" | "interest_only" | "fixed_fee";
     interest_rate?: number;
     interest_fixed_amount?: number;
+    borrower_id?: string | null;
 }
 
 const LoanApplicationDetails = () => {
@@ -86,16 +88,40 @@ const LoanApplicationDetails = () => {
     const [rejectionReason, setRejectionReason] = useState("");
     const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [linkedBorrowerPhoto, setLinkedBorrowerPhoto] = useState<string | null>(null);
 
     useEffect(() => {
         checkAuth();
     }, [id]);
 
+    useEffect(() => {
+        let cancelled = false;
+        const bid = application?.borrower_id;
+        if (!bid) {
+            setLinkedBorrowerPhoto(null);
+            return;
+        }
+        (async () => {
+            try {
+                const b = await api.borrowers.get(bid);
+                if (!cancelled) setLinkedBorrowerPhoto(b?.borrower_photo || null);
+            } catch {
+                if (!cancelled) setLinkedBorrowerPhoto(null);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [application?.borrower_id]);
+
     const checkAuth = async () => {
         try {
             const user = await api.auth.getMe();
             if (user) {
-                setUserRole(user.role);
+                setUserRole(
+                    String(user.role || "")
+                        .toLowerCase()
+                        .trim()
+                        .replace(/[\s-]+/g, "_")
+                );
                 if (id) loadApplication(id);
             }
         } catch (err) {
@@ -252,6 +278,9 @@ const LoanApplicationDetails = () => {
     if (!application) return null;
 
     const loanCalcs = calculateLoanDetails();
+    const isBusinessLoan = application.loan_category === "Business";
+    const applicantAvatar =
+        resolveMediaUrl(linkedBorrowerPhoto) || resolveMediaUrl(application.attachment_passport_photo);
 
     return (
         <SidebarProvider>
@@ -271,8 +300,17 @@ const LoanApplicationDetails = () => {
                             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                                 <div>
                                     <div className="flex items-center gap-3 mb-2">
-                                        <h1 className="text-3xl font-bold">{getLoanTitle(application)}</h1>
-                                        {getStatusBadge(application.status)}
+                                        <div className="h-12 w-12 rounded-full overflow-hidden border bg-muted flex items-center justify-center shrink-0">
+                                            {applicantAvatar ? (
+                                                <img src={applicantAvatar} alt="" className="h-full w-full object-cover" />
+                                            ) : (
+                                                <User className="h-6 w-6 text-muted-foreground" />
+                                            )}
+                                        </div>
+                                        <div className="min-w-0 flex flex-col gap-1">
+                                            <h1 className="text-3xl font-bold">{getLoanTitle(application)}</h1>
+                                            {getStatusBadge(application.status)}
+                                        </div>
                                     </div>
                                     {isGroupApplication && (
                                         <p className="text-sm text-muted-foreground mb-2">Group Leader: {application.full_name}</p>
@@ -356,14 +394,26 @@ const LoanApplicationDetails = () => {
                                             <Label className="text-muted-foreground">Date of Birth</Label>
                                             <p className="font-medium">{application.date_of_birth ? new Date(application.date_of_birth).toLocaleDateString() : "N/A"}</p>
                                         </div>
-                                        <div>
-                                            <Label className="text-muted-foreground">Address</Label>
-                                            <div className="flex items-start gap-1">
-                                                <MapPin className="h-4 w-4 mt-1 text-muted-foreground" />
-                                                <p className="font-medium">{application.address || "N/A"}</p>
+                                        {isBusinessLoan ? (
+                                            <div>
+                                                <Label className="text-muted-foreground">Address</Label>
+                                                <div className="flex items-start gap-1">
+                                                    <MapPin className="h-4 w-4 mt-1 text-muted-foreground" />
+                                                    <p className="font-medium">{application.address || "N/A"}</p>
+                                                </div>
                                             </div>
-                                        </div>
-                                        {application.district && (
+                                        ) : (
+                                            <div>
+                                                <Label className="text-muted-foreground">Location</Label>
+                                                <div className="flex items-start gap-1">
+                                                    <MapPin className="h-4 w-4 mt-1 text-muted-foreground" />
+                                                    <p className="font-medium">
+                                                        {[application.village, application.district].filter(Boolean).join(", ") || "N/A"}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {isBusinessLoan && application.district && (
                                             <div>
                                                 <Label className="text-muted-foreground">District / Village</Label>
                                                 <p className="font-medium">{application.district}, {application.village}</p>
@@ -395,10 +445,12 @@ const LoanApplicationDetails = () => {
                                                 {application.monthly_income ? `UGX ${application.monthly_income.toLocaleString()}` : "N/A"}
                                             </p>
                                         </div>
-                                        <div>
-                                            <Label className="text-muted-foreground">Business Location</Label>
-                                            <p className="font-medium">{application.business_location || "N/A"}</p>
-                                        </div>
+                                        {isBusinessLoan && (
+                                            <div>
+                                                <Label className="text-muted-foreground">Business Location</Label>
+                                                <p className="font-medium">{application.business_location || "N/A"}</p>
+                                            </div>
+                                        )}
                                     </CardContent>
                                 </Card>
 
@@ -418,15 +470,23 @@ const LoanApplicationDetails = () => {
                                                 { label: "Recommendation Letter", value: application.attachment_recommendation_letter },
                                                 { label: "Passport Photo", value: application.attachment_passport_photo },
                                                 { label: "Income Statement", value: application.attachment_income_statement },
-                                            ].map((doc, i) => (
-                                                <div key={i} className="flex items-center justify-between p-3 border rounded-lg bg-muted/20">
-                                                    <span className="font-medium text-sm">{doc.label}</span>
+                                            ].map((doc, i) => {
+                                                const isPassport = doc.label === "Passport Photo";
+                                                const preview = isPassport && doc.value ? resolveMediaUrl(doc.value) : null;
+                                                return (
+                                                <div key={i} className="flex items-center justify-between gap-3 p-3 border rounded-lg bg-muted/20">
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        {preview ? (
+                                                            <img src={preview} alt="" className="h-12 w-12 rounded-full object-cover border shrink-0" />
+                                                        ) : null}
+                                                        <span className="font-medium text-sm">{doc.label}</span>
+                                                    </div>
                                                     {doc.value ? (
                                                         <a
-                                                            href={doc.value}
+                                                            href={doc.value.startsWith("http") ? doc.value : resolveMediaUrl(doc.value) || doc.value}
                                                             target="_blank"
                                                             rel="noopener noreferrer"
-                                                            className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm font-medium"
+                                                            className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm font-medium shrink-0"
                                                         >
                                                             <Eye className="h-4 w-4" />
                                                             View
@@ -435,7 +495,7 @@ const LoanApplicationDetails = () => {
                                                         <span className="text-muted-foreground text-xs italic">Not Uploaded</span>
                                                     )}
                                                 </div>
-                                            ))}
+                                            );})}
                                         </div>
                                     </CardContent>
                                 </Card>

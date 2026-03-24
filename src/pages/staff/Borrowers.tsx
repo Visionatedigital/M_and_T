@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase, isSupabaseOffline } from "@/integrations/supabase/client";
 import { api } from "@/services/api";
@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Users, Search, Plus, Eye, Phone, Mail, MapPin, UserPlus, FileText, DollarSign, Filter } from "lucide-react";
+import { Users, User, Search, Plus, Eye, Phone, Mail, MapPin, UserPlus, FileText, DollarSign, Filter } from "lucide-react";
+import { resolveMediaUrl } from "@/lib/resolveMediaUrl";
 import { useToast } from "@/hooks/use-toast";
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -39,12 +40,14 @@ interface Borrower {
     status: string;
     // other optional fields for completeness
     group_id?: string | null;
+    /** True when Borrower List is in "group totals" mode (aggregated groups) */
     is_group?: boolean;
     district?: string;
     latitude?: number;
     longitude?: number;
     credit_score?: number;
     village?: string;
+    borrower_photo?: string | null;
 }
 
 const getScoreColor = (score: number) => {
@@ -69,6 +72,8 @@ const Borrowers = () => {
     const [borrowers, setBorrowers] = useState<Borrower[]>([]);
     const [filteredBorrowers, setFilteredBorrowers] = useState<Borrower[]>([]);
     const [searchTerm, setSearchTerm] = useState("");
+    /** Separate search for "Find My Borrower" tab */
+    const [findSearchTerm, setFindSearchTerm] = useState("");
     const [showAdvanced, setShowAdvanced] = useState(false);
     const [isGroupView, setIsGroupView] = useState(false);
     const [editLocationDialogOpen, setEditLocationDialogOpen] = useState(false);
@@ -183,6 +188,21 @@ const Borrowers = () => {
 
         setFilteredBorrowers(filtered);
     };
+
+    const findMatches = useMemo(() => {
+        const q = findSearchTerm.trim().toLowerCase();
+        if (!q) return borrowers;
+        return borrowers.filter(
+            (b) =>
+                (b.full_name?.toLowerCase() || "").includes(q) ||
+                (b.business_name?.toLowerCase() || "").includes(q) ||
+                (b.unique_number?.toLowerCase() || "").includes(q) ||
+                (b.email?.toLowerCase() || "").includes(q) ||
+                (b.phone_number || "").replace(/\s/g, "").includes(q.replace(/\s/g, "")) ||
+                (b.district?.toLowerCase() || "").includes(q) ||
+                (b.village?.toLowerCase() || "").includes(q)
+        );
+    }, [borrowers, findSearchTerm]);
 
     const handleEditLocation = async (borrower: Borrower) => {
         setSelectedBorrowerForLocation(borrower);
@@ -354,7 +374,7 @@ const Borrowers = () => {
                                                             </TableCell>
                                                         </TableRow>
                                                     ) : (
-                                                        filteredBorrowers.slice(0, 10).map((borrower) => (
+                                                        filteredBorrowers.map((borrower) => (
                                                             <TableRow key={borrower.id}>
                                                                 <TableCell className="py-2">
                                                                     <Button
@@ -366,7 +386,18 @@ const Borrowers = () => {
                                                                         <Eye className="h-4 w-4" />
                                                                     </Button>
                                                                 </TableCell>
-                                                                <TableCell className="font-medium py-2"><span className="block truncate max-w-[120px]" title={borrower.full_name}>{borrower.full_name}</span></TableCell>
+                                                                <TableCell className="font-medium py-2">
+                                                                    <div className="flex items-center gap-2 min-w-0">
+                                                                        <div className="h-8 w-8 rounded-full bg-muted overflow-hidden shrink-0 flex items-center justify-center border border-border">
+                                                                            {resolveMediaUrl(borrower.borrower_photo) ? (
+                                                                                <img src={resolveMediaUrl(borrower.borrower_photo)!} alt="" className="h-full w-full object-cover" />
+                                                                            ) : (
+                                                                                <User className="h-4 w-4 text-muted-foreground" />
+                                                                            )}
+                                                                        </div>
+                                                                        <span className="block truncate max-w-[120px]" title={borrower.full_name}>{borrower.full_name}</span>
+                                                                    </div>
+                                                                </TableCell>
                                                                 <TableCell className="py-2"><span className="block truncate max-w-[90px]" title={borrower.business_name || undefined}>{borrower.business_name || "-"}</span></TableCell>
                                                                 <TableCell className="py-2">{borrower.unique_number || "-"}</TableCell>
                                                                 <TableCell className="py-2"><span className="block truncate max-w-[90px]" title={borrower.phone_number || undefined}>{borrower.phone_number || "-"}</span></TableCell>
@@ -401,22 +432,155 @@ const Borrowers = () => {
                                     </Card>
                                 </TabsContent>
 
+                                <TabsContent value="find" className="space-y-4">
+                                    <Card>
+                                        <CardHeader>
+                                            <CardTitle>Find My Borrower</CardTitle>
+                                            <CardDescription>
+                                                Search clients in your portfolio by name, phone, email, ID, or location. Loan officers only see borrowers assigned to them; admins see everyone.
+                                            </CardDescription>
+                                        </CardHeader>
+                                        <CardContent className="space-y-4">
+                                            <div className="relative w-full max-w-xl">
+                                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none z-10" />
+                                                <Input
+                                                    type="search"
+                                                    placeholder="Type to search — name, phone, email, unique #, district, village…"
+                                                    className="pl-9 h-11"
+                                                    value={findSearchTerm}
+                                                    onChange={(e) => setFindSearchTerm(e.target.value)}
+                                                    aria-label="Find borrower"
+                                                />
+                                            </div>
+                                            {borrowers.length === 0 ? (
+                                                <div className="rounded-lg border border-dashed bg-muted/30 p-10 text-center text-muted-foreground">
+                                                    <p className="font-medium text-foreground">No borrowers yet</p>
+                                                    <p className="text-sm mt-2">Add borrowers from the Borrower List tab or create loan applications that link to clients.</p>
+                                                </div>
+                                            ) : findMatches.length === 0 ? (
+                                                <div className="rounded-lg border border-dashed bg-muted/30 p-10 text-center text-muted-foreground">
+                                                    <p className="font-medium text-foreground">No matches</p>
+                                                    <p className="text-sm mt-2">Nothing matches &quot;{findSearchTerm.trim()}&quot;. Try another name, phone number, or area.</p>
+                                                </div>
+                                            ) : (
+                                                <div className="rounded-md border divide-y max-h-[min(70vh,520px)] overflow-y-auto">
+                                                    {findMatches.map((b) => (
+                                                        <div
+                                                            key={b.id}
+                                                            className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between hover:bg-muted/40 transition-colors"
+                                                        >
+                                                            <div className="min-w-0 space-y-1 flex gap-3 sm:items-start">
+                                                                <div className="h-10 w-10 rounded-full bg-muted overflow-hidden shrink-0 flex items-center justify-center border border-border">
+                                                                    {resolveMediaUrl(b.borrower_photo) ? (
+                                                                        <img src={resolveMediaUrl(b.borrower_photo)!} alt="" className="h-full w-full object-cover" />
+                                                                    ) : (
+                                                                        <User className="h-5 w-5 text-muted-foreground" />
+                                                                    )}
+                                                                </div>
+                                                                <div className="min-w-0 flex-1 space-y-1">
+                                                                <div className="font-semibold text-foreground truncate">{b.full_name}</div>
+                                                                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                                                                    {b.phone_number && (
+                                                                        <a href={`tel:${b.phone_number}`} className="text-primary hover:underline inline-flex items-center gap-1">
+                                                                            <Phone className="h-3.5 w-3.5 shrink-0" />
+                                                                            {b.phone_number}
+                                                                        </a>
+                                                                    )}
+                                                                    {b.email && (
+                                                                        <span className="inline-flex items-center gap-1 truncate max-w-[200px]" title={b.email}>
+                                                                            <Mail className="h-3.5 w-3.5 shrink-0" />
+                                                                            {b.email}
+                                                                        </span>
+                                                                    )}
+                                                                    {b.unique_number && <span>ID: {b.unique_number}</span>}
+                                                                </div>
+                                                                {(b.business_name || b.district || b.village) && (
+                                                                    <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3">
+                                                                        {b.business_name && <span>{b.business_name}</span>}
+                                                                        {(b.district || b.village) && (
+                                                                            <span className="inline-flex items-center gap-1">
+                                                                                <MapPin className="h-3 w-3" />
+                                                                                {[b.village, b.district].filter(Boolean).join(", ")}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                                <div className="text-xs pt-1">
+                                                                    <span className="text-muted-foreground">Balance: </span>
+                                                                    <span className="font-medium">{(b.open_loans_balance || 0).toLocaleString()} UGX</span>
+                                                                    <span className="text-muted-foreground mx-2">·</span>
+                                                                    <span className="text-muted-foreground">Status: </span>
+                                                                    <span>{b.status || "—"}</span>
+                                                                </div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex flex-wrap gap-2 shrink-0">
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="default"
+                                                                    onClick={() => navigate(`/staff-dashboard/borrowers/history?id=${b.id}`)}
+                                                                >
+                                                                    <Eye className="h-4 w-4 mr-1" />
+                                                                    View
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    onClick={() => navigate(`/staff-dashboard/loans/add?borrower=${b.id}`)}
+                                                                >
+                                                                    <DollarSign className="h-4 w-4 mr-1" />
+                                                                    Loans
+                                                                </Button>
+                                                                {!b.is_group && (
+                                                                    <Button size="sm" variant="outline" onClick={() => handleEditLocation(b)}>
+                                                                        <MapPin className="h-4 w-4 mr-1" />
+                                                                        Set location
+                                                                    </Button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {borrowers.length > 0 && (
+                                                <p className="text-xs text-muted-foreground">
+                                                    Showing {findMatches.length} of {borrowers.length} borrower{borrowers.length === 1 ? "" : "s"}
+                                                    {findSearchTerm.trim() ? " matching your search" : ""}.
+                                                </p>
+                                            )}
+                                        </CardContent>
+                                    </Card>
+                                </TabsContent>
+
                                 <TabsContent value="map" className="h-[600px]">
                                     <Card className="h-full">
                                         <CardHeader>
                                             <CardTitle>Borrower Locations</CardTitle>
-                                            <CardDescription>Geographic distribution of your borrowers.</CardDescription>
+                                            <CardDescription>
+                                                Pins appear when a borrower has GPS saved (latitude & longitude). Use <strong>Find My Borrower</strong> → <strong>Set location</strong> to add coordinates.
+                                            </CardDescription>
                                         </CardHeader>
-                                        <CardContent className="h-[500px] p-0 overflow-hidden rounded-b-lg">
+                                        <CardContent className="h-[500px] p-0 overflow-hidden rounded-b-lg relative">
+                                            {borrowers.filter((b) => b.latitude != null && b.longitude != null && !Number.isNaN(Number(b.latitude)) && !Number.isNaN(Number(b.longitude))).length === 0 && (
+                                                <div className="absolute inset-0 z-[500] flex items-center justify-center p-4 bg-background/85">
+                                                    <div className="bg-card border rounded-lg shadow-lg p-6 max-w-md text-center space-y-2">
+                                                        <MapPin className="h-10 w-10 mx-auto text-muted-foreground" />
+                                                        <p className="font-semibold">No map pins yet</p>
+                                                        <p className="text-sm text-muted-foreground">
+                                                            Open <strong>Find My Borrower</strong>, choose a client, and tap <strong>Set location</strong> to enter latitude and longitude (you can copy from Google Maps). Village and district alone do not place a pin.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            )}
                                             <MapContainer center={[0.3476, 32.5825]} zoom={8} style={{ height: '100%', width: '100%' }}>
                                                 <TileLayer
                                                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                                                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                                                 />
                                                 {borrowers
-                                                    .filter(b => b.latitude && b.longitude)
+                                                    .filter((b) => b.latitude != null && b.longitude != null)
                                                     .map((b) => (
-                                                        <Marker key={b.id} position={[b.latitude!, b.longitude!]}>
+                                                        <Marker key={b.id} position={[Number(b.latitude), Number(b.longitude)]}>
                                                             <Popup>
                                                                 <div className="p-2">
                                                                     <h3 className="font-bold">{b.full_name}</h3>
@@ -433,16 +597,6 @@ const Borrowers = () => {
                                                             </Popup>
                                                         </Marker>
                                                     ))}
-                                                {borrowers.filter(b => b.latitude && b.longitude).length === 0 && (
-                                                    <Marker position={[0.3476, 32.5825]}>
-                                                        <Popup>
-                                                            <div className="p-2">
-                                                                <p className="text-sm">No borrower location data available yet.</p>
-                                                                <p className="text-xs text-muted-foreground mt-1">Locations will appear as loan applications with GPS data are created.</p>
-                                                            </div>
-                                                        </Popup>
-                                                    </Marker>
-                                                )}
                                             </MapContainer>
                                         </CardContent>
                                     </Card>

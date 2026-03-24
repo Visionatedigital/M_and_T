@@ -76,6 +76,7 @@ async function runMigrations() {
                 entry_type text NOT NULL CHECK (entry_type IN ('revenue', 'expense')),
                 category text NOT NULL,
                 description text,
+                narration text,
                 amount numeric(15,2) NOT NULL CHECK (amount > 0),
                 entry_date date NOT NULL DEFAULT CURRENT_DATE,
                 reference_id uuid,

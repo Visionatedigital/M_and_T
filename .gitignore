@@ -30,3 +30,6 @@ npm-cache/
 # Electron build output
 release/
 *.db
+
+# Local file uploads (multer)
+server/uploads/

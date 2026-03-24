@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db.cjs');
+const { requireAdmin } = require('../lib/roles.cjs');
 
 router.get('/', async (req, res) => {
     try {
@@ -12,7 +13,7 @@ router.get('/', async (req, res) => {
     }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireAdmin, async (req, res) => {
     const { name, code, address, phone, email, status, territory_id } = req.body;
     if (!name || !code) return res.status(400).json({ error: 'Branch name and code are required' });
     try {
@@ -46,7 +47,7 @@ router.put('/:id', async (req, res) => {
     }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAdmin, async (req, res) => {
     try {
         const { rowCount } = await db.query('DELETE FROM branches WHERE id=$1', [req.params.id]);
         if (rowCount === 0) return res.status(404).json({ error: 'Branch not found' });

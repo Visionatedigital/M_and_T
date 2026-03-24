@@ -14,7 +14,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/services/api";
-import { Loader2 } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 
 interface StaffMember {
     id: string;
@@ -28,6 +29,17 @@ export function StaffManagement() {
     const [staff, setStaff] = useState<StaffMember[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [searchTerm, setSearchTerm] = useState("");
+
+    const filteredStaff = staff.filter((m) => {
+        const q = searchTerm.toLowerCase().trim();
+        if (!q) return true;
+        return (
+            (m.full_name?.toLowerCase() || "").includes(q) ||
+            (m.email?.toLowerCase() || "").includes(q) ||
+            (m.role?.toLowerCase() || "").includes(q)
+        );
+    });
 
     const fetchStaff = async () => {
         setLoading(true);
@@ -65,8 +77,17 @@ export function StaffManagement() {
                             </div>
 
                             <Card>
-                                <CardHeader>
+                                <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between space-y-0">
                                     <CardTitle>Staff Directory</CardTitle>
+                                    <div className="relative w-full sm:w-72">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input
+                                            placeholder="Search name, email, role..."
+                                            className="pl-9"
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                        />
+                                    </div>
                                 </CardHeader>
                                 <CardContent>
                                     {loading ? (
@@ -89,7 +110,14 @@ export function StaffManagement() {
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
-                                                {staff.map((member) => (
+                                                {filteredStaff.length === 0 ? (
+                                                    <TableRow>
+                                                        <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
+                                                            No staff match your search.
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ) : (
+                                                filteredStaff.map((member) => (
                                                     <TableRow key={member.id}>
                                                         <TableCell className="font-medium">{member.full_name}</TableCell>
                                                         <TableCell>{member.email}</TableCell>
@@ -105,7 +133,8 @@ export function StaffManagement() {
                                                             </Badge>
                                                         </TableCell>
                                                     </TableRow>
-                                                ))}
+                                                ))
+                                                )}
                                             </TableBody>
                                         </Table>
                                     )}

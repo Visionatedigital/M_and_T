@@ -11,7 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Wallet, Search, TrendingUp, DollarSign, Calendar, Users, Eye, FileSpreadsheet, Receipt } from "lucide-react";
+import { Wallet, Search, TrendingUp, DollarSign, Calendar, Users, Eye, FileSpreadsheet, Receipt, Banknote } from "lucide-react";
+import { RecordPaymentDialog, suggestInstallmentAmount } from "@/components/staff/RecordPaymentDialog";
 import { useToast } from "@/hooks/use-toast";
 
 interface ActiveLoan {
@@ -32,6 +33,8 @@ interface ActiveLoan {
   months_elapsed: number;
   months_remaining: number;
   group_id?: string | null;
+  loan_duration_months?: number;
+  loan_amount?: number;
 }
 
 const ActiveLoans = () => {
@@ -43,6 +46,7 @@ const ActiveLoans = () => {
   const [productFilter, setProductFilter] = useState<string>("all");
   const [viewMode, setViewMode] = useState<"list" | "groups">("list");
   const [selectedGroup, setSelectedGroup] = useState<{ groupId: string, groupName: string, members: ActiveLoan[] } | null>(null);
+  const [recordPaymentLoan, setRecordPaymentLoan] = useState<ActiveLoan | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -80,6 +84,7 @@ const ActiveLoans = () => {
     try {
       const data = await api.applications.getActive();
       setLoans(data);
+      return data as ActiveLoan[];
     } catch (error: any) {
       toast({
         title: "Error",
@@ -89,6 +94,17 @@ const ActiveLoans = () => {
     } finally {
       setIsLoading(false);
     }
+    return undefined;
+  };
+
+  const refreshGroupAfterPayment = async () => {
+    const data = await api.applications.getActive();
+    setLoans(data);
+    setSelectedGroup((sg) => {
+      if (!sg) return null;
+      const members = (data as ActiveLoan[]).filter((l) => l.group_id === sg.groupId);
+      return members.length ? { ...sg, members } : null;
+    });
   };
 
   const filterLoans = () => {
@@ -220,9 +236,22 @@ const ActiveLoans = () => {
                 </Button>
               </div>
 
-              {/* Product Filter Tabs */}
-              <div className="flex gap-2 flex-wrap items-center justify-between">
-                <div className="flex gap-2 flex-wrap">
+              {/* Search on its own row so it’s never hidden below stat cards or off-screen */}
+              <div className="relative w-full max-w-xl">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none z-10" />
+                <Input
+                  type="search"
+                  placeholder="Search group, client, or loan product…"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9 h-10 w-full border-slate-200 bg-background shadow-sm"
+                  aria-label="Search loans"
+                />
+              </div>
+
+              {/* Product filters + view mode */}
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                <div className="flex gap-2 flex-wrap items-center">
                   <Button
                     variant={productFilter === "all" ? "default" : "outline"}
                     size="sm"
@@ -242,8 +271,7 @@ const ActiveLoans = () => {
                   ))}
                 </div>
 
-                {/* View Mode Toggle */}
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <Button
                     variant={viewMode === "list" ? "default" : "outline"}
                     size="sm"
@@ -267,20 +295,11 @@ const ActiveLoans = () => {
               {location.pathname.includes("/schedule") ? (
                 <Card>
                   <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle>Loan Repayment Schedule</CardTitle>
-                        <CardDescription>View repayment schedules for all active loans</CardDescription>
-                      </div>
-                      <div className="relative">
-                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          placeholder="Search schedule..."
-                          value={searchTerm}
-                          onChange={(e) => setSearchTerm(e.target.value)}
-                          className="pl-8 w-64"
-                        />
-                      </div>
+                    <div>
+                      <CardTitle>Loan Repayment Schedule</CardTitle>
+                      <CardDescription>
+                        View repayment schedules for all active loans. Use the search bar above to filter.
+                      </CardDescription>
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -416,20 +435,11 @@ const ActiveLoans = () => {
 
                   <Card>
                     <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <CardTitle>Active Loans</CardTitle>
-                          <CardDescription>View all active loans and track growth</CardDescription>
-                        </div>
-                        <div className="relative">
-                          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            placeholder="Search loans..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="pl-8 w-64"
-                          />
-                        </div>
+                      <div>
+                        <CardTitle>Active Loans</CardTitle>
+                        <CardDescription>
+                          View all active loans and track growth. Use the search bar above to find a group, client, or product.
+                        </CardDescription>
                       </div>
                     </CardHeader>
                     <CardContent>
@@ -490,14 +500,25 @@ const ActiveLoans = () => {
                                         </div>
                                       </TableCell>
                                       <TableCell>
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => navigate(`/staff-dashboard/loans/details/${loan.id}`)}
-                                        >
-                                          <Eye className="h-4 w-4 mr-1" />
-                                          View
-                                        </Button>
+                                        <div className="flex flex-wrap items-center gap-1">
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => navigate(`/staff-dashboard/loans/details/${loan.id}`)}
+                                          >
+                                            <Eye className="h-4 w-4 mr-1" />
+                                            View
+                                          </Button>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="text-primary"
+                                            onClick={() => setRecordPaymentLoan(loan)}
+                                          >
+                                            <Banknote className="h-4 w-4 mr-1" />
+                                            Pay
+                                          </Button>
+                                        </div>
                                       </TableCell>
                                     </TableRow>
                                   );
@@ -608,14 +629,25 @@ const ActiveLoans = () => {
                                           </div>
                                         </TableCell>
                                         <TableCell>
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => navigate(`/staff-dashboard/loans/details/${loan.id}`)}
-                                          >
-                                            <Eye className="h-4 w-4 mr-1" />
-                                            View
-                                          </Button>
+                                          <div className="flex flex-wrap items-center gap-1">
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={() => navigate(`/staff-dashboard/loans/details/${loan.id}`)}
+                                            >
+                                              <Eye className="h-4 w-4 mr-1" />
+                                              View
+                                            </Button>
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              className="text-primary"
+                                              onClick={() => setRecordPaymentLoan(loan)}
+                                            >
+                                              <Banknote className="h-4 w-4 mr-1" />
+                                              Pay
+                                            </Button>
+                                          </div>
                                         </TableCell>
                                       </TableRow>
                                     );
@@ -760,17 +792,28 @@ const ActiveLoans = () => {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedGroup(null);
-                              navigate(`/staff-dashboard/loans/details/${loan.id}`);
-                            }}
-                          >
-                            <Eye className="h-4 w-4 mr-1" />
-                            View
-                          </Button>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedGroup(null);
+                                navigate(`/staff-dashboard/loans/details/${loan.id}`);
+                              }}
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              View
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-primary"
+                              onClick={() => setRecordPaymentLoan(loan)}
+                            >
+                              <Banknote className="h-4 w-4 mr-1" />
+                              Pay
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -803,6 +846,34 @@ const ActiveLoans = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      <RecordPaymentDialog
+        open={!!recordPaymentLoan}
+        onOpenChange={(open) => !open && setRecordPaymentLoan(null)}
+        loanApplicationId={recordPaymentLoan?.id ?? null}
+        borrowerLabel={recordPaymentLoan ? recordPaymentLoan.full_name : ""}
+        defaultAmount={
+          recordPaymentLoan
+            ? (() => {
+                const s = suggestInstallmentAmount({
+                  total_amount: recordPaymentLoan.total_amount,
+                  loan_amount: recordPaymentLoan.loan_amount,
+                  loan_duration_months: recordPaymentLoan.loan_duration_months,
+                  group_id: recordPaymentLoan.group_id,
+                });
+                const rem = recordPaymentLoan.remaining_balance ?? 0;
+                return rem > 0 ? Math.min(s, rem) : s;
+              })()
+            : undefined
+        }
+        amountHint={
+          recordPaymentLoan
+            ? `Remaining: UGX ${(recordPaymentLoan.remaining_balance ?? 0).toLocaleString()}`
+            : undefined
+        }
+        memberBreakdownName={recordPaymentLoan?.full_name}
+        onSuccess={refreshGroupAfterPayment}
+      />
     </SidebarProvider>
   );
 };

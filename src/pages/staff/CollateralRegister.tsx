@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/services/api";
 import { useToast } from "@/hooks/use-toast";
+import { BorrowerCombobox } from "@/components/staff/BorrowerCombobox";
 
 const CollateralRegister = () => {
     const navigate = useNavigate();
@@ -305,17 +306,14 @@ const CollateralRegister = () => {
                         <div className="space-y-4 py-2 overflow-y-auto flex-1 min-h-0">
                             <div className="space-y-2">
                                 <Label>Owner / Borrower</Label>
-                                <Select value={editForm.borrower_id || "__none__"} onValueChange={(v) => setEditForm({ ...editForm, borrower_id: v === "__none__" ? "" : v })}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select owner" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="__none__">None</SelectItem>
-                                        {borrowers.map((b) => (
-                                            <SelectItem key={b.id} value={b.id}>{b.full_name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <BorrowerCombobox
+                                    borrowers={borrowers}
+                                    value={editForm.borrower_id}
+                                    onChange={(id) => setEditForm({ ...editForm, borrower_id: id })}
+                                    placeholder="Search by name, phone, or email…"
+                                    allowNone
+                                    noneLabel="None (unassigned)"
+                                />
                             </div>
                             <div className="space-y-2">
                                 <Label>Category / Type</Label>

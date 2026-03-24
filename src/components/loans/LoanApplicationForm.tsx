@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -19,10 +20,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import { Trash2, UserPlus, Plus, User, Users, ChevronsUpDown, Crown, Search, Shield } from "lucide-react";
+import { Trash2, UserPlus, Plus, User, Users, ChevronsUpDown, Crown, Search, Shield, Save, Check } from "lucide-react";
 import { api } from "@/services/api";
 import { useToast } from "@/hooks/use-toast";
+import { clearFormDraft, DRAFT_KEYS, formatDraftAge, loadFormDraft, saveFormDraft } from "@/lib/formDrafts";
 
 // Schema for Guarantor
 const guarantorSchema = z.object({
@@ -41,8 +44,8 @@ const formSchema = z.object({
     application_type: z.enum(["individual", "group"]),
 
     // Loan Details
-    loan_product: z.string().min(1, "Select a category"),
-    loan_category: z.string().min(1, "Select a product"),
+    loan_product: z.string().min(1, "Select a loan category (Individual or Group)"),
+    loan_category: z.string().min(1, "Select a product (purpose)"),
     loan_amount: z.string().refine((val) => !isNaN(Number(val)) && Number(val) > 0, {
         message: "Amount must be a positive number",
     }),
@@ -103,6 +106,25 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
+type LoanApplicationDraftPayload = {
+    formValues: Partial<FormValues>;
+    guarantors?: any[];
+    groupMembers?: any[];
+    groupLeaderAmount?: number;
+    selectedBorrowerId?: string;
+    selectedGroupLeaderId?: string;
+    selectedCollateralId?: string;
+};
+
+function sanitizeLoanFormValuesForDraft(v: FormValues): Partial<FormValues> {
+    const o: Record<string, unknown> = { ...v };
+    for (const key of Object.keys(o)) {
+        const val = o[key];
+        if (val instanceof File) delete o[key];
+    }
+    return o as Partial<FormValues>;
+}
+
 interface LoanApplicationFormProps {
     onSuccess: () => void;
     onCancel: () => void;
@@ -111,6 +133,7 @@ interface LoanApplicationFormProps {
 
 export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanApplicationFormProps) {
     const { toast } = useToast();
+    const navigate = useNavigate();
     const [loanProducts, setLoanProducts] = useState<any[]>([]);
     // Use a simplified local state for guarantors since useFieldArray can be complex with shadcn form sometimes
     const [guarantors, setGuarantors] = useState<any[]>(
@@ -182,6 +205,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
     const watchAppType = form.watch("application_type");
     const watchLoanAmount = useWatch({ control: form.control, name: "loan_amount", defaultValue: "" });
     const watchLoanDuration = useWatch({ control: form.control, name: "loan_duration", defaultValue: "" });
+    const watchedAll = useWatch({ control: form.control });
     useEffect(() => {
         if (watchProduct) {
             const product = loanProducts.find(p => p.name === watchProduct);
@@ -284,8 +308,13 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
     const [availableCollateral, setAvailableCollateral] = useState<any[]>([]);
     const [selectedCollateral, setSelectedCollateral] = useState<any>(null);
     const [collateralOpen, setCollateralOpen] = useState(false);
+    const collateralSearchRef = useRef<HTMLInputElement>(null);
     const [guarantorsDirectory, setGuarantorsDirectory] = useState<any[]>([]);
     const [addGuarantorOpen, setAddGuarantorOpen] = useState(false);
+
+    const loanDraftRef = useRef<(LoanApplicationDraftPayload & { _savedAt?: number }) | null>(null);
+    const loanDraftRestoredRef = useRef(false);
+    const suppressDraftSaveRef = useRef(false);
 
     useEffect(() => {
         if (form.watch("application_type") === "individual") {
@@ -301,17 +330,32 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
         api.collateral.getAll(true).then(setAvailableCollateral).catch(() => setAvailableCollateral([]));
     }, []);
 
+    useEffect(() => {
+        if (!collateralOpen) return;
+        const id = requestAnimationFrame(() => collateralSearchRef.current?.focus());
+        return () => cancelAnimationFrame(id);
+    }, [collateralOpen]);
+
     const memberBorrowerIds = useMemo(() => {
         const appType = form.watch("application_type");
         if (appType === "group") {
             const ids = [selectedGroupLeader?.id, ...groupMembers.map((m: any) => m.id)].filter(Boolean);
             return ids;
         }
-        if (appType === "individual" && initialData?.borrower_id) {
-            return [initialData.borrower_id];
+        if (appType === "individual") {
+            // Include whoever is selected in the UI, not only URL-prefill (initialData)
+            const bid = selectedBorrowerForIndividual?.id || initialData?.borrower_id;
+            return bid ? [bid] : [];
         }
         return [];
-    }, [form.watch("application_type"), selectedGroupLeader?.id, groupMembers, initialData?.borrower_id]);
+    }, [form.watch("application_type"), selectedGroupLeader?.id, groupMembers, selectedBorrowerForIndividual?.id, initialData?.borrower_id]);
+
+    /** Show collateral block once we know which borrower(s) the loan is for */
+    const showCollateralSection = useMemo(() => {
+        const appType = form.watch("application_type");
+        if (appType === "group") return memberBorrowerIds.length > 0;
+        return !!(selectedBorrowerForIndividual?.id || initialData?.borrower_id);
+    }, [form.watch("application_type"), memberBorrowerIds.length, selectedBorrowerForIndividual?.id, initialData?.borrower_id]);
 
     const memberOwnedCollateral = useMemo(() => {
         if (memberBorrowerIds.length === 0) return [];
@@ -334,6 +378,84 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
             api.borrowers.get(initialData.borrower_id).then(setSelectedBorrowerForIndividual).catch(() => {});
         }
     }, [initialData?.application_type, initialData?.borrower_id]);
+
+    // ── Draft: restore saved progress (new applications only; skip when editing or pre-filled borrower) ──
+    useEffect(() => {
+        if (initialData) return;
+        if (loanDraftRestoredRef.current) return;
+        loanDraftRestoredRef.current = true;
+        const d = loadFormDraft<LoanApplicationDraftPayload>(DRAFT_KEYS.LOAN_APPLICATION);
+        if (!d?.formValues || Object.keys(d.formValues).length === 0) return;
+        loanDraftRef.current = d;
+        suppressDraftSaveRef.current = true;
+        form.reset({ ...form.getValues(), ...d.formValues } as FormValues);
+        if (Array.isArray(d.guarantors)) setGuarantors(d.guarantors);
+        if (Array.isArray(d.groupMembers)) setGroupMembers(d.groupMembers);
+        if (typeof d.groupLeaderAmount === "number") setGroupLeaderAmount(d.groupLeaderAmount);
+        toast({
+            title: "Draft restored",
+            description: `Your last session was restored (${formatDraftAge(d._savedAt)}). File uploads are not saved—re-attach if needed.`,
+        });
+        window.setTimeout(() => {
+            suppressDraftSaveRef.current = false;
+        }, 600);
+    }, [initialData, form, toast]);
+
+    useEffect(() => {
+        if (initialData) return;
+        const d = loanDraftRef.current;
+        if (!d?.selectedBorrowerId && !d?.selectedGroupLeaderId) return;
+        if (!borrowers.length) return;
+        if (d.selectedBorrowerId) {
+            const b = borrowers.find((x: any) => x.id === d.selectedBorrowerId);
+            if (b) setSelectedBorrowerForIndividual(b);
+        }
+        if (d.selectedGroupLeaderId) {
+            const b = borrowers.find((x: any) => x.id === d.selectedGroupLeaderId);
+            if (b) setSelectedGroupLeader(b);
+        }
+    }, [borrowers, initialData]);
+
+    useEffect(() => {
+        if (initialData) return;
+        const d = loanDraftRef.current;
+        if (!d?.selectedCollateralId || !availableCollateral.length) return;
+        const c = availableCollateral.find((x: any) => x.id === d.selectedCollateralId);
+        if (c) {
+            setSelectedCollateral(c);
+            form.setValue("security_type", c.type || "");
+            form.setValue("security_value", String(c.estimated_value || c.current_value || ""));
+        }
+    }, [availableCollateral, initialData, form]);
+
+    useEffect(() => {
+        if (initialData) return;
+        if (suppressDraftSaveRef.current) return;
+        const id = window.setTimeout(() => {
+            const raw = form.getValues();
+            const formValues = sanitizeLoanFormValuesForDraft(raw);
+            saveFormDraft(DRAFT_KEYS.LOAN_APPLICATION, {
+                formValues,
+                guarantors,
+                groupMembers,
+                groupLeaderAmount,
+                selectedBorrowerId: selectedBorrowerForIndividual?.id,
+                selectedGroupLeaderId: selectedGroupLeader?.id,
+                selectedCollateralId: selectedCollateral?.id,
+            });
+        }, 2000);
+        return () => clearTimeout(id);
+    }, [
+        watchedAll,
+        guarantors,
+        groupMembers,
+        groupLeaderAmount,
+        selectedBorrowerForIndividual?.id,
+        selectedGroupLeader?.id,
+        selectedCollateral?.id,
+        initialData,
+        form,
+    ]);
 
     const handleSelectCollateral = (collateral: any) => {
         setSelectedCollateral(collateral);
@@ -524,7 +646,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                 interest_rate: values.interest_rate ? parseFloat(values.interest_rate) : null,
                 interest_fixed_amount: values.interest_fixed_amount ? parseFloat(values.interest_fixed_amount) : null,
                 loan_purpose: values.loan_purpose,
-                business_location: values.business_location,
+                business_location: values.loan_category === "Business" ? (values.business_location || null) : null,
                 employment_status: "Self-Employed",
 
                 // Security & Collateral
@@ -611,6 +733,10 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                 toast({ title: "Success", description: "Loan application submitted successfully" });
             }
 
+            if (!initialData) {
+                clearFormDraft(DRAFT_KEYS.LOAN_APPLICATION);
+                loanDraftRef.current = null;
+            }
             onSuccess();
         } catch (error: any) {
             console.error(error);
@@ -620,16 +746,43 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
 
     return (
         <Form {...form}>
-            <            form onSubmit={form.handleSubmit(onSubmit, (errors) => {
-                const firstError = errors && typeof errors === "object" && Object.keys(errors).length > 0
-                    ? Object.entries(errors).map(([k, v]) => (v as { message?: string })?.message || `${k} is invalid`).join(". ")
-                    : "Please check the form for missing or invalid fields.";
-                toast({
-                    title: "Validation Error",
-                    description: firstError,
-                    variant: "destructive"
-                });
-            })} className="space-y-6">
+            <form
+                onSubmit={form.handleSubmit(onSubmit, (errors) => {
+                    const firstError = errors && typeof errors === "object" && Object.keys(errors).length > 0
+                        ? Object.entries(errors).map(([k, v]) => (v as { message?: string })?.message || `${k} is invalid`).join(". ")
+                        : "Please check the form for missing or invalid fields.";
+                    toast({
+                        title: "Validation Error",
+                        description: firstError,
+                        variant: "destructive"
+                    });
+                })}
+                className="space-y-6"
+            >
+                {!initialData && (
+                    <Alert className="border-primary/30 bg-muted/40">
+                        <Save className="h-4 w-4" />
+                        <AlertTitle>Draft auto-save</AlertTitle>
+                        <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <span>
+                                This form saves progress in your browser every few seconds. Uploaded files are not included—re-attach after refresh.
+                            </span>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="shrink-0"
+                                onClick={() => {
+                                    clearFormDraft(DRAFT_KEYS.LOAN_APPLICATION);
+                                    loanDraftRef.current = null;
+                                    toast({ title: "Draft discarded", description: "You can continue with a blank form." });
+                                }}
+                            >
+                                Discard draft
+                            </Button>
+                        </AlertDescription>
+                    </Alert>
+                )}
                 {/* Application Type - Individual vs Group */}
                 <Card className="border-2 border-primary/20">
                     <CardHeader className="pb-3">
@@ -685,21 +838,46 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <FormField
                             control={form.control}
-                            name="loan_product"
+                            name="loan_category"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Category</FormLabel>
+                                    <FormLabel>Product</FormLabel>
+                                    <FormDescription className="text-xs">Purpose of the loan</FormDescription>
                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                                         <FormControl>
                                             <SelectTrigger>
-                                                <SelectValue placeholder="Select Category" />
+                                                <SelectValue placeholder="Select product" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            <SelectItem value="Business">Business</SelectItem>
+                                            <SelectItem value="Agricultural">Agricultural</SelectItem>
+                                            <SelectItem value="School Fees">School Fees</SelectItem>
+                                            <SelectItem value="Emergency">Emergency</SelectItem>
+                                            <SelectItem value="Other">Other</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="loan_product"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Loan category</FormLabel>
+                                    <FormDescription className="text-xs">Individual or Group lending</FormDescription>
+                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select loan category" />
                                             </SelectTrigger>
                                         </FormControl>
                                         <SelectContent>
                                             {loanProducts
                                                 .filter((p) => {
                                                     const isGroup = form.watch("application_type") === "group";
-                                                    // Individual: exclude Group Loan; Group: show Group Loan (and any other group products)
                                                     if (p.name === "Group Loan") return isGroup;
                                                     if (isGroup) return false;
                                                     return true;
@@ -709,30 +887,6 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                                         {product.name}
                                                     </SelectItem>
                                                 ))}
-                                        </SelectContent>
-                                    </Select>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <FormField
-                            control={form.control}
-                            name="loan_category"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Product</FormLabel>
-                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                        <FormControl>
-                                            <SelectTrigger>
-                                                <SelectValue placeholder="Select Product" />
-                                            </SelectTrigger>
-                                        </FormControl>
-                                        <SelectContent>
-                                            <SelectItem value="Business">Business</SelectItem>
-                                            <SelectItem value="Agricultural">Agricultural</SelectItem>
-                                            <SelectItem value="School Fees">School Fees</SelectItem>
-                                            <SelectItem value="Emergency">Emergency</SelectItem>
-                                            <SelectItem value="Other">Other</SelectItem>
                                         </SelectContent>
                                     </Select>
                                     <FormMessage />
@@ -957,6 +1111,20 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                     <FormItem>
                                         <FormLabel>Group Name</FormLabel>
                                         <FormControl><Input {...field} placeholder="Enter name of the group" /></FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                        )}
+                        {form.watch("loan_category") === "Business" && (
+                            <FormField
+                                control={form.control}
+                                name="business_location"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Business location</FormLabel>
+                                        <FormDescription className="text-xs">Where the business operates (shown only for Business products)</FormDescription>
+                                        <FormControl><Input {...field} placeholder="e.g. Kampala — Nakasero Market" /></FormControl>
                                         <FormMessage />
                                     </FormItem>
                                 )}
@@ -1435,8 +1603,8 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
 
                 <Separator />
 
-                {/* Security & Collateral - Only shown when a member owns collateral */}
-                {memberOwnedCollateral.length > 0 && (
+                {/* Security & Collateral — list what’s available for the selected borrower(s), then optionally attach */}
+                {showCollateralSection && (
                     <>
                         <Card className="border-2 border-primary/10">
                             <CardHeader className="pb-3">
@@ -1447,13 +1615,94 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                     Security & Collateral (Secured Loans Only)
                                 </CardTitle>
                                 <p className="text-sm text-muted-foreground mt-1">
-                                    Attach collateral from the register owned by a loan member. Leave blank for unsecured loans.
+                                    {form.watch("application_type") === "individual" && selectedBorrowerForIndividual?.full_name
+                                        ? `Collateral in the register for ${selectedBorrowerForIndividual.full_name} (not already linked to another loan).`
+                                        : form.watch("application_type") === "group"
+                                            ? "Collateral owned by the group leader or members (not already linked to another loan)."
+                                            : "Collateral in the register for the selected borrower (not already linked to another loan)."}
                                 </p>
                             </CardHeader>
                             <CardContent className="space-y-4">
+                                <div className="rounded-lg border bg-muted/20 p-3">
+                                    <p className="text-sm font-medium mb-1">Available collateral</p>
+                                    <p className="text-xs text-muted-foreground mb-3">
+                                        Click <span className="font-medium text-foreground">Attach</span> on an item to link it to this application (saved when you submit). You can also use the selector below.
+                                    </p>
+                                    {memberOwnedCollateral.length === 0 ? (
+                                        <div className="space-y-2">
+                                            <p className="text-sm text-muted-foreground">
+                                                No unlinked collateral items found for this borrower in the register. You can register assets first, then return to this application.
+                                            </p>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                className="w-full sm:w-auto"
+                                                onClick={() => {
+                                                    const bid = selectedBorrowerForIndividual?.id || initialData?.borrower_id;
+                                                    navigate(bid ? `/staff-dashboard/collateral/add?borrower=${encodeURIComponent(bid)}` : "/staff-dashboard/collateral/add");
+                                                }}
+                                            >
+                                                Open collateral register / add asset
+                                            </Button>
+                                        </div>
+                                    ) : (
+                                        <ul className="max-h-[280px] overflow-y-auto space-y-2 text-sm divide-y divide-border/60">
+                                            {memberOwnedCollateral.map((c: any) => {
+                                                const isAttached = selectedCollateral?.id === c.id;
+                                                return (
+                                                <li key={c.id} className="pt-2 first:pt-0">
+                                                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                                                        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                                            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                                                                <span className="font-medium">{c.type || "Collateral"}</span>
+                                                                <span className="text-primary font-semibold tabular-nums shrink-0">
+                                                                    UGX {(c.estimated_value ?? c.current_value ?? 0).toLocaleString()}
+                                                                </span>
+                                                            </div>
+                                                            <span className="text-muted-foreground">{c.description || "—"}</span>
+                                                            {(c.make_model || c.serial_number || c.plate_number) && (
+                                                                <span className="text-xs text-muted-foreground font-mono">
+                                                                    {[c.make_model, c.serial_number, c.plate_number].filter(Boolean).join(" · ")}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant={isAttached ? "default" : "outline"}
+                                                            className="shrink-0 w-full sm:w-auto"
+                                                            onClick={() => handleSelectCollateral(isAttached ? null : c)}
+                                                        >
+                                                            {isAttached ? (
+                                                                <>
+                                                                    <Check className="h-3.5 w-3.5 mr-1.5" />
+                                                                    Attached
+                                                                </>
+                                                            ) : (
+                                                                "Attach"
+                                                            )}
+                                                        </Button>
+                                                    </div>
+                                                </li>
+                                            );})}
+                                        </ul>
+                                    )}
+                                </div>
+
                                 <div>
-                                    <Label className="text-sm font-medium">Attach from Collateral Register</Label>
-                                    <Popover open={collateralOpen} onOpenChange={setCollateralOpen}>
+                                    <Label className="text-sm font-medium">
+                                        {memberOwnedCollateral.length > 0
+                                            ? "Confirm selection (optional — or use buttons above)"
+                                            : "Attach from register (optional)"}
+                                    </Label>
+                                    {memberOwnedCollateral.length === 0 ? (
+                                        <p className="text-xs text-muted-foreground mt-2">
+                                            Once collateral exists for this borrower, select it here to link it when you submit.
+                                        </p>
+                                    ) : (
+                                    <>
+                                    <Popover modal open={collateralOpen} onOpenChange={setCollateralOpen}>
                                         <PopoverTrigger asChild>
                                             <Button
                                                 variant="outline"
@@ -1476,7 +1725,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                                 ) : (
                                                     <div className="flex items-center gap-3 text-muted-foreground">
                                                         <Search className="h-5 w-5 shrink-0" />
-                                                        <span>Select collateral from register...</span>
+                                                        <span>Open list to search or pick collateral…</span>
                                                     </div>
                                                 )}
                                                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -1488,9 +1737,13 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                             side="bottom"
                                             sideOffset={8}
                                             avoidCollisions={false}
+                                            onOpenAutoFocus={(e) => e.preventDefault()}
                                         >
                                             <Command className="rounded-lg border-0">
-                                                <CommandInput placeholder="Search by type, description or owner..." />
+                                                <CommandInput
+                                                    ref={collateralSearchRef}
+                                                    placeholder="Search by type, description or owner..."
+                                                />
                                                 <CommandList className="max-h-[280px]">
                                                     <CommandEmpty>No collateral owned by members.</CommandEmpty>
                                                     <CommandGroup>
@@ -1532,16 +1785,20 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                         </PopoverContent>
                                     </Popover>
                                     <FormDescription className="text-xs mt-1">
-                                        Select from collateral owned by a loan member, not yet linked to a loan.
+                                        Same list as above — use if you prefer search. Submitting the application links the selected item to this loan.
                                     </FormDescription>
+                                    </>
+                                    )}
                                 </div>
 
-                                <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded-md border">
-                                    <p className="font-medium mb-1">Security Confirmation:</p>
-                                    <p>✓ The Borrower confirms lawful ownership of pledged security</p>
-                                    <p>✓ Security is free from third-party claims</p>
-                                    <p>✓ The Borrower grants peaceful access to pledged security in the event of default</p>
-                                </div>
+                                {memberOwnedCollateral.length > 0 && (
+                                    <div className="text-xs text-muted-foreground bg-muted/30 p-3 rounded-md border">
+                                        <p className="font-medium mb-1">Security Confirmation:</p>
+                                        <p>✓ The Borrower confirms lawful ownership of pledged security</p>
+                                        <p>✓ Security is free from third-party claims</p>
+                                        <p>✓ The Borrower grants peaceful access to pledged security in the event of default</p>
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
                     </>

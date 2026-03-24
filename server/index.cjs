@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const morgan = require('morgan');
 const cron = require('node-cron');
@@ -25,7 +26,8 @@ const authMiddleware = (req, res, next) => {
     if (authHeader && authHeader.startsWith('Bearer ')) {
         try {
             const token = authHeader.split(' ')[1];
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || 'supersecretkey_change_me_later');
+            // Must match server/routes/auth.js (sign) and server/middleware/auth.js
+            const decoded = jwt.verify(token, process.env.JWT_SECRET || 'supersecretkey');
             req.user = decoded;
             console.log(`👤 Auth: Parsed JWT for ${decoded.email || decoded.user_id || decoded.id}`);
             return next();
@@ -60,6 +62,9 @@ const notificationsRouter = require('./routes/notifications.cjs');
 const aiRouter = require('./routes/ai.cjs');
 const guarantorsRouter = require('./routes/guarantors.cjs');
 const authRoutes = require('./routes/auth.js');
+const uploadsRouter = require('./routes/uploads.js');
+
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Public Routes
 app.use('/api/auth', authRoutes);
@@ -83,6 +88,7 @@ app.use('/api/users', authMiddleware, usersRouter);
 app.use('/api/notifications', authMiddleware, notificationsRouter);
 app.use('/api/ai', authMiddleware, aiRouter);
 app.use('/api/guarantors', authMiddleware, guarantorsRouter);
+app.use('/api/upload', authMiddleware, uploadsRouter);
 
 /**
  * Start the server programmatically

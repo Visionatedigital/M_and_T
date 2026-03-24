@@ -1,0 +1,74 @@
+Coffee Estate OS — UI bundle (top bar, overview, SACCO hub, lodge, farm quick tab, payroll)
+============================================================================================
+
+Your "Coffee management system" folder was read-only from the automation environment.
+Copy files from this folder (m-t-growth-gateway/coffee-bundle/) into the Coffee app paths below.
+
+1) STYLES
+---------
+Copy:  estate-ui-shell.css
+  To:  Coffee management system/styles/estate-ui-shell.css
+
+In public/index.html, after styles.css (and overrides if any), add:
+  <link rel="stylesheet" href="../styles/estate-ui-shell.css" />
+
+
+2) NEW / REPLACED MODULES (src/renderer)
+-----------------------------------------
+Copy:  ownerOverview.js      -> features/core/ownerOverview.js
+Copy:  saccoHub.js           -> features/sacco/saccoHub.js
+Copy:  farmQuickTab.js       -> features/core/farmQuickTab.js
+
+
+3) REPLACE APP ENTRY
+--------------------
+Copy:  app.v2.js             -> src/renderer/app.js   (full replace)
+
+
+4) LODGE + WORKFORCE
+--------------------
+Copy:  lodgeDashboard.v2.js  -> features/lodge/lodgeDashboard.js
+Copy:  workforce.v2.js       -> features/biz/workforce.js
+
+
+5) FARM OVERVIEW — add "Farm" quick tab
+---------------------------------------
+Edit:  features/core/farmOverview.js
+
+  a) After other imports, add:
+     import { renderFarmQuickTab } from './farmQuickTab.js';
+
+  b) Change TABS to (quick first):
+     const TABS = [
+       { id: 'quick', label: 'Farm', icon: 'eco' },
+       { id: 'command', label: 'Command Center', icon: 'dashboard' },
+       { id: 'blocks', label: 'Block Register', icon: 'table_rows' },
+     ];
+     let activeTab = 'quick';
+
+  c) In renderTab, after tabContent.innerHTML = loading:
+     if (tab === 'quick') {
+       await renderFarmQuickTab(tabContent, () => renderTab('quick'));
+       return;
+     }
+
+
+6) PERMISSIONS (if copies fail)
+---------------------------------
+Grant your user Modify on:
+  D:\Loan-softwares\Coffee management system
+
+
+7) OPTIONAL
+-----------
+Remove old saccoDashboard.js usage (already replaced by saccoHub via app.js).
+You may keep saccoDashboard.js on disk for reference or delete it.
+
+After install, run the Electron app: Farm+SACCO door opens on "Overview" with executive KPIs;
+toolbar shows page title, search (filters sidebar labels), notifications toggle dot, theme, user.
+
+Notes
+-----
+- Member profile and loan detail use slide-in panels (side-panel-backdrop).
+- Payroll SACCO/loan columns use illustrative 12% / 8% splits until real deductions exist in DB.
+- "Add activity" on Farm quick tab closes modal without persisting to DB (hook your API later).

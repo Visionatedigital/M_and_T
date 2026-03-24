@@ -157,7 +157,11 @@ router.get('/', async (req, res) => {
     }
 });
 
+/** Fallback if loan_products.late_payment_penalty is not set */
 const LATE_PENALTY_AMOUNT = 5000;
+
+/** Default security deposit % for group loans when product rate missing */
+const DEFAULT_SECURITY_DEPOSIT_RATE_PCT = 10;
 
 // Record a new payment
 router.post('/', async (req, res) => {
@@ -191,31 +195,62 @@ router.post('/', async (req, res) => {
         await db.query('BEGIN');
 
         let penaltyAmount = parseFloat(clientPenalty) || 0;
+        /** UGX of late fee absorbed by group security deposit (not collected in cash) */
+        let penaltyCoveredByDeposit = 0;
+        /** Principal × security deposit % — used to persist balance on loan */
+        let initialSdForUpdate = null;
+        let penaltyDueForMessage = 0;
+
+        const hasPenaltyCoveredColumn = await db.query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'repayments' AND column_name = 'penalty_covered_by_security_deposit'
+        `).then(r => r.rows.length > 0).catch(() => false);
+
+        const hasSdAmountColumn = await db.query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'loan_applications' AND column_name = 'security_deposit_amount'
+        `).then(r => r.rows.length > 0).catch(() => false);
+
+        const hasSdBalanceColumn = await db.query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'loan_applications' AND column_name = 'security_deposit_balance'
+        `).then(r => r.rows.length > 0).catch(() => false);
 
         // Calculate if payment is late and apply penalty if not already provided
         if (penaltyAmount === 0) {
             const { rows: loanRows } = await db.query(
-                `SELECT la.*, p.full_name, p.phone_number FROM loan_applications la
+                `SELECT la.*, p.full_name, p.phone_number,
+                        lp.late_payment_penalty, lp.security_deposit_rate
+                 FROM loan_applications la
                  LEFT JOIN profiles p ON la.user_id = p.id
+                 LEFT JOIN LATERAL (
+                    SELECT late_payment_penalty, security_deposit_rate
+                    FROM loan_products
+                    WHERE name = la.loan_product
+                    ORDER BY updated_at DESC NULLS LAST
+                    LIMIT 1
+                 ) lp ON true
                  WHERE la.id = $1`,
                 [loan_application_id]
             );
 
             if (loanRows.length > 0) {
+                const loan = loanRows[0];
                 const { rows: payments } = await db.query(
                     `SELECT SUM(amount) as paid FROM repayments WHERE loan_application_id = $1`,
                     [loan_application_id]
                 );
                 const paidAmount = parseFloat(payments[0]?.paid || 0);
-                const principal = parseFloat(loanRows[0].loan_amount) || 0;
+                const principal = parseFloat(loan.loan_amount) || 0;
                 const totalAmount = principal * 1.30;
-                const loanDurationMonths = parseInt(loanRows[0].loan_duration_months) || 4;
-                const isGroup = !!loanRows[0].group_id;
+                const loanDurationMonths = parseInt(loan.loan_duration_months) || 4;
+                // Group loan: linked to a group OR product name indicates group (security deposit rules)
+                const isGroup = !!loan.group_id || /group/i.test(String(loan.loan_product || ''));
                 const numberOfInstallments = isGroup ? Math.ceil(loanDurationMonths * 4.33) : loanDurationMonths;
                 const installmentAmount = totalAmount / numberOfInstallments;
                 const installmentsPaid = Math.floor(paidAmount / installmentAmount);
 
-                const approvedDate = new Date(loanRows[0].approved_at || loanRows[0].created_at);
+                const approvedDate = new Date(loan.approved_at || loan.created_at);
                 let nextDueDate = new Date(approvedDate);
                 if (isGroup) {
                     nextDueDate.setDate(nextDueDate.getDate() + ((installmentsPaid + 1) * 7));
@@ -224,8 +259,42 @@ router.post('/', async (req, res) => {
                 }
 
                 const paymentDateObj = new Date(effectiveDate);
+                const penaltyDue = Math.max(0, parseFloat(loan.late_payment_penalty) || LATE_PENALTY_AMOUNT);
+                penaltyDueForMessage = penaltyDue;
+
                 if (paymentDateObj > nextDueDate) {
-                    penaltyAmount = LATE_PENALTY_AMOUNT;
+                    if (isGroup) {
+                        // Group loans: security deposit covers late penalty first; cash only if deposit exhausted
+                        const sdRate = parseFloat(loan.security_deposit_rate);
+                        const ratePct = Number.isFinite(sdRate) && sdRate > 0 ? sdRate : DEFAULT_SECURITY_DEPOSIT_RATE_PCT;
+                        const initialSd = principal * (ratePct / 100);
+                        initialSdForUpdate = initialSd;
+
+                        if (!hasPenaltyCoveredColumn) {
+                            // Cannot track forfeitures until repayments.penalty_covered_by_security_deposit exists
+                            penaltyAmount = penaltyDue;
+                            penaltyCoveredByDeposit = 0;
+                        } else {
+                            let sumCoveredPrior = 0;
+                            const { rows: covRows } = await db.query(
+                                `SELECT COALESCE(SUM(penalty_covered_by_security_deposit), 0) as s
+                                 FROM repayments WHERE loan_application_id = $1`,
+                                [loan_application_id]
+                            );
+                            sumCoveredPrior = parseFloat(covRows[0]?.s) || 0;
+
+                            let remaining = Math.max(0, initialSd - sumCoveredPrior);
+                            if (hasSdBalanceColumn && loan.security_deposit_balance != null) {
+                                remaining = Math.max(0, parseFloat(loan.security_deposit_balance));
+                            }
+
+                            const covered = Math.min(penaltyDue, remaining);
+                            penaltyCoveredByDeposit = covered;
+                            penaltyAmount = Math.max(0, penaltyDue - covered);
+                        }
+                    } else {
+                        penaltyAmount = penaltyDue;
+                    }
                 }
             }
         }
@@ -257,6 +326,10 @@ router.post('/', async (req, res) => {
             insertCols.push('penalty_amount');
             insertVals.push(penaltyAmount);
         }
+        if (hasPenaltyCoveredColumn) {
+            insertCols.push('penalty_covered_by_security_deposit');
+            insertVals.push(penaltyCoveredByDeposit);
+        }
         if (hasNotesColumn) {
             insertCols.push('notes');
             insertVals.push(notes || null);
@@ -270,6 +343,16 @@ router.post('/', async (req, res) => {
             `INSERT INTO repayments (${insertCols.join(', ')}) VALUES (${placeholders})`,
             insertVals
         );
+
+        if (hasSdBalanceColumn && penaltyCoveredByDeposit > 0 && initialSdForUpdate != null) {
+            await db.query(
+                `UPDATE loan_applications SET
+                    security_deposit_amount = COALESCE(security_deposit_amount, $1),
+                    security_deposit_balance = GREATEST(0, COALESCE(security_deposit_balance, $1) - $2)
+                 WHERE id = $3`,
+                [initialSdForUpdate, penaltyCoveredByDeposit, loan_application_id]
+            );
+        }
 
         const { rows: loanRows } = await db.query(
             `SELECT full_name, loan_amount, loan_product FROM loan_applications WHERE id = $1`,
@@ -319,8 +402,23 @@ router.post('/', async (req, res) => {
                         (entry_type, category, description, amount, entry_date, payment_method, reference_id, recorded_by)
                     VALUES ('revenue', 'Late Payment Penalties', $1, $2, $3, $4, $5, $6)
                 `, [
-                    `Late Payment Penalty - ${loan.full_name} (${loan.loan_product})`,
+                    `Late Payment Penalty (cash) - ${loan.full_name} (${loan.loan_product})`,
                     penaltyAmount,
+                    effectiveDate,
+                    payMethod,
+                    loan_application_id,
+                    recorded_by
+                ]);
+            }
+
+            if (penaltyCoveredByDeposit > 0) {
+                await db.query(`
+                    INSERT INTO accounting_entries
+                        (entry_type, category, description, amount, entry_date, payment_method, reference_id, recorded_by)
+                    VALUES ('revenue', 'Late Payment Penalties', $1, $2, $3, $4, $5, $6)
+                `, [
+                    `Late Payment Penalty (security deposit applied) - ${loan.full_name} (${loan.loan_product})`,
+                    penaltyCoveredByDeposit,
                     effectiveDate,
                     payMethod,
                     loan_application_id,
@@ -363,12 +461,21 @@ router.post('/', async (req, res) => {
             console.error('Error sending SMS notification:', notifyErr);
         }
 
+        let message = 'Repayment recorded successfully';
+        if (penaltyCoveredByDeposit > 0 && penaltyAmount > 0) {
+            message = `Repayment recorded. UGX ${penaltyCoveredByDeposit.toLocaleString()} of late penalty covered by security deposit; UGX ${penaltyAmount.toLocaleString()} penalty due in cash.`;
+        } else if (penaltyCoveredByDeposit > 0) {
+            message = `Repayment recorded. Late penalty of UGX ${penaltyCoveredByDeposit.toLocaleString()} covered by security deposit (no additional cash penalty).`;
+        } else if (penaltyAmount > 0) {
+            message = `Repayment recorded. Late payment penalty of UGX ${penaltyAmount.toLocaleString()} was applied.`;
+        }
+
         res.json({
-            message: penaltyAmount > 0
-                ? `Repayment recorded. Late payment penalty of UGX ${penaltyAmount.toLocaleString()} was applied.`
-                : 'Repayment recorded successfully',
-            penalty_applied: penaltyAmount > 0,
-            penalty_amount: penaltyAmount
+            message,
+            penalty_applied: penaltyAmount > 0 || penaltyCoveredByDeposit > 0,
+            penalty_amount: penaltyAmount,
+            penalty_covered_by_security_deposit: penaltyCoveredByDeposit,
+            penalty_scheduled: penaltyDueForMessage || penaltyAmount + penaltyCoveredByDeposit,
         });
     } catch (err) {
         await db.query('ROLLBACK');

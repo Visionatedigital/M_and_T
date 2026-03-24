@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/services/api";
 import { useToast } from "@/hooks/use-toast";
-import { Receipt, Wallet, FileText, Plus, Loader2 } from "lucide-react";
+import { Receipt, Wallet, FileText, Plus, Loader2, Search } from "lucide-react";
 
 const Payroll = () => {
   const navigate = useNavigate();
@@ -28,6 +28,27 @@ const Payroll = () => {
   const [salaryPaymentMethod, setSalaryPaymentMethod] = useState("bank_transfer");
   const [payrollProcessing, setPayrollProcessing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const filteredContracts = useMemo(() => {
+    const q = searchTerm.toLowerCase().trim();
+    if (!q) return payrollContracts;
+    return (payrollContracts || []).filter((c: any) =>
+      (c.full_name || "").toLowerCase().includes(q) ||
+      (c.email || "").toLowerCase().includes(q)
+    );
+  }, [payrollContracts, searchTerm]);
+
+  const filteredHistory = useMemo(() => {
+    const q = searchTerm.toLowerCase().trim();
+    if (!q) return payrollHistory;
+    return (payrollHistory || []).filter((r: any) =>
+      (r.full_name || "").toLowerCase().includes(q) ||
+      String(r.period_month || "").includes(q) ||
+      String(r.period_year || "").includes(q) ||
+      (r.payment_status || "").toLowerCase().includes(q)
+    );
+  }, [payrollHistory, searchTerm]);
 
   const loadPayrollData = useCallback(async () => {
     try {
@@ -75,12 +96,23 @@ const Payroll = () => {
           <StaffHeader />
           <main className="flex-1 p-6 bg-slate-50">
             <div className="max-w-7xl mx-auto space-y-6">
-              <div>
-                <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-                  <Receipt className="h-6 w-6 text-primary" />
-                  Payroll
-                </h1>
-                <p className="text-sm text-slate-500 mt-0.5">Manage staff contracts and process payroll</p>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+                    <Receipt className="h-6 w-6 text-primary" />
+                    Payroll
+                  </h1>
+                  <p className="text-sm text-slate-500 mt-0.5">Manage staff contracts and process payroll</p>
+                </div>
+                <div className="relative w-full sm:w-72">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search contracts or payroll history..."
+                    className="pl-9"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
               </div>
 
               <div className="grid gap-6 md:grid-cols-2">
@@ -168,7 +200,9 @@ const Payroll = () => {
                     <TableBody>
                       {payrollContracts.length === 0 ? (
                         <TableRow><TableCell colSpan={4} className="text-center py-8 text-slate-400">No contracts. Add a staff contract to process payroll.</TableCell></TableRow>
-                      ) : payrollContracts.map((c: any) => {
+                      ) : filteredContracts.length === 0 ? (
+                        <TableRow><TableCell colSpan={4} className="text-center py-8 text-slate-400">No contracts match your search.</TableCell></TableRow>
+                      ) : filteredContracts.map((c: any) => {
                         const gross = parseFloat(c.base_salary || 0) + parseFloat(c.allowances || 0);
                         const net = gross - parseFloat(c.nssf_contribution || 0) - parseFloat(c.paye_tax || 0);
                         return (
@@ -266,7 +300,9 @@ const Payroll = () => {
                   <TableBody>
                     {payrollHistory.length === 0 ? (
                       <TableRow><TableCell colSpan={6} className="text-center py-10 text-slate-400">No payroll records. Process payroll first.</TableCell></TableRow>
-                    ) : payrollHistory.map((r: any) => (
+                    ) : filteredHistory.length === 0 ? (
+                      <TableRow><TableCell colSpan={6} className="text-center py-10 text-slate-400">No records match your search.</TableCell></TableRow>
+                    ) : filteredHistory.map((r: any) => (
                       <TableRow key={r.id}>
                         <TableCell className="text-sm font-medium">{r.full_name}</TableCell>
                         <TableCell className="text-sm">{r.period_month}/{r.period_year}</TableCell>

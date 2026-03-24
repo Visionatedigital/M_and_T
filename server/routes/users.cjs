@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db.cjs');
 const bcrypt = require('bcryptjs');
+const { requireAdmin } = require('../lib/roles.cjs');
+
+/** Staff listing and account creation — administrators only */
+router.use(requireAdmin);
 
 router.get('/', async (req, res) => {
     try {

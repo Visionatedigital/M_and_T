@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
@@ -8,7 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Shield, Plus, FileText, FileSpreadsheet } from "lucide-react";
+import { Shield, Plus, FileText, FileSpreadsheet, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 
 interface Collateral {
@@ -32,6 +33,21 @@ const CollateralAssets = () => {
   const [collateral, setCollateral] = useState<Collateral[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const filteredCollateral = useMemo(() => {
+    const q = searchTerm.toLowerCase().trim();
+    if (!q) return collateral;
+    return collateral.filter(
+      (c) =>
+        (c.type || "").toLowerCase().includes(q) ||
+        (c.description || "").toLowerCase().includes(q) ||
+        (c.status || "").toLowerCase().includes(q) ||
+        (c.loan_client_name || "").toLowerCase().includes(q) ||
+        (c.location || "").toLowerCase().includes(q) ||
+        (c.registration_number || "").toLowerCase().includes(q)
+    );
+  }, [collateral, searchTerm]);
 
   useEffect(() => {
     checkAuth();
@@ -77,10 +93,19 @@ const CollateralAssets = () => {
           <StaffHeader />
           <main className="flex-1 p-4 md:p-8 bg-gradient-to-b from-background to-muted/20">
             <div className="max-w-7xl mx-auto space-y-6">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <h1 className="text-3xl font-bold mb-2">Collateral & Assets</h1>
                   <p className="text-muted-foreground">Manage collateral and asset valuations</p>
+                </div>
+                <div className="relative w-full sm:w-80">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search type, client, description..."
+                    className="pl-9"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
                 </div>
               </div>
 
@@ -131,7 +156,14 @@ const CollateralAssets = () => {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {collateral.map((item) => (
+                        {filteredCollateral.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                              {collateral.length === 0 ? "No collateral yet." : "No assets match your search."}
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                        filteredCollateral.map((item) => (
                           <TableRow key={item.id}>
                             <TableCell className="font-medium">{item.type}</TableCell>
                             <TableCell>UGX {item.estimated_value.toLocaleString()}</TableCell>
@@ -150,7 +182,7 @@ const CollateralAssets = () => {
                               </Badge>
                             </TableCell>
                           </TableRow>
-                        ))}
+                        )))}
                       </TableBody>
                     </Table>
                   </CardContent>
@@ -172,7 +204,14 @@ const CollateralAssets = () => {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {collateral.map((item) => (
+                        {filteredCollateral.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                              {collateral.length === 0 ? "No collateral yet." : "No assets match your search."}
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                        filteredCollateral.map((item) => (
                           <TableRow key={item.id}>
                             <TableCell className="font-medium">{item.type}</TableCell>
                             <TableCell>{item.loan_client_name || "-"}</TableCell>
@@ -187,7 +226,7 @@ const CollateralAssets = () => {
                               )}
                             </TableCell>
                           </TableRow>
-                        ))}
+                        )))}
                       </TableBody>
                     </Table>
                   </CardContent>
@@ -262,8 +301,14 @@ const CollateralAssets = () => {
                                 No collateral registered yet
                               </TableCell>
                             </TableRow>
+                          ) : filteredCollateral.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                                No collateral matches your search.
+                              </TableCell>
+                            </TableRow>
                           ) : (
-                            collateral.map((item) => (
+                            filteredCollateral.map((item) => (
                               <TableRow key={item.id}>
                                 <TableCell className="font-medium">{item.type}</TableCell>
                                 <TableCell>

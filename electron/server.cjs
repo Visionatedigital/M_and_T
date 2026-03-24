@@ -282,16 +282,85 @@ async function startServer(userDataPath) {
     app.post('/api/products', authMiddleware, (req, res) => {
         try {
             const db = getDb();
-            const { name, code, description, min_amount, max_amount, base_interest_rate } = req.body;
+            const p = req.body || {};
+            const num = (v, d = 0) => {
+                if (v === undefined || v === null || v === '') return d;
+                const x = parseFloat(v);
+                return Number.isFinite(x) ? x : d;
+            };
+            const nint = (v, d = 0) => {
+                if (v === undefined || v === null || v === '') return d;
+                const x = parseInt(v, 10);
+                return Number.isFinite(x) ? x : d;
+            };
             const prodId = uuidv4();
-            db.prepare('INSERT INTO loan_products (id, name, code, description, min_amount, max_amount, min_duration_months, max_duration_months, base_interest_rate, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-                prodId, name, code, description, min_amount, max_amount, 1, 60, base_interest_rate, 'active'
+            const now = new Date().toISOString();
+            const serializeCustomFees = (body) => {
+                let arr = [];
+                const raw = body?.custom_fees;
+                if (Array.isArray(raw)) arr = raw;
+                else if (typeof raw === 'string' && raw.trim()) {
+                    try {
+                        const j = JSON.parse(raw);
+                        arr = Array.isArray(j) ? j : [];
+                    } catch {
+                        arr = [];
+                    }
+                }
+                const cleaned = arr
+                    .filter((x) => x && String(x.label || '').trim())
+                    .map((x) => {
+                        const id = String(x.id || '').trim();
+                        return {
+                            ...(id ? { id } : {}),
+                            label: String(x.label).trim(),
+                            amount: num(x.amount),
+                        };
+                    });
+                return JSON.stringify(cleaned);
+            };
+            db.prepare(
+                `INSERT INTO loan_products (
+                    id, name, code, description, min_amount, max_amount, min_duration_months, max_duration_months,
+                    base_interest_rate, status, processing_fee_percentage, late_payment_penalty_rate,
+                    application_fee, admission_fee, processing_fee, passbook_fee, insurance_rate, security_deposit_rate,
+                    monitoring_fee_rate, late_payment_penalty, restructuring_fee_low, restructuring_fee_high, restructuring_threshold,
+                    custom_fees,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).run(
+                prodId,
+                p.name,
+                p.code,
+                p.description ?? null,
+                num(p.min_amount),
+                num(p.max_amount),
+                nint(p.min_duration_months, 1),
+                nint(p.max_duration_months, 60),
+                num(p.base_interest_rate),
+                p.status || 'active',
+                num(p.processing_fee_percentage),
+                num(p.late_payment_penalty_rate),
+                num(p.application_fee),
+                num(p.admission_fee),
+                num(p.processing_fee),
+                num(p.passbook_fee),
+                num(p.insurance_rate),
+                num(p.security_deposit_rate),
+                num(p.monitoring_fee_rate, 3),
+                num(p.late_payment_penalty),
+                num(p.restructuring_fee_low),
+                num(p.restructuring_fee_high),
+                num(p.restructuring_threshold),
+                serializeCustomFees(p),
+                now,
+                now
             );
             const row = db.prepare('SELECT * FROM loan_products WHERE id = ?').get(prodId);
             res.json(row);
         } catch (err) {
             console.error('API Error (create product):', err);
-            res.status(500).json({ error: 'Internal server error' });
+            res.status(500).json({ error: err.message || 'Internal server error' });
         }
     });
 
@@ -299,8 +368,26 @@ async function startServer(userDataPath) {
         try {
             const db = getDb();
             const { id } = req.params;
-            const data = req.body;
+            const data = { ...req.body };
             const now = new Date().toISOString();
+            if (Array.isArray(data.custom_fees)) {
+                const numLocal = (v, d = 0) => {
+                    if (v === undefined || v === null || v === '') return d;
+                    const x = parseFloat(v);
+                    return Number.isFinite(x) ? x : d;
+                };
+                const cleaned = data.custom_fees
+                    .filter((x) => x && String(x.label || '').trim())
+                    .map((x) => {
+                        const sid = String(x.id || '').trim();
+                        return {
+                            ...(sid ? { id: sid } : {}),
+                            label: String(x.label).trim(),
+                            amount: numLocal(x.amount),
+                        };
+                    });
+                data.custom_fees = JSON.stringify(cleaned);
+            }
             const fields = Object.keys(data).filter(k => k !== 'id');
             const setClause = fields.map(f => `${f} = ?`).join(', ');
             const values = fields.map(f => data[f]);
@@ -311,6 +398,21 @@ async function startServer(userDataPath) {
         } catch (err) {
             console.error('API Error (update product):', err);
             res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    app.delete('/api/products/:id', authMiddleware, (req, res) => {
+        try {
+            const db = getDb();
+            const { id } = req.params;
+            const info = db.prepare('DELETE FROM loan_products WHERE id = ?').run(id);
+            if (info.changes === 0) {
+                return res.status(404).json({ error: 'Product not found' });
+            }
+            res.json({ ok: true, id });
+        } catch (err) {
+            console.error('API Error (delete product):', err);
+            res.status(500).json({ error: err.message || 'Internal server error' });
         }
     });
 

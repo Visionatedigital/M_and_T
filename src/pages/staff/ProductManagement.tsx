@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
@@ -8,23 +8,73 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Edit } from "lucide-react";
+import { Plus, Edit, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { EditProductDialog } from "@/components/staff/EditProductDialog";
+import { useToast } from "@/hooks/use-toast";
+
+/** Purpose-based loan products (what the loan is for). Min/max/interest follow lending-category rules in DB. */
+const PURPOSE_PRODUCTS = [
+  { id: "bus", name: "Business", code: "BUS", description: "Small business expansion and trade", status: "active" },
+  { id: "agr", name: "Agricultural", code: "AGR", description: "Farming and livestock investment", status: "active" },
+  { id: "sch", name: "School Fees", code: "SCH", description: "Education support loans", status: "active" },
+  { id: "emg", name: "Emergency", code: "EMG", description: "Medical or urgent needs", status: "active" },
+  { id: "oth", name: "Other", code: "OTH", description: "Miscellaneous purposes", status: "active" },
+];
 
 const ProductManagement = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [products, setProducts] = useState<any[]>([]);
-  const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [productDialog, setProductDialog] = useState<{
+    open: boolean;
+    mode: "create" | "edit";
+    product: any | null;
+  }>({ open: false, mode: "edit", product: null });
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const [searchTerm, setSearchTerm] = useState("");
 
-  // Static list of loan categories as per LoanApplicationForm
-  const loanCategories = [
-    { id: 1, name: "Business", description: "For small business expansion", status: "active" },
-    { id: 2, name: "Agricultural", description: "Farming and livestock investment", status: "active" },
-    { id: 3, name: "School Fees", description: "Education support loans", status: "active" },
-    { id: 4, name: "Emergency", description: "Medical or urgent needs", status: "active" },
-    { id: 5, name: "Other", description: "Miscellaneous purposes", status: "active" },
-  ];
+  const filteredProducts = useMemo(() => {
+    const q = searchTerm.toLowerCase().trim();
+    if (!q) return products;
+    return (products || []).filter(
+      (p: any) =>
+        (p.name || "").toLowerCase().includes(q) ||
+        (p.code || "").toLowerCase().includes(q) ||
+        String(p.base_interest_rate ?? "").includes(q)
+    );
+  }, [products, searchTerm]);
+
+  /** Limits shown on purpose rows come from lending categories; prefer Individual for editing. */
+  const primaryCategoryForPurposeLimits = () => {
+    if (!products.length) return null;
+    const individual = products.find((p) => /individual/i.test(String(p.name || "")));
+    return individual ?? products[0];
+  };
+
+  const openPurposeLimitsEditor = () => {
+    const cat = primaryCategoryForPurposeLimits();
+    if (!cat) {
+      toast({
+        title: "No lending categories",
+        description: "Add at least one category in “Loan categories” below, then you can set amounts and rates.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setProductDialog({ open: true, mode: "edit", product: cat });
+  };
+
+  const filteredPurposeProducts = useMemo(() => {
+    const q = searchTerm.toLowerCase().trim();
+    if (!q) return PURPOSE_PRODUCTS;
+    return PURPOSE_PRODUCTS.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.code.toLowerCase().includes(q) ||
+        p.description.toLowerCase().includes(q)
+    );
+  }, [searchTerm]);
 
   useEffect(() => {
     checkAuth();
@@ -66,71 +116,91 @@ const ProductManagement = () => {
           <StaffHeader />
           <main className="flex-1 p-4 md:p-8 bg-gradient-to-b from-background to-muted/20">
             <div className="max-w-7xl mx-auto space-y-8">
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center flex-wrap gap-4">
                 <div>
                   <h1 className="text-3xl font-bold mb-2">Loan Products</h1>
-                  <p className="text-muted-foreground">Manage all loan products and their settings</p>
+                  <p className="text-muted-foreground">
+                Purpose-based products and group vs individual lending categories
+              </p>
                 </div>
-                <div className="flex gap-2">
-                  <Button>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <div className="relative w-full sm:w-72">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search products or categories..."
+                      className="pl-9"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  <Button type="button" onClick={() => setProductDialog({ open: true, mode: "create", product: null })}>
                     <Plus className="mr-2 h-4 w-4" />
                     Add Product
                   </Button>
                 </div>
               </div>
 
-              {/* Loan Products Table */}
+              {/* Purpose-based products (Business, Agricultural, …) */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Active Products</CardTitle>
-                  <CardDescription>Currently available loan products</CardDescription>
+                  <CardTitle>Active products</CardTitle>
+                  <CardDescription>
+                    What the loan is used for. Amount and rate limits are set per lending category (Individual vs Group)
+                    below.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Product Name</TableHead>
+                        <TableHead>Product name</TableHead>
                         <TableHead>Code</TableHead>
-                        <TableHead>Min Amount</TableHead>
-                        <TableHead>Max Amount</TableHead>
-                        <TableHead>Interest Rate</TableHead>
+                        <TableHead>Min amount</TableHead>
+                        <TableHead>Max amount</TableHead>
+                        <TableHead>Interest rate</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {products.length === 0 ? (
+                      {filteredPurposeProducts.length === 0 ? (
                         <TableRow>
                           <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                            No products found.
+                            No purpose products match your search.
                           </TableCell>
                         </TableRow>
                       ) : (
-                        products.map((product) => (
-                          <TableRow key={product.id}>
-                            <TableCell className="font-medium">{product.name}</TableCell>
-                            <TableCell>{product.code}</TableCell>
-                            <TableCell>UGX {product.min_amount?.toLocaleString() || 0}</TableCell>
-                            <TableCell>UGX {product.max_amount?.toLocaleString() || 0}</TableCell>
-                            <TableCell>{product.base_interest_rate || 30}%</TableCell>
+                      filteredPurposeProducts.map((p) => {
+                        const limits = primaryCategoryForPurposeLimits() ?? products[0];
+                        return (
+                          <TableRow key={p.id}>
+                            <TableCell className="font-medium">{p.name}</TableCell>
+                            <TableCell>{p.code}</TableCell>
                             <TableCell>
-                              <Badge variant={product.status === "active" ? "default" : "secondary"}>
-                                {product.status}
-                              </Badge>
+                              UGX {limits?.min_amount?.toLocaleString() ?? "150,000"}
+                            </TableCell>
+                            <TableCell>
+                              UGX {limits?.max_amount?.toLocaleString() ?? "2,000,000"}
+                            </TableCell>
+                            <TableCell>{limits != null ? `${limits.base_interest_rate ?? 0}%` : "—"}</TableCell>
+                            <TableCell>
+                              <Badge variant={p.status === "active" ? "default" : "secondary"}>{p.status}</Badge>
                             </TableCell>
                             <TableCell>
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => setEditingProduct(product)}
+                                type="button"
+                                onClick={openPurposeLimitsEditor}
+                                title="Edit min/max amounts and rates (Individual category, or first category)"
                               >
                                 <Edit className="mr-2 h-4 w-4" />
                                 Edit
                               </Button>
                             </TableCell>
                           </TableRow>
-                        ))
-                      )}
+                        );
+                      }))}
                     </TableBody>
                   </Table>
                 </CardContent>
@@ -140,14 +210,14 @@ const ProductManagement = () => {
               <div className="grid gap-4 md:grid-cols-2">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Group Loan Rate</CardTitle>
-                    <CardDescription>Global setting for group loans</CardDescription>
+                    <CardTitle>Group lending rate</CardTitle>
+                    <CardDescription>Applied when loan category is Group (group-based lending)</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="text-3xl font-bold text-primary">30%</div>
-                        <p className="text-sm text-muted-foreground">Flat rate applied to all group loans</p>
+                        <p className="text-sm text-muted-foreground">Flat rate for the Group lending category</p>
                       </div>
                       <Button variant="outline" size="sm">Configure</Button>
                     </div>
@@ -171,37 +241,75 @@ const ProductManagement = () => {
                 </Card>
               </div>
 
-              {/* Loan Categories Table */}
+              {/* Lending categories: Individual vs Group (stored as loan_products in DB) */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Loan Categories</CardTitle>
-                  <CardDescription>Product categories for loan applications</CardDescription>
+                  <CardTitle>Loan categories</CardTitle>
+                  <CardDescription>
+                    Each row is a separate loan product in the database with its own fees and rates. Use{" "}
+                    <strong>Add Product</strong> to create another product, or <strong>Edit</strong> to change that
+                    product&apos;s fees (fixed UGX and %).
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Category Name</TableHead>
-                        <TableHead>Description</TableHead>
+                        <TableHead>Category name</TableHead>
+                        <TableHead>Code</TableHead>
+                        <TableHead>Min amount</TableHead>
+                        <TableHead>Max amount</TableHead>
+                        <TableHead>Interest rate</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {loanCategories.map((category) => (
-                        <TableRow key={category.id}>
-                          <TableCell className="font-medium">{category.name}</TableCell>
-                          <TableCell>{category.description}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">
-                              {category.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Button variant="ghost" size="sm">Edit</Button>
+                      {products.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                            No lending categories found.
                           </TableCell>
                         </TableRow>
-                      ))}
+                      ) : filteredProducts.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                            No categories match your search.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        filteredProducts.map((product) => (
+                          <TableRow key={product.id}>
+                            <TableCell className="font-medium">
+                              <div>{product.name}</div>
+                              <p className="text-xs text-muted-foreground font-normal mt-0.5">
+                                {product.name === "Group Loan"
+                                  ? "Joint group liability, multiple members"
+                                  : "Single borrower, individual liability"}
+                              </p>
+                            </TableCell>
+                            <TableCell>{product.code}</TableCell>
+                            <TableCell>UGX {product.min_amount?.toLocaleString() || 0}</TableCell>
+                            <TableCell>UGX {product.max_amount?.toLocaleString() || 0}</TableCell>
+                            <TableCell>{product.base_interest_rate ?? 30}%</TableCell>
+                            <TableCell>
+                              <Badge variant={product.status === "active" ? "default" : "secondary"}>
+                                {product.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setProductDialog({ open: true, mode: "edit", product })}
+                              >
+                                <Edit className="mr-2 h-4 w-4" />
+                                Edit
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
                     </TableBody>
                   </Table>
                 </CardContent>
@@ -213,9 +321,12 @@ const ProductManagement = () => {
       </div>
 
       <EditProductDialog
-        open={!!editingProduct}
-        onOpenChange={(open) => !open && setEditingProduct(null)}
-        product={editingProduct}
+        open={productDialog.open}
+        onOpenChange={(open) => {
+          if (!open) setProductDialog({ open: false, mode: "edit", product: null });
+        }}
+        mode={productDialog.mode}
+        product={productDialog.product}
         onSuccess={loadProducts}
       />
     </SidebarProvider>

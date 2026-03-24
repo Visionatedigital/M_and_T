@@ -30,6 +30,8 @@ async function migrate() {
             ALTER TABLE borrowers ADD COLUMN IF NOT EXISTS borrower_files text[];
             ALTER TABLE borrowers ADD COLUMN IF NOT EXISTS loan_officer_access boolean;
             ALTER TABLE borrowers ADD COLUMN IF NOT EXISTS assigned_officer_id uuid;
+            ALTER TABLE borrowers ADD COLUMN IF NOT EXISTS district text;
+            ALTER TABLE borrowers ADD COLUMN IF NOT EXISTS village text;
         `);
         console.log('✅ Borrowers columns ensured');
 

@@ -6,23 +6,24 @@ import { componentTagger } from "lovable-tagger";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// https://vitejs.dev/config/
+// Plain .mjs avoids Vite writing vite.config.ts.timestamp-*.mjs (helps with EPERM on Windows).
 export default defineConfig(({ mode }) => ({
-  cacheDir: path.resolve(__dirname, 'node_modules/.vite'),
+  // Required for Electron: loadFile("dist/index.html") uses file:// — absolute "/assets/..." would break.
+  base: "./",
+  cacheDir: path.resolve(__dirname, "node_modules/.vite"),
   server: {
-    host: true, // Allow external connections
+    host: true,
     port: 8080,
     strictPort: false,
     hmr: {
       clientPort: 8080,
     },
-    // Explicitly allow ngrok domains
     allowedHosts: [
-      'craniometric-nonmentally-julee.ngrok-free.dev',
-      '.ngrok-free.dev',
-      '.ngrok.io',
-      '.ngrok.app',
-      'localhost',
+      "craniometric-nonmentally-julee.ngrok-free.dev",
+      ".ngrok-free.dev",
+      ".ngrok.io",
+      ".ngrok.app",
+      "localhost",
     ],
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),

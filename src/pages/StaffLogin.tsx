@@ -5,21 +5,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertCircle, ExternalLink } from "lucide-react";
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
+const appIcon = `${import.meta.env.BASE_URL}icon.png`;
 
 const StaffLogin = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
-    // Check if user is already logged in
     const checkAuth = async () => {
       const token = localStorage.getItem("token");
       if (!token) return;
@@ -27,11 +22,9 @@ const StaffLogin = () => {
       try {
         const user = await api.auth.getMe();
         if (user) {
-          // Check roles in metadata or user_roles table if moved
-          // For now, assuming metadata or just letting them in if getMe succeeds
           navigate("/staff-dashboard");
         }
-      } catch (err) {
+      } catch {
         localStorage.removeItem("token");
       }
     };
@@ -44,7 +37,7 @@ const StaffLogin = () => {
     setIsLoading(true);
 
     try {
-      const { user, token } = await api.auth.login({
+      await api.auth.login({
         email,
         password,
       });
@@ -67,18 +60,30 @@ const StaffLogin = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <Header />
-      <main className="flex-1 flex items-center justify-center px-4 py-16">
-        <div className="w-full max-w-md space-y-8">
-          <div className="text-center">
-            <h1 className="text-3xl font-bold">Staff Portal</h1>
-            <p className="text-muted-foreground mt-2">
-              Sign in to access the staff dashboard
+    <div className="min-h-screen flex flex-col bg-[#0c1929] text-white">
+      <main className="flex-1 flex flex-col items-center justify-center px-4 py-12">
+        <div className="w-full max-w-md space-y-10">
+          <div className="flex flex-col items-center text-center gap-4">
+            <div className="rounded-2xl bg-white p-3 sm:p-4 shadow-lg shadow-black/25 ring-1 ring-white/20">
+              <img
+                src={appIcon}
+                alt="M&T Microfinance (U) Ltd"
+                className="h-16 md:h-24 w-auto max-w-[min(100%,280px)] object-contain block mx-auto"
+              />
+            </div>
+            <p className="text-slate-300 text-sm md:text-base max-w-md leading-relaxed">
+              Developing Together — Your trusted microfinance partner in Uganda.
             </p>
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Staff Portal</h1>
+              <p className="text-slate-400 mt-2 text-sm">Sign in to access the staff dashboard</p>
+            </div>
           </div>
 
-          <form onSubmit={handleSignIn} className="space-y-6 bg-card p-8 rounded-lg border">
+          <form
+            onSubmit={handleSignIn}
+            className="space-y-5 bg-white text-slate-900 p-8 rounded-xl border border-slate-200 shadow-xl"
+          >
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -88,6 +93,7 @@ const StaffLogin = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                autoComplete="username"
               />
             </div>
 
@@ -99,46 +105,16 @@ const StaffLogin = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                autoComplete="current-password"
               />
             </div>
 
-            <Button type="submit" className="w-full" disabled={isLoading}>
+            <Button type="submit" className="w-full bg-[#1e3a5f] hover:bg-[#152a45]" disabled={isLoading}>
               {isLoading ? "Signing in..." : "Sign In"}
             </Button>
-
-            <div className="space-y-4 pt-4 border-t">
-              <p className="text-sm text-center text-muted-foreground">Test Accounts</p>
-              <div className="grid grid-cols-2 gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full text-xs h-auto py-2 flex flex-col gap-1 items-center"
-                  onClick={() => {
-                    setEmail("loanofficer@mandt.placeholder");
-                    setPassword("Officer@2026");
-                  }}
-                >
-                  <span className="font-semibold">Loan Officer</span>
-                  <span className="text-[10px] opacity-70">loanofficer@...</span>
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full text-xs h-auto py-2 flex flex-col gap-1 items-center"
-                  onClick={() => {
-                    setEmail("admin@mandt.placeholder");
-                    setPassword("Admin@2026");
-                  }}
-                >
-                  <span className="font-semibold">Admin</span>
-                  <span className="text-[10px] opacity-70">admin@...</span>
-                </Button>
-              </div>
-            </div>
           </form>
         </div>
       </main>
-      <Footer />
     </div>
   );
 };

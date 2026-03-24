@@ -26,7 +26,9 @@ router.post('/', upload.single('file'), (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
     }
-    const publicUrl = `http://localhost:5000/uploads/${req.file.filename}`;
+    const host = req.get('host') || `localhost:${process.env.PORT || 5000}`;
+    const proto = req.protocol || 'http';
+    const publicUrl = `${proto}://${host}/uploads/${req.file.filename}`;
     res.json({ url: publicUrl, filename: req.file.filename });
 });
 

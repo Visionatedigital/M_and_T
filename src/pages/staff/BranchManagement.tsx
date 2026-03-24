@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
@@ -8,7 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Building2, BarChart3, MapPin, Phone, Mail, FileText } from "lucide-react";
+import { Building2, BarChart3, MapPin, Phone, Mail, FileText, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 
 interface Branch {
@@ -36,6 +37,31 @@ const BranchManagement = () => {
   const [territories, setTerritories] = useState<Territory[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const filteredBranches = useMemo(() => {
+    const q = searchTerm.toLowerCase().trim();
+    if (!q) return branches;
+    return branches.filter(
+      (b) =>
+        (b.name || "").toLowerCase().includes(q) ||
+        (b.code || "").toLowerCase().includes(q) ||
+        (b.territory_name || "").toLowerCase().includes(q) ||
+        (b.address || "").toLowerCase().includes(q) ||
+        (b.phone || "").includes(searchTerm.trim()) ||
+        (b.email || "").toLowerCase().includes(q)
+    );
+  }, [branches, searchTerm]);
+
+  const filteredTerritories = useMemo(() => {
+    const q = searchTerm.toLowerCase().trim();
+    if (!q) return territories;
+    return territories.filter(
+      (t) =>
+        (t.name || "").toLowerCase().includes(q) ||
+        (t.description || "").toLowerCase().includes(q)
+    );
+  }, [territories, searchTerm]);
 
   useEffect(() => {
     checkAuth();
@@ -125,6 +151,18 @@ const BranchManagement = () => {
                 </Button>
               </div>
 
+              {!location.pathname.includes("/transfers") && (
+                <div className="relative max-w-md">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search branches or territories..."
+                    className="pl-9"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
+              )}
+
               {/* Branch Performance View */}
               {location.pathname.includes("/performance") ? (
                 <Card>
@@ -178,17 +216,25 @@ const BranchManagement = () => {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {branches.map((branch) => (
-                          <TableRow key={branch.id}>
-                            <TableCell className="font-medium">{branch.name}</TableCell>
-                            <TableCell>
-                              <Badge variant={branch.status === "active" ? "default" : "secondary"}>
-                                {branch.status}
-                              </Badge>
+                        {filteredBranches.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                              {branches.length === 0 ? "No branches yet." : "No branches match your search."}
                             </TableCell>
-                            <TableCell>{branch.territory_name}</TableCell>
                           </TableRow>
-                        ))}
+                        ) : (
+                          filteredBranches.map((branch) => (
+                            <TableRow key={branch.id}>
+                              <TableCell className="font-medium">{branch.name}</TableCell>
+                              <TableCell>
+                                <Badge variant={branch.status === "active" ? "default" : "secondary"}>
+                                  {branch.status}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>{branch.territory_name}</TableCell>
+                            </TableRow>
+                          ))
+                        )}
                       </TableBody>
                     </Table>
                   </CardContent>
@@ -264,14 +310,14 @@ const BranchManagement = () => {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {branches.length === 0 ? (
+                          {filteredBranches.length === 0 ? (
                             <TableRow>
                               <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                                No branches found
+                                {branches.length === 0 ? "No branches found" : "No branches match your search."}
                               </TableCell>
                             </TableRow>
                           ) : (
-                            branches.map((branch) => (
+                            filteredBranches.map((branch) => (
                               <TableRow key={branch.id}>
                                 <TableCell className="font-medium">{branch.name}</TableCell>
                                 <TableCell>{branch.code}</TableCell>
@@ -316,12 +362,12 @@ const BranchManagement = () => {
                     </CardHeader>
                     <CardContent>
                       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                        {territories.length === 0 ? (
+                        {filteredTerritories.length === 0 ? (
                           <p className="text-muted-foreground col-span-full text-center py-8">
-                            No territories found
+                            {territories.length === 0 ? "No territories found" : "No territories match your search."}
                           </p>
                         ) : (
-                          territories.map((territory) => (
+                          filteredTerritories.map((territory) => (
                             <Card key={territory.id}>
                               <CardHeader>
                                 <CardTitle className="text-lg">{territory.name}</CardTitle>

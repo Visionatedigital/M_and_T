@@ -315,6 +315,54 @@ function createTables() {
         }
     });
 
+    // Fee columns per loan product (match PostgreSQL loan_products for desktop parity)
+    const loanProductFeeCols = [
+        'application_fee REAL DEFAULT 0',
+        'admission_fee REAL DEFAULT 0',
+        'processing_fee REAL DEFAULT 0',
+        'passbook_fee REAL DEFAULT 0',
+        'insurance_rate REAL DEFAULT 0',
+        'security_deposit_rate REAL DEFAULT 0',
+        'monitoring_fee_rate REAL DEFAULT 3',
+        'late_payment_penalty REAL DEFAULT 0',
+        'restructuring_fee_low REAL DEFAULT 0',
+        'restructuring_fee_high REAL DEFAULT 0',
+        'restructuring_threshold REAL DEFAULT 0',
+        "custom_fees TEXT DEFAULT '[]'",
+    ];
+    loanProductFeeCols.forEach((col) => {
+        try {
+            db.exec(`ALTER TABLE loan_products ADD COLUMN ${col}`);
+        } catch (e) {
+            /* duplicate column */
+        }
+    });
+
+    const loanAppSdCols = [
+        'security_deposit_amount REAL',
+        'security_deposit_balance REAL',
+    ];
+    loanAppSdCols.forEach((col) => {
+        try {
+            db.exec(`ALTER TABLE loan_applications ADD COLUMN ${col}`);
+        } catch (e) {
+            /* duplicate */
+        }
+    });
+
+    const repaymentPenaltyCols = [
+        'penalty_amount REAL DEFAULT 0',
+        'penalty_covered_by_security_deposit REAL DEFAULT 0',
+        'recorded_by TEXT',
+    ];
+    repaymentPenaltyCols.forEach((col) => {
+        try {
+            db.exec(`ALTER TABLE repayments ADD COLUMN ${col}`);
+        } catch (e) {
+            /* duplicate */
+        }
+    });
+
     console.log('✅ All database tables created');
 
     // Seed default data if database is fresh

@@ -151,16 +151,97 @@ router.post('/entries', async (req, res) => {
 
         const { rows } = await db.query(
             `INSERT INTO accounting_entries
-             (entry_type, category, description, amount, entry_date, payment_method, reference_id, recorded_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             (entry_type, category, description, narration, amount, entry_date, payment_method, reference_id, recorded_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
              RETURNING *`,
-            [entry_type, category, description || null, amount, entry_date, normalizedMethod, reference_id || null, recorded_by]
+            [entry_type, category, description || null, narration || null, amount, entry_date, normalizedMethod, reference_id || null, recorded_by]
         );
 
         res.status(201).json(rows[0]);
     } catch (err) {
         console.error('Create accounting entry error:', err);
         res.status(500).json({ error: 'Failed to create accounting entry' });
+    }
+});
+
+// ──────────────────────────────────────────────────────────────
+// PATCH /api/accounting/entries/:id
+// Body: any of entry_type, category, description, narration, amount, entry_date, payment_method
+// ──────────────────────────────────────────────────────────────
+router.patch('/entries/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { role } = req.user;
+
+        if (role !== 'admin') {
+            return res.status(403).json({ error: 'Only admins can edit accounting entries' });
+        }
+
+        const { entry_type, category, description, narration, amount, entry_date, payment_method } = req.body;
+        const updates = [];
+        const values = [];
+        let n = 1;
+
+        if (entry_type !== undefined) {
+            if (!['revenue', 'expense'].includes(entry_type)) {
+                return res.status(400).json({ error: 'entry_type must be "revenue" or "expense"' });
+            }
+            updates.push(`entry_type = $${n++}`);
+            values.push(entry_type);
+        }
+        if (category !== undefined) {
+            updates.push(`category = $${n++}`);
+            values.push(category);
+        }
+        if (description !== undefined) {
+            updates.push(`description = $${n++}`);
+            values.push(description);
+        }
+        if (narration !== undefined) {
+            updates.push(`narration = $${n++}`);
+            values.push(narration);
+        }
+        if (amount !== undefined) {
+            if (parseFloat(amount) <= 0) {
+                return res.status(400).json({ error: 'Amount must be greater than 0' });
+            }
+            updates.push(`amount = $${n++}`);
+            values.push(amount);
+        }
+        if (entry_date !== undefined) {
+            updates.push(`entry_date = $${n++}`);
+            values.push(entry_date);
+        }
+        if (payment_method !== undefined) {
+            const normalizedMethod = normalizePaymentMethod(payment_method);
+            if (!normalizedMethod || !ALLOWED_PAYMENT_METHODS.includes(normalizedMethod)) {
+                return res.status(400).json({ error: 'Valid payment_method is required (cash, bank_transfer, mobile_money)' });
+            }
+            updates.push(`payment_method = $${n++}`);
+            values.push(normalizedMethod);
+        }
+
+        if (updates.length === 0) {
+            return res.status(400).json({ error: 'No fields to update' });
+        }
+
+        updates.push(`updated_at = NOW()`);
+        values.push(id);
+
+        const query = `
+            UPDATE accounting_entries
+            SET ${updates.join(', ')}
+            WHERE id = $${n}
+            RETURNING *
+        `;
+
+        const { rows } = await db.query(query, values);
+        if (rows.length === 0) return res.status(404).json({ error: 'Entry not found' });
+
+        res.json(rows[0]);
+    } catch (err) {
+        console.error('Update accounting entry error:', err);
+        res.status(500).json({ error: 'Failed to update accounting entry' });
     }
 });
 
@@ -828,11 +909,15 @@ router.get('/loan-portfolio', async (req, res) => {
                 closedCount++;
             }
 
+            // Interest component matches total repayment schedule (principal × 30% in this report’s model)
+            const interestPortion = Math.round(total - principal);
+
             portfolioRows.push({
                 id: row.id,
                 client_name: row.full_name,
                 loan_product: row.loan_product,
                 principal: Math.round(principal),
+                interest: interestPortion,
                 total_outstanding: Math.round(outstanding),
                 days_overdue: daysOverdue > 0 ? daysOverdue : 0,
                 status: outstanding > 0 ? 'active' : 'closed',
@@ -1244,7 +1329,7 @@ router.get('/cash-book', async (req, res) => {
         let entriesQuery = `
             SELECT 
                 id, entry_date as date, description, category, 
-                amount, entry_type, payment_method, 'manual' as source
+                narration, amount, entry_type, payment_method, 'manual' as source
             FROM accounting_entries 
             WHERE entry_date >= $1 AND entry_date <= $2
         `;
@@ -1261,6 +1346,7 @@ router.get('/cash-book', async (req, res) => {
                 r.id, r.payment_date::date as date, 
                 'Loan Repayment - ' || la.full_name as description, 
                 'Interest & Principal' as category,
+                'Loan repayment'::text as narration,
                 r.amount, 'revenue' as entry_type, r.payment_method, 'repayment' as source
             FROM repayments r
             JOIN loan_applications la ON r.loan_application_id = la.id
@@ -1278,6 +1364,7 @@ router.get('/cash-book', async (req, res) => {
                 id, approved_at::date as date, 
                 'Loan Disbursement - ' || full_name as description, 
                 'Loan Issue' as category,
+                'Loan issue'::text as narration,
                 loan_amount as amount, 'expense' as entry_type, 'cash' as payment_method, 'disbursement' as source
             FROM loan_applications
             WHERE status IN ('disbursed', 'completed', 'settled')

@@ -1,12 +1,114 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const router = express.Router();
 const db = require('../db.cjs');
 const ExcelJS = require('exceljs');
-const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, WidthType, BorderStyle } = require('docx');
+const {
+    Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell,
+    WidthType, BorderStyle, convertInchesToTwip, ShadingType, VerticalAlignTable, TableLayoutType,
+    ImageRun,
+} = require('docx');
 const aiService = require('../services/aiService.cjs');
 
 const normalizeRole = (role) => String(role || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
 const isLoanOfficer = (role) => normalizeRole(role) === 'loan_officer';
+
+/**
+ * Logo for Word exports: set REPORT_LOGO_PATH to an absolute path, or use
+ * public/icon.png (app icon), then legacy src/assets logos.
+ */
+function loadBrandingLogo() {
+    const candidates = [
+        process.env.REPORT_LOGO_PATH,
+        path.join(__dirname, '../../public/icon.png'),
+        path.join(process.cwd(), 'public/icon.png'),
+        path.join(__dirname, '../../public/logo.png'),
+        path.join(process.cwd(), 'public/logo.png'),
+        path.join(__dirname, '../../src/assets/logo.png'),
+        path.join(__dirname, '../../src/assets/logo.jpg'),
+        path.join(process.cwd(), 'src/assets/logo.png'),
+        path.join(process.cwd(), 'src/assets/logo.jpg'),
+    ].filter(Boolean);
+    const typeMap = { '.jpg': 'jpg', '.jpeg': 'jpg', '.png': 'png', '.gif': 'gif', '.bmp': 'bmp' };
+    for (const p of candidates) {
+        try {
+            if (fs.existsSync(p)) {
+                const ext = path.extname(p).toLowerCase();
+                const imgType = typeMap[ext];
+                if (!imgType) continue;
+                return { buffer: fs.readFileSync(p), type: imgType };
+            }
+        } catch (_) {
+            /* try next */
+        }
+    }
+    return null;
+}
+
+/**
+ * Altman-style Z-score and components (shared by JSON, AI, and Word exports).
+ * @returns {Promise<{ zScore: number, components: object[], interpretation: string }>}
+ */
+async function computeFinancialAnalysisZScore(req) {
+    const { role, user_id } = req.user;
+    const financialDataQuery = `
+            WITH portfolio_stats AS (
+                SELECT COALESCE(SUM(loan_amount), 0) as gross_portfolio
+                FROM loan_applications
+                WHERE status IN ('active', 'disbursed')
+                ${isLoanOfficer(role) ? 'AND borrower_id IN (SELECT id FROM borrowers WHERE assigned_officer_id = $1)' : ''}
+            ),
+            ledger_stats AS (
+                SELECT
+                    COALESCE(SUM(CASE WHEN entry_type='revenue' THEN amount ELSE -amount END), 0) as net_cash,
+                    COALESCE(SUM(amount) FILTER (WHERE entry_type='revenue'), 0) as total_revenue,
+                    COALESCE(SUM(amount) FILTER (WHERE entry_type='expense'), 0) as total_expense
+                FROM accounting_entries
+            )
+            SELECT * FROM portfolio_stats, ledger_stats
+        `;
+    const values = isLoanOfficer(role) ? [user_id] : [];
+    const { rows } = await db.query(financialDataQuery, values);
+    const data = rows[0];
+
+    const grossPortfolio = parseFloat(data.gross_portfolio);
+    const netCash = parseFloat(data.net_cash);
+    const totalRevenue = parseFloat(data.total_revenue);
+    const totalExpense = parseFloat(data.total_expense);
+
+    const totalAssets = grossPortfolio + netCash;
+    const { rows: liabRows } = await db.query(`
+            SELECT COALESCE(SUM(amount), 0) as debt
+            FROM accounting_entries
+            WHERE category ILIKE '%loan%' OR category ILIKE '%liability%' OR category ILIKE '%payable%'
+        `);
+    const totalLiabilities = parseFloat(liabRows[0].debt);
+    const workingCapital = totalAssets - totalLiabilities;
+    const retainedEarnings = totalRevenue - totalExpense;
+    const ebit = retainedEarnings;
+    const equity = totalAssets - totalLiabilities;
+    const sales = totalRevenue;
+
+    const x1 = totalAssets > 0 ? (workingCapital / totalAssets) : 0;
+    const x2 = totalAssets > 0 ? (retainedEarnings / totalAssets) : 0;
+    const x3 = totalAssets > 0 ? (ebit / totalAssets) : 0;
+    const x4 = totalLiabilities > 0 ? (equity / totalLiabilities) : (equity > 0 ? 10 : 0);
+    const x5 = totalAssets > 0 ? (sales / totalAssets) : 0;
+
+    const components = [
+        { id: 'X1', method: 'Working Capital / Total Assets', value: workingCapital, assets: totalAssets, ratio: x1, standard: 1.012 },
+        { id: 'X2', method: 'Retained Earnings / Total Assets', value: retainedEarnings, assets: totalAssets, ratio: x2, standard: 0.014 },
+        { id: 'X3', method: 'EBIT / Total Assets', value: ebit, assets: totalAssets, ratio: x3, standard: 0.033 },
+        { id: 'X4', method: 'Book Value of Equity / Total Debt', value: equity, assets: totalLiabilities > 0 ? totalLiabilities : 0, ratio: x4, standard: 0.006 },
+        { id: 'X5', method: 'Total Incomes / Total Assets', value: sales, assets: totalAssets, ratio: x5, standard: 0.999 },
+    ];
+
+    const zScore = components.reduce((sum, c) => sum + (c.ratio * c.standard), 0);
+    const interpretation = zScore > 2.6 ? 'Safe Zone' : zScore > 1.1 ? 'Grey Zone' : 'Distress Zone';
+
+    return { zScore, components, interpretation, totalAssets, totalLiabilities };
+}
 
 // Get report stats
 router.get('/ping', (req, res) => res.json({ message: 'reports router ok' }));
@@ -570,160 +672,124 @@ router.get('/ai-summary-docx', async (req, res) => {
 // Z-Score Financial Analysis (JSON)
 router.get('/financial-analysis', async (req, res) => {
     try {
-        const { role, user_id } = req.user;
-
-        const financialDataQuery = `
-            WITH portfolio_stats AS (
-                SELECT COALESCE(SUM(loan_amount), 0) as gross_portfolio
-                FROM loan_applications
-                WHERE status IN ('active', 'disbursed')
-                ${isLoanOfficer(role) ? 'AND borrower_id IN (SELECT id FROM borrowers WHERE assigned_officer_id = $1)' : ''}
-            ),
-            ledger_stats AS (
-                SELECT 
-                    COALESCE(SUM(CASE WHEN entry_type='revenue' THEN amount ELSE -amount END), 0) as net_cash,
-                    COALESCE(SUM(amount) FILTER (WHERE entry_type='revenue'), 0) as total_revenue,
-                    COALESCE(SUM(amount) FILTER (WHERE entry_type='expense'), 0) as total_expense
-                FROM accounting_entries
-            )
-            SELECT * FROM portfolio_stats, ledger_stats
-        `;
-        const values = isLoanOfficer(role) ? [user_id] : [];
-        const { rows } = await db.query(financialDataQuery, values);
-        const data = rows[0];
-
-        const grossPortfolio = parseFloat(data.gross_portfolio);
-        const netCash = parseFloat(data.net_cash);
-        const totalRevenue = parseFloat(data.total_revenue);
-        const totalExpense = parseFloat(data.total_expense);
-
-        const totalAssets = grossPortfolio + netCash;
-        const { rows: liabRows } = await db.query(`
-            SELECT COALESCE(SUM(amount), 0) as debt 
-            FROM accounting_entries 
-            WHERE category ILIKE '%loan%' OR category ILIKE '%liability%' OR category ILIKE '%payable%'
-        `);
-        const totalLiabilities = parseFloat(liabRows[0].debt);
-        const workingCapital = totalAssets - totalLiabilities;
-        const retainedEarnings = totalRevenue - totalExpense;
-        const ebit = retainedEarnings;
-        const equity = totalAssets - totalLiabilities;
-        const sales = totalRevenue;
-
-        const x1 = totalAssets > 0 ? (workingCapital / totalAssets) : 0;
-        const x2 = totalAssets > 0 ? (retainedEarnings / totalAssets) : 0;
-        const x3 = totalAssets > 0 ? (ebit / totalAssets) : 0;
-        const x4 = totalLiabilities > 0 ? (equity / totalLiabilities) : (equity > 0 ? 10 : 0);
-        const x5 = totalAssets > 0 ? (sales / totalAssets) : 0;
-
-        const components = [
-            { id: 'X1', method: 'Working Capital / Total Assets', value: workingCapital, assets: totalAssets, ratio: x1, standard: 1.012 },
-            { id: 'X2', method: 'Retained Earnings / Total Assets', value: retainedEarnings, assets: totalAssets, ratio: x2, standard: 0.014 },
-            { id: 'X3', method: 'EBIT / Total Assets', value: ebit, assets: totalAssets, ratio: x3, standard: 0.033 },
-            { id: 'X4', method: 'Book Value of Equity / Total Debt', value: equity, assets: totalLiabilities > 0 ? totalLiabilities : 0, ratio: x4, standard: 0.006 },
-            { id: 'X5', method: 'Total Incomes / Total Assets', value: sales, assets: totalAssets, ratio: x5, standard: 0.999 },
-        ];
-
-        const zScore = components.reduce((sum, c) => sum + (c.ratio * c.standard), 0);
-
-        res.json({
-            zScore,
-            components,
-            interpretation: zScore > 2.6 ? "Safe Zone" : zScore > 1.1 ? "Grey Zone" : "Distress Zone"
-        });
+        const { zScore, components, interpretation } = await computeFinancialAnalysisZScore(req);
+        res.json({ zScore, components, interpretation });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to fetch financial analysis' });
     }
 });
 
+// Z-Score — AI narrative for on-screen analysis (same model as Word export)
+router.get('/financial-analysis-ai', async (req, res) => {
+    try {
+        const { zScore, components, interpretation } = await computeFinancialAnalysisZScore(req);
+        const narrative = await aiService.generateFinancialRiskAnalysis({ zScore, components, interpretation });
+        res.json({ zScore, interpretation, narrative });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to generate AI analysis' });
+    }
+});
+
 // Z-Score Financial Analysis (Word)
 router.get('/financial-analysis-docx', async (req, res) => {
     try {
-        const { role, user_id } = req.user;
+        const {
+            zScore,
+            components,
+            interpretation,
+            totalAssets,
+            totalLiabilities,
+        } = await computeFinancialAnalysisZScore(req);
 
-        // 1. Gather Financial Data for Z-Score
-        // Total Assets = Portfolio + Cash
-        // Working Capital = Cash + Current Portfolio - Current Liabilities
-        // Retained Earnings = Net Profit (Cumulative)
-        // EBIT = Current Year Profit
-        // Sales = Total Revenue
-
-        const financialDataQuery = `
-            WITH portfolio_stats AS (
-                SELECT COALESCE(SUM(loan_amount), 0) as gross_portfolio
-                FROM loan_applications
-                WHERE status IN ('active', 'disbursed')
-                ${isLoanOfficer(role) ? 'AND borrower_id IN (SELECT id FROM borrowers WHERE assigned_officer_id = $1)' : ''}
-            ),
-            ledger_stats AS (
-                SELECT 
-                    COALESCE(SUM(CASE WHEN entry_type='revenue' THEN amount ELSE -amount END), 0) as net_cash,
-                    COALESCE(SUM(amount) FILTER (WHERE entry_type='revenue'), 0) as total_revenue,
-                    COALESCE(SUM(amount) FILTER (WHERE entry_type='expense'), 0) as total_expense
-                FROM accounting_entries
-            )
-            SELECT * FROM portfolio_stats, ledger_stats
-        `;
-        const values = isLoanOfficer(role) ? [user_id] : [];
-        const { rows } = await db.query(financialDataQuery, values);
-        const data = rows[0];
-
-        const grossPortfolio = parseFloat(data.gross_portfolio);
-        const netCash = parseFloat(data.net_cash);
-        const totalRevenue = parseFloat(data.total_revenue);
-        const totalExpense = parseFloat(data.total_expense);
-
-        const totalAssets = grossPortfolio + netCash;
-        // Total Liabilities = Any entries in 'Creditor' category or similar?
-        // Let's query specifically for categories that imply debt/liabilities
-        const { rows: liabRows } = await db.query(`
-            SELECT COALESCE(SUM(amount), 0) as debt 
-            FROM accounting_entries 
-            WHERE category ILIKE '%loan%' OR category ILIKE '%liability%' OR category ILIKE '%payable%'
-        `);
-        const totalLiabilities = parseFloat(liabRows[0].debt);
-        const workingCapital = totalAssets - totalLiabilities;
-        const retainedEarnings = totalRevenue - totalExpense;
-        const ebit = retainedEarnings; // Simple proxy
-        const equity = totalAssets - totalLiabilities;
-        const sales = totalRevenue;
-
-        // Z-Score Components (X1-X5)
-        const x1 = totalAssets > 0 ? (workingCapital / totalAssets) : 0;
-        const x2 = totalAssets > 0 ? (retainedEarnings / totalAssets) : 0;
-        const x3 = totalAssets > 0 ? (ebit / totalAssets) : 0;
-        const x4 = totalLiabilities > 0 ? (equity / totalLiabilities) : (equity > 0 ? 10 : 0); // Handle div by zero
-        const x5 = totalAssets > 0 ? (sales / totalAssets) : 0;
-
-        const components = [
-            { id: 'X1', method: 'Working Capital / Total Assets', value: workingCapital, assets: totalAssets, ratio: x1, standard: 1.012 },
-            { id: 'X2', method: 'Retained Earnings / Total Assets', value: retainedEarnings, assets: totalAssets, ratio: x2, standard: 0.014 },
-            { id: 'X3', method: 'EBIT / Total Assets', value: ebit, assets: totalAssets, ratio: x3, standard: 0.033 },
-            { id: 'X4', method: 'Book Value of Equity / Total Debt', value: equity, assets: totalLiabilities > 0 ? totalLiabilities : 0, ratio: x4, standard: 0.006 },
-            { id: 'X5', method: 'Total Incomes / Total Assets', value: sales, assets: totalAssets, ratio: x5, standard: 0.999 },
-        ];
-
-        const zScore = components.reduce((sum, c) => sum + (c.ratio * c.standard), 0);
-
-        // 2. Generate Docx
+        // Generate Docx
         const formatUGX = (val) => new Intl.NumberFormat('en-UG', { minimumFractionDigits: 0 }).format(val);
+        const FONT = 'Calibri';
+        const SZ_TITLE = 40;
+        const SZ_SUB = 24;
+        const SZ_BODY = 22;
+        const SZ_SMALL = 18;
+        let aiNarrative = '';
+        try {
+            aiNarrative = await aiService.generateFinancialRiskAnalysis({ zScore, components, interpretation });
+        } catch (e) {
+            console.error('generateFinancialRiskAnalysis', e);
+            aiNarrative = 'AI narrative unavailable.';
+        }
+        const aiLines = String(aiNarrative).split(/\r?\n/).filter((l) => l.trim().length);
+        const aiParagraphs = aiLines.map((line) => {
+            const trimmed = line.trim();
+            const bullet = /^[•\-]\s*/.test(trimmed) || trimmed.startsWith('•');
+            const text = trimmed.replace(/^[•\-]\s*/, '').trim();
+            const display = bullet ? `• ${text}` : trimmed;
+            return new Paragraph({
+                spacing: { after: bullet ? 100 : 160 },
+                indent: bullet ? { left: convertInchesToTwip(0.2) } : undefined,
+                children: [new TextRun({ text: display, size: SZ_BODY, font: FONT, color: '2F2F2F' })],
+            });
+        });
+
+        const brandingLogo = loadBrandingLogo();
+        const logoParagraphs = brandingLogo
+            ? [
+                new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    spacing: { after: 200 },
+                    children: [
+                        new ImageRun({
+                            type: brandingLogo.type,
+                            data: brandingLogo.buffer,
+                            transformation: { width: 220, height: 72 },
+                        }),
+                    ],
+                }),
+            ]
+            : [];
 
         const doc = new Document({
             sections: [{
-                properties: {},
+                properties: {
+                    page: {
+                        margin: {
+                            top: convertInchesToTwip(1),
+                            right: convertInchesToTwip(1),
+                            bottom: convertInchesToTwip(1),
+                            left: convertInchesToTwip(1),
+                        },
+                    },
+                },
                 children: [
+                    ...logoParagraphs,
                     new Paragraph({
-                        children: [new TextRun({ text: "M-T GROWTH GATEWAY", bold: true, size: 28 })],
-                        alignment: AlignmentType.LEFT,
+                        alignment: AlignmentType.CENTER,
+                        spacing: { after: 120 },
+                        children: [new TextRun({ text: 'M&T Growth Gateway', bold: true, font: 'Cambria', size: SZ_TITLE, color: '1F4E79' })],
                     }),
                     new Paragraph({
-                        children: [new TextRun({ text: "FINANCIAL ANALYSIS", bold: true, size: 24 })],
-                        alignment: AlignmentType.LEFT,
+                        alignment: AlignmentType.CENTER,
+                        spacing: { after: 80 },
+                        children: [new TextRun({ text: 'Financial Risk Analysis', bold: true, font: 'Cambria', size: SZ_SUB, color: '404040' })],
                     }),
                     new Paragraph({
-                        text: `${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }).toUpperCase()}`,
-                        spacing: { after: 400 },
+                        alignment: AlignmentType.CENTER,
+                        spacing: { after: 80 },
+                        children: [new TextRun({ text: 'Altman Z-Score Model for Private Firms', font: FONT, size: SZ_SMALL, italics: true, color: '666666' })],
+                    }),
+                    new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        spacing: { after: 80 },
+                        children: [new TextRun({ text: 'Amounts in UGX', font: FONT, size: SZ_SMALL, italics: true, color: '666666' })],
+                    }),
+                    new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        spacing: { after: 360 },
+                        children: [new TextRun({
+                            text: `As at ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })}`,
+                            font: FONT,
+                            size: SZ_BODY,
+                            color: '404040',
+                        })],
                     }),
 
                     new Paragraph({
@@ -803,7 +869,14 @@ router.get('/financial-analysis-docx', async (req, res) => {
                     new Paragraph("• 1.10 < Z < 2.60: Grey Zone (Moderate Risk)"),
                     new Paragraph("• Z < 1.10: Distress Zone (High Bankruptcy Risk)"),
 
-                    new Paragraph({ text: "", spacing: { before: 600 } }),
+                    new Paragraph({ text: '', spacing: { before: 320 } }),
+                    new Paragraph({
+                        children: [new TextRun({ text: 'AI summary (plain language)', bold: true, font: 'Cambria', size: SZ_SUB, color: '1F4E79' })],
+                        spacing: { after: 200 },
+                    }),
+                    ...aiParagraphs,
+
+                    new Paragraph({ text: '', spacing: { before: 600 } }),
 
                     new Paragraph({
                         children: [new TextRun({ text: "(ii) Liabilities-to-Assets Ratio (Solvency)", bold: true, underline: {} })],
@@ -848,14 +921,26 @@ router.get('/financial-analysis-docx', async (req, res) => {
                         children: [new TextRun({ text: "RECOMMENDATION:", bold: true, size: 20, underline: {} })],
                         spacing: { after: 200 },
                     }),
-                    new Paragraph("Based on the above quantitative evaluations, management should closely monitor the ratios and maintain robust portfolio collection mechanisms to preserve liquidity and overall financial health.")
+                    new Paragraph("Based on the above quantitative evaluations, management should closely monitor the ratios and maintain robust portfolio collection mechanisms to preserve liquidity and overall financial health."),
+                    new Paragraph({
+                        spacing: { before: 360 },
+                        alignment: AlignmentType.CENTER,
+                        children: [new TextRun({
+                            text: 'Generated from loan portfolio and accounting_entries. AI section is advisory; verify with your accountant.',
+                            font: FONT,
+                            size: SZ_SMALL,
+                            italics: true,
+                            color: '888888',
+                        })],
+                    }),
                 ],
             }],
         });
 
         const buffer = await Packer.toBuffer(doc);
+        const safeDate = new Date().toISOString().split('T')[0];
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-        res.setHeader('Content-Disposition', 'attachment; filename=MT_Financial_Analysis.docx');
+        res.setHeader('Content-Disposition', `attachment; filename=Financial_Analysis_${safeDate}.docx`);
         res.send(buffer);
 
     } catch (err) {
@@ -1286,44 +1371,60 @@ router.get('/equity-statement', async (req, res) => {
         startDate.setHours(0, 0, 0, 0);
         endDate.setHours(23, 59, 59, 999);
 
-        const getEquityAt = async (date) => {
-            const { rows: ledger } = await db.query(`
-                SELECT category, entry_type, SUM(amount) as total 
-                FROM accounting_entries WHERE entry_date <= $1 
-                GROUP BY category, entry_type
-            `, [date]);
+        if (startDate > endDate) {
+            return res.json({ periodLabel: '', data: [] });
+        }
 
-            let shareCap = 0;
-            let revenue = 0;
-            let expense = 0;
-            ledger.forEach(r => {
-                if (r.category === 'Share Capital') shareCap += parseFloat(r.total);
-                else if (r.entry_type === 'revenue') revenue += parseFloat(r.total);
-                else if (r.entry_type === 'expense') expense += parseFloat(r.total);
-            });
-            return { shareCap, profit: revenue - expense };
+        // Cumulative balances at a date (Share capital vs P&L-derived retained earnings)
+        const getEquityAt = async (asOf) => {
+            const { rows } = await db.query(`
+                SELECT 
+                    COALESCE(SUM(CASE WHEN LOWER(TRIM(category)) LIKE '%share%capital%' THEN amount::numeric ELSE 0 END), 0) AS share_capital,
+                    COALESCE(SUM(CASE WHEN entry_type = 'revenue' AND LOWER(TRIM(category)) NOT LIKE '%share%capital%' THEN amount::numeric ELSE 0 END), 0) AS revenue,
+                    COALESCE(SUM(CASE WHEN entry_type = 'expense' THEN amount::numeric ELSE 0 END), 0) AS expense
+                FROM accounting_entries
+                WHERE entry_date::date <= $1::date
+            `, [asOf]);
+            const r = rows[0];
+            const shareCap = Math.round(parseFloat(r.share_capital) || 0);
+            const revenue = parseFloat(r.revenue) || 0;
+            const expense = parseFloat(r.expense) || 0;
+            const retained = Math.round(revenue - expense);
+            return { shareCap, profit: retained, revenue: Math.round(revenue), expense: Math.round(expense) };
         };
 
         const steps = [];
         let curr = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
 
         while (curr <= endDate) {
-            const mStart = new Date(Math.max(startDate, new Date(curr.getFullYear(), curr.getMonth(), 1, 0, 0, 0)));
-            const mEnd = new Date(Math.min(endDate, new Date(curr.getFullYear(), curr.getMonth() + 1, 0, 23, 59, 59)));
+            const mStart = new Date(Math.max(startDate.getTime(), new Date(curr.getFullYear(), curr.getMonth(), 1, 0, 0, 0).getTime()));
+            const mEnd = new Date(Math.min(endDate.getTime(), new Date(curr.getFullYear(), curr.getMonth() + 1, 0, 23, 59, 59, 999).getTime()));
 
-            const opening = await getEquityAt(new Date(mStart.getTime() - 1));
+            const dayBefore = new Date(mStart);
+            dayBefore.setDate(dayBefore.getDate() - 1);
+            dayBefore.setHours(23, 59, 59, 999);
+
+            const opening = await getEquityAt(dayBefore);
             const closing = await getEquityAt(mEnd);
 
-            const { rows: capChanges } = await db.query(`
-                SELECT COALESCE(SUM(amount), 0) as total FROM accounting_entries 
-                WHERE entry_date >= $1 AND entry_date <= $2 AND category = 'Share Capital'
+            const { rows: capRows } = await db.query(`
+                SELECT COALESCE(SUM(amount::numeric), 0) AS total FROM accounting_entries 
+                WHERE entry_date::date >= $1::date AND entry_date::date <= $2::date
+                AND LOWER(TRIM(category)) LIKE '%share%capital%'
             `, [mStart, mEnd]);
-            const capitalInjected = parseFloat(capChanges[0].total);
+            const capitalInjected = Math.round(parseFloat(capRows[0].total) || 0);
             const periodProfit = closing.profit - opening.profit;
 
+            const monthLabel = mStart.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+            const dateLabel = mStart.toLocaleDateString('en-GB') === mEnd.toLocaleDateString('en-GB')
+                ? mStart.toLocaleDateString('en-GB')
+                : `${mStart.toLocaleDateString('en-GB')} – ${mEnd.toLocaleDateString('en-GB')}`;
+
             steps.push({
-                month: mStart.toLocaleString('en-GB', { month: 'long', year: 'numeric' }),
-                dateLabel: mStart.toLocaleDateString() === mEnd.toLocaleDateString() ? mStart.toLocaleDateString() : `${mStart.toLocaleDateString()} to ${mEnd.toLocaleDateString()}`,
+                month: monthLabel,
+                dateLabel,
+                openingLabel: dayBefore.toLocaleDateString('en-GB'),
+                closingLabel: mEnd.toLocaleDateString('en-GB'),
                 opening,
                 movements: {
                     capitalInjected,
@@ -1336,8 +1437,10 @@ router.get('/equity-statement', async (req, res) => {
             if (steps.length > 24) break;
         }
 
+        const periodLabel = `${startDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} – ${endDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+
         res.json({
-            periodLabel: `${startDate.toLocaleDateString('en-GB')} to ${endDate.toLocaleDateString('en-GB')}`,
+            periodLabel,
             data: steps
         });
     } catch (err) {
@@ -1348,15 +1451,278 @@ router.get('/equity-statement', async (req, res) => {
 
 // ──────────────────────────────────────────────────────────────
 // GET /api/reports/comprehensive-income-docx
+// Same period logic as GET /comprehensive-income: prefer ?from=&to= (matches UI), else ?year=
 // ──────────────────────────────────────────────────────────────
 router.get('/comprehensive-income-docx', async (req, res) => {
     try {
-        const { year = 2025 } = req.query;
-        // Simplified fallback for docx
-        const d = new Date(year, 0, 1);
-        res.status(400).json({ error: "Deprecated. Use CSV export for latest data ranges." });
+        const { from, to, year: yearParam } = req.query;
+
+        let startDate;
+        let endDate;
+        if (from && to) {
+            startDate = new Date(from);
+            endDate = new Date(to);
+        } else {
+            const year = parseInt(yearParam || new Date().getFullYear(), 10);
+            if (!Number.isFinite(year) || year < 1990 || year > 2100) {
+                return res.status(400).json({ error: 'Invalid year' });
+            }
+            startDate = new Date(year, 0, 1);
+            endDate = new Date(year, 11, 31, 23, 59, 59);
+        }
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
+
+        const periodLabel = `${startDate.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })} – ${endDate.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}`;
+
+        const { rows: allEntries } = await db.query(`
+            SELECT 
+                category, 
+                entry_type, 
+                CAST(EXTRACT(YEAR FROM entry_date) AS INTEGER) as year,
+                CAST(EXTRACT(MONTH FROM entry_date) AS INTEGER) as month, 
+                SUM(amount) as total
+            FROM accounting_entries
+            WHERE entry_date >= $1 AND entry_date <= $2
+            GROUP BY category, entry_type, year, month
+            ORDER BY year, month
+        `, [startDate, endDate]);
+
+        const columns = [];
+        let curr = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+        while (curr <= endDate) {
+            columns.push({
+                year: curr.getFullYear(),
+                month: curr.getMonth() + 1,
+                label: curr.toLocaleString('default', { month: 'short' }),
+                key: `${curr.getFullYear()}-${curr.getMonth() + 1}`
+            });
+            curr.setMonth(curr.getMonth() + 1);
+            if (columns.length > 36) break;
+        }
+
+        const categoriesMap = {};
+        allEntries.forEach(e => {
+            const key = `${e.year}-${e.month}`;
+            if (!categoriesMap[e.category]) {
+                categoriesMap[e.category] = {
+                    category: e.category,
+                    type: e.entry_type,
+                    months: {}
+                };
+            }
+            categoriesMap[e.category].months[key] = parseFloat(e.total);
+        });
+
+        const data = Object.values(categoriesMap);
+
+        const fmt = (n) => new Intl.NumberFormat('en-UG', { maximumFractionDigits: 0 }).format(Math.round(n));
+
+        const FONT = 'Calibri';
+        const SZ_TITLE = 40; // 20pt
+        const SZ_SUB = 24; // 12pt
+        const SZ_BODY = 22; // 11pt
+        const SZ_SMALL = 18; // 9pt
+
+        const cellPad = { marginUnitType: WidthType.DXA, top: 160, bottom: 160, left: 200, right: 200 };
+        const borderLine = { style: BorderStyle.SINGLE, size: 1, color: 'C8C8C8' };
+        const cellBorders = {
+            top: borderLine,
+            bottom: borderLine,
+            left: borderLine,
+            right: borderLine,
+        };
+
+        const hdrP = (text, align = AlignmentType.LEFT) => new Paragraph({
+            alignment: align,
+            spacing: { before: 40, after: 40 },
+            children: [new TextRun({
+                text,
+                bold: true,
+                font: FONT,
+                size: SZ_BODY,
+                color: 'FFFFFF',
+            })],
+        });
+
+        const bodyP = (text, { align = AlignmentType.LEFT, bold = false, color = '2F2F2F' } = {}) => new Paragraph({
+            alignment: align,
+            spacing: { before: 40, after: 40 },
+            children: [new TextRun({
+                text,
+                bold,
+                font: FONT,
+                size: SZ_BODY,
+                color,
+            })],
+        });
+
+        const numCols = 1 + columns.length;
+        const printable = convertInchesToTwip(6.5);
+        const catW = Math.round(printable * 0.42);
+        const mW = columns.length > 0 ? Math.max(convertInchesToTwip(1.25), Math.floor((printable - catW) / columns.length)) : 0;
+        const columnWidths = columns.length > 0 ? [catW, ...columns.map(() => mW)] : [printable];
+
+        const headerRow = new TableRow({
+            tableHeader: true,
+            children: [
+                new TableCell({
+                    shading: { fill: '1F4E79', type: ShadingType.CLEAR },
+                    margins: cellPad,
+                    verticalAlign: VerticalAlignTable.CENTER,
+                    borders: cellBorders,
+                    children: [hdrP('Category')],
+                }),
+                ...columns.map(col => new TableCell({
+                    shading: { fill: '1F4E79', type: ShadingType.CLEAR },
+                    margins: cellPad,
+                    verticalAlign: VerticalAlignTable.CENTER,
+                    borders: cellBorders,
+                    children: [hdrP(`${col.label} ${col.year}`, AlignmentType.RIGHT)],
+                })),
+            ],
+        });
+
+        const bodyRows = data.map((item, idx) => new TableRow({
+            children: [
+                new TableCell({
+                    shading: { fill: idx % 2 === 0 ? 'FAFAFA' : 'FFFFFF', type: ShadingType.CLEAR },
+                    margins: cellPad,
+                    verticalAlign: VerticalAlignTable.CENTER,
+                    borders: cellBorders,
+                    children: [bodyP(String(item.category))],
+                }),
+                ...columns.map(col => {
+                    const v = item.months[col.key];
+                    const text = v != null ? fmt(v) : '—';
+                    return new TableCell({
+                        shading: { fill: idx % 2 === 0 ? 'FAFAFA' : 'FFFFFF', type: ShadingType.CLEAR },
+                        margins: cellPad,
+                        verticalAlign: VerticalAlignTable.CENTER,
+                        borders: cellBorders,
+                        children: [bodyP(text, { align: AlignmentType.RIGHT })],
+                    });
+                }),
+            ],
+        }));
+
+        const netRow = new TableRow({
+            children: [
+                new TableCell({
+                    shading: { fill: 'E2EFDA', type: ShadingType.CLEAR },
+                    margins: cellPad,
+                    verticalAlign: VerticalAlignTable.CENTER,
+                    borders: cellBorders,
+                    children: [bodyP('Net comprehensive income (revenue − expense)', { bold: true, color: '1F4E79' })],
+                }),
+                ...columns.map(col => {
+                    let total = 0;
+                    data.forEach((item) => {
+                        const val = item.months[col.key] || 0;
+                        if (item.type === 'revenue') total += val;
+                        else total -= val;
+                    });
+                    return new TableCell({
+                        shading: { fill: 'E2EFDA', type: ShadingType.CLEAR },
+                        margins: cellPad,
+                        verticalAlign: VerticalAlignTable.CENTER,
+                        borders: cellBorders,
+                        children: [bodyP(fmt(total), { align: AlignmentType.RIGHT, bold: true, color: '1F4E79' })],
+                    });
+                }),
+            ],
+        });
+
+        const tableOuter = {
+            top: { style: BorderStyle.SINGLE, size: 4, color: '1F4E79' },
+            bottom: { style: BorderStyle.SINGLE, size: 4, color: '1F4E79' },
+            left: { style: BorderStyle.SINGLE, size: 4, color: '1F4E79' },
+            right: { style: BorderStyle.SINGLE, size: 4, color: '1F4E79' },
+            insideHorizontal: borderLine,
+            insideVertical: borderLine,
+        };
+
+        const brandingLogo = loadBrandingLogo();
+        const logoParagraphs = brandingLogo
+            ? [
+                new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    spacing: { after: 200 },
+                    children: [
+                        new ImageRun({
+                            type: brandingLogo.type,
+                            data: brandingLogo.buffer,
+                            transformation: { width: 220, height: 72 },
+                        }),
+                    ],
+                }),
+            ]
+            : [];
+
+        const doc = new Document({
+            sections: [{
+                properties: {
+                    page: {
+                        margin: {
+                            top: convertInchesToTwip(1),
+                            right: convertInchesToTwip(1),
+                            bottom: convertInchesToTwip(1),
+                            left: convertInchesToTwip(1),
+                        },
+                    },
+                },
+                children: [
+                    ...logoParagraphs,
+                    new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        spacing: { after: 120 },
+                        children: [new TextRun({ text: 'M&T Growth Gateway', bold: true, font: 'Cambria', size: SZ_TITLE, color: '1F4E79' })],
+                    }),
+                    new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        spacing: { after: 80 },
+                        children: [new TextRun({ text: 'Statement of Comprehensive Income', bold: true, font: 'Cambria', size: SZ_SUB, color: '404040' })],
+                    }),
+                    new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        spacing: { after: 80 },
+                        children: [new TextRun({ text: 'Amounts in UGX', font: FONT, size: SZ_SMALL, italics: true, color: '666666' })],
+                    }),
+                    new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        spacing: { after: 360 },
+                        children: [new TextRun({ text: `Period: ${periodLabel}`, font: FONT, size: SZ_BODY, color: '404040' })],
+                    }),
+                    new Table({
+                        width: { size: 100, type: WidthType.PERCENTAGE },
+                        layout: TableLayoutType.FIXED,
+                        columnWidths,
+                        borders: tableOuter,
+                        rows: [headerRow, ...bodyRows, netRow],
+                    }),
+                    new Paragraph({
+                        spacing: { before: 360 },
+                        alignment: AlignmentType.CENTER,
+                        children: [new TextRun({
+                            text: 'Generated from accounting_entries. For management use; verify with your accountant.',
+                            font: FONT,
+                            size: SZ_SMALL,
+                            italics: true,
+                            color: '888888',
+                        })],
+                    }),
+                ],
+            }],
+        });
+
+        const buffer = await Packer.toBuffer(doc);
+        const safeName = periodLabel.replace(/[^a-z0-9]+/gi, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') || 'export';
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        res.setHeader('Content-Disposition', `attachment; filename=Comprehensive_Income_${safeName}.docx`);
+        res.send(buffer);
     } catch (err) {
-        res.status(500).json({ error: 'Failed' });
+        console.error('comprehensive-income-docx', err);
+        res.status(500).json({ error: err.message || 'Failed to export' });
     }
 });
 
@@ -1386,11 +1752,11 @@ router.get('/aging-report', async (req, res) => {
             SELECT 
                 l.id, l.full_name as borrower_name, l.approved_at as issue_date, 
                 l.loan_amount as original_amount, l.loan_duration_months,
-                COALESCE(lp.base_interest_rate, 15) as rate_raw,
+                COALESCE(NULLIF(lp.base_interest_rate, 0), 30) as rate_raw,
                 l.loan_product as product_name,
-                COALESCE(lp.base_interest_rate, 15) as product_rate
+                COALESCE(NULLIF(lp.base_interest_rate, 0), 30) as product_rate
             FROM loan_applications l
-            LEFT JOIN loan_products lp ON LOWER(l.loan_product) = LOWER(lp.name)
+            LEFT JOIN loan_products lp ON LOWER(TRIM(l.loan_product)) = LOWER(TRIM(lp.name))
             WHERE l.status IN ('approved', 'disbursed', 'active', 'completed', 'settled')
             AND l.approved_at >= $1 AND l.approved_at <= $2
             ORDER BY l.approved_at DESC
@@ -1413,23 +1779,20 @@ router.get('/aging-report', async (req, res) => {
             `, [loan.id, startDate, endDate]);
             const periodPayments = parseFloat(payRowsCurrent[0].total);
 
-            const principal = parseFloat(loan.original_amount);
-            const rate = parseFloat(loan.rate_raw || 15) / 100; // Monthly rate
+            const principal = parseFloat(loan.original_amount) || 0;
+            const rateRaw = parseFloat(loan.rate_raw);
+            // Flat % on principal for the whole loan (same idea as portfolio principal × 1.30), not a monthly %.
+            const effectiveRatePercent = (Number.isFinite(rateRaw) && rateRaw > 0) ? rateRaw : 30;
+            const totalInterestOnLoan = principal * (effectiveRatePercent / 100);
+            const totalRepaymentAmount = principal + totalInterestOnLoan;
             const issueDate = new Date(loan.issue_date);
 
-            // Calculate exact months since approval to endDate for cumulative interest
-            // Approximation: (Days since approval / 30)
             const daysSinceApproval = Math.max(0, Math.round((endDate.getTime() - issueDate.getTime()) / msInDay));
-            const totalInterestAccrued = principal * rate * (daysSinceApproval / 30);
 
-            // Total Debt = Principal + Total Interest
-            // Outstanding = Total Debt - Total Repayments
-            let totalOutstanding = (principal + totalInterestAccrued) - totalRepayments;
-            if (totalOutstanding < 0) totalOutstanding = 0;
+            // Outstanding = full scheduled amount (principal + flat interest) − repayments (aligned with loan portfolio)
+            let totalOutstanding = Math.max(0, totalRepaymentAmount - totalRepayments);
 
-            // Split outstanding into Principal and Interest (simplified priority: Interest first)
-            // If totalOutstanding > principal, then all principal is still outstanding, and part of interest.
-            // If totalOutstanding <= principal, then interest is 0, and principal is totalOutstanding.
+            // Split outstanding into principal vs interest portions (after repayments)
             let principalOutstanding = 0;
             let interestDue = 0;
 
@@ -1441,25 +1804,28 @@ router.get('/aging-report', async (req, res) => {
                 interestDue = 0;
             }
 
-            // Interest for just this month (for the 'Interest Income' column)
+            const durationMonths = Math.max(1, parseInt(loan.loan_duration_months, 10) || 4);
+            // Average monthly interest accrual (for reporting columns)
+            const interestMonthly = totalInterestOnLoan / durationMonths;
+
             const daysInPeriod = Math.min(periodDaysGlobal, daysSinceApproval);
-            const interestInPeriod = principalOutstanding * rate * (daysInPeriod / 30);
+            const interestInPeriod = interestMonthly * (daysInPeriod / 30);
 
             return {
                 index: idx + 1,
                 name: loan.borrower_name,
                 issue_date: issueDate.toLocaleDateString('en-GB'),
-                rate: (rate * 100).toFixed(1) + "%",
+                rate: effectiveRatePercent.toFixed(1) + "%",
                 loan_id: (loan.id || '').split('-')[0].toUpperCase(),
                 days_of_month: periodDaysGlobal,
                 days_in_period: daysInPeriod,
-                original_amount: principal,
-                principal_outstanding: principalOutstanding,
-                interest_monthly: principalOutstanding * rate,
-                interest_due: interestDue,
+                original_amount: Math.round(principal),
+                principal_outstanding: Math.round(principalOutstanding),
+                interest_monthly: Math.round(interestMonthly),
+                interest_due: Math.round(interestDue),
                 payments: periodPayments,
-                interest_income: interestInPeriod,
-                total_balance: totalOutstanding
+                interest_income: Math.round(interestInPeriod),
+                total_balance: Math.round(totalOutstanding)
             };
         }));
 
@@ -1477,114 +1843,393 @@ router.get('/aging-report', async (req, res) => {
 });
 
 // ──────────────────────────────────────────────────────────────
-// GET /api/reports/financial-position
+// Statement of Financial Position — shared JSON + Word export
 // ──────────────────────────────────────────────────────────────
-// ──────────────────────────────────────────────────────────────
-// GET /api/reports/financial-position
-// ──────────────────────────────────────────────────────────────
+async function computeFinancialPositionData(query = {}) {
+    const { from, to, year: yearParam } = query;
+
+    let startDate;
+    let endDate;
+    if (from && to) {
+        startDate = new Date(from);
+        endDate = new Date(to);
+    } else {
+        const year = parseInt(yearParam || new Date().getFullYear(), 10);
+        startDate = new Date(year, 0, 1);
+        endDate = new Date(year, 11, 31, 23, 59, 59);
+    }
+    startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(23, 59, 59, 999);
+
+    const periodLabel = `${startDate.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })} – ${endDate.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}`;
+
+    const columns = [];
+    let curr = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    while (curr <= endDate) {
+        const monthEnd = new Date(curr.getFullYear(), curr.getMonth() + 1, 0, 23, 59, 59);
+        const snapDate = new Date(Math.min(endDate.getTime(), monthEnd.getTime()));
+
+        const key = `${curr.getFullYear()}-${curr.getMonth() + 1}`;
+        columns.push({
+            year: curr.getFullYear(),
+            month: curr.getMonth() + 1,
+            label: curr.toLocaleString('default', { month: 'short' }),
+            key,
+            snapDate,
+        });
+
+        curr.setMonth(curr.getMonth() + 1);
+        if (columns.length > 36) break;
+    }
+
+    const data = {
+        current_assets: { 'BANK / CASH BALANCES': {}, 'Loans Receivable': {}, 'Accrued Interest': {}, 'Other Receivables': {} },
+        non_current_assets: { 'Fixed Assets (Equipment, etc)': {} },
+        current_liabilities: { 'Creditors / Borrowings': {}, 'ACCUMULATED PROFITS': {}, 'SHARE CAPITAL': {} },
+    };
+
+    for (const col of columns) {
+        const snapDate = col.snapDate;
+        const key = col.key;
+
+        const [loans, repayments, ledger, creditors, assets] = await Promise.all([
+            db.query(`SELECT COALESCE(SUM(loan_amount), 0) as total FROM loan_applications WHERE status IN ('disbursed', 'active') AND approved_at <= $1`, [snapDate]),
+            db.query(`SELECT COALESCE(SUM(amount), 0) as total FROM repayments WHERE payment_date <= $1`, [snapDate]),
+            db.query(`SELECT category, entry_type, SUM(amount) as total FROM accounting_entries WHERE entry_date <= $1 GROUP BY category, entry_type`, [snapDate]),
+            db.query(`SELECT COALESCE(SUM(amount_borrowed), 0) as total FROM creditors WHERE created_at <= $1`, [snapDate]),
+            db.query(`SELECT COALESCE(SUM(value), 0) as total FROM public.assets WHERE purchase_date <= $1`, [snapDate]),
+        ]);
+
+        const grossPrincipal = parseFloat(loans.rows[0].total);
+        const totalRepayments = parseFloat(repayments.rows[0].total);
+
+        let totalRevenue = 0;
+        let totalExpense = 0;
+        let shareCap = 0;
+        let interestIncomeAccum = 0;
+
+        ledger.rows.forEach((r) => {
+            if (r.category === 'Share Capital') shareCap += parseFloat(r.total);
+            else {
+                if (r.entry_type === 'revenue') {
+                    totalRevenue += parseFloat(r.total);
+                    if (r.category === 'Interest Income') interestIncomeAccum += parseFloat(r.total);
+                } else if (r.entry_type === 'expense') totalExpense += parseFloat(r.total);
+            }
+        });
+
+        const netProfit = totalRevenue - totalExpense;
+        const totalCreditors = parseFloat(creditors.rows[0].total);
+        const totalFixedAssets = parseFloat(assets.rows[0].total);
+
+        const principalRecovered = Math.max(0, totalRepayments - interestIncomeAccum);
+        const netLoans = Math.max(0, grossPrincipal - principalRecovered);
+
+        const cashBank = Math.max(0, (totalRevenue + shareCap + totalCreditors + totalRepayments) - (grossPrincipal + totalExpense + totalFixedAssets));
+
+        data.current_assets['Loans Receivable'][key] = netLoans;
+        data.current_assets['Accrued Interest'][key] = netLoans * 0.15;
+        data.current_liabilities['SHARE CAPITAL'][key] = shareCap;
+        data.current_liabilities['ACCUMULATED PROFITS'][key] = netProfit;
+        data.current_liabilities['Creditors / Borrowings'][key] = totalCreditors;
+        data.current_assets['BANK / CASH BALANCES'][key] = cashBank;
+        data.non_current_assets['Fixed Assets (Equipment, etc)'][key] = totalFixedAssets;
+    }
+
+    return {
+        year: startDate.getFullYear() === endDate.getFullYear() ? startDate.getFullYear() : periodLabel,
+        periodLabel,
+        columns,
+        data,
+    };
+}
+
 router.get('/financial-position', async (req, res) => {
     try {
-        const { from, to, year: yearParam } = req.query;
+        const payload = await computeFinancialPositionData(req.query);
+        res.json(payload);
+    } catch (err) {
+        console.error('❌ Financial Position Error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
-        let startDate, endDate;
-        if (from && to) {
-            startDate = new Date(from);
-            endDate = new Date(to);
-        } else {
-            const year = parseInt(yearParam || new Date().getFullYear());
-            startDate = new Date(year, 0, 1);
-            endDate = new Date(year, 11, 31, 23, 59, 59);
-        }
-        startDate.setHours(0, 0, 0, 0);
-        endDate.setHours(23, 59, 59, 999);
+// GET /api/reports/financial-position-docx
+router.get('/financial-position-docx', async (req, res) => {
+    try {
+        const payload = await computeFinancialPositionData(req.query);
+        const { columns, data, periodLabel } = payload;
 
-        const periodLabel = `${startDate.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })} - ${endDate.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}`;
+        const FONT = 'Calibri';
+        const SZ_TITLE = 40;
+        const SZ_SUB = 24;
+        const SZ_SMALL = 18;
+        const SZ_BODY = 22;
 
-        const columns = [];
-        let curr = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-        while (curr <= endDate) {
-            const monthEnd = new Date(curr.getFullYear(), curr.getMonth() + 1, 0, 23, 59, 59);
-            const snapDate = new Date(Math.min(endDate, monthEnd));
+        const fmt = (v) => new Intl.NumberFormat('en-UG', { maximumFractionDigits: 0 }).format(Math.round(Number(v) || 0));
 
-            const key = `${curr.getFullYear()}-${curr.getMonth() + 1}`;
-            columns.push({
-                year: curr.getFullYear(),
-                month: curr.getMonth() + 1,
-                label: curr.toLocaleString('default', { month: 'short' }),
-                key: key,
-                snapDate
-            });
+        const cellPad = { marginUnitType: WidthType.DXA, top: 120, bottom: 120, left: 160, right: 160 };
+        const borderLine = { style: BorderStyle.SINGLE, size: 1, color: 'C8C8C8' };
+        const cellBorders = { top: borderLine, bottom: borderLine, left: borderLine, right: borderLine };
 
-            curr.setMonth(curr.getMonth() + 1);
-            if (columns.length > 36) break;
-        }
+        const numCols = 1 + columns.length;
+        const printable = convertInchesToTwip(6.5);
+        const labelW = Math.round(printable * 0.38);
+        const colW = columns.length > 0 ? Math.max(convertInchesToTwip(1.1), Math.floor((printable - labelW) / columns.length)) : printable;
+        const columnWidths = columns.length > 0 ? [labelW, ...columns.map(() => colW)] : [printable];
 
-        const data = {
-            current_assets: { "BANK / CASH BALANCES": {}, "Loans Receivable": {}, "Accrued Interest": {}, "Other Receivables": {} },
-            non_current_assets: { "Fixed Assets (Equipment, etc)": {} },
-            current_liabilities: { "Creditors / Borrowings": {}, "ACCUMULATED PROFITS": {}, "SHARE CAPITAL": {} }
+        const hdrCell = (text, align = AlignmentType.LEFT) => new TableCell({
+            shading: { fill: '1F4E79', type: ShadingType.CLEAR },
+            margins: cellPad,
+            verticalAlign: VerticalAlignTable.CENTER,
+            borders: cellBorders,
+            children: [new Paragraph({
+                alignment: align,
+                children: [new TextRun({ text, bold: true, font: FONT, size: SZ_BODY, color: 'FFFFFF' })],
+            })],
+        });
+
+        const bodyNum = (text) => new TableCell({
+            margins: cellPad,
+            verticalAlign: VerticalAlignTable.CENTER,
+            borders: cellBorders,
+            children: [new Paragraph({
+                alignment: AlignmentType.RIGHT,
+                children: [new TextRun({ text, font: FONT, size: SZ_BODY, color: '2F2F2F' })],
+            })],
+        });
+
+        const bodyLabel = (text, { bold = false, fill } = {}) => new TableCell({
+            shading: fill ? { fill, type: ShadingType.CLEAR } : undefined,
+            margins: cellPad,
+            verticalAlign: VerticalAlignTable.CENTER,
+            borders: cellBorders,
+            children: [new Paragraph({
+                children: [new TextRun({ text, bold, font: FONT, size: SZ_BODY, color: bold ? '1F4E79' : '2F2F2F' })],
+            })],
+        });
+
+        const headerRow = new TableRow({
+            tableHeader: true,
+            children: [hdrCell('Item'), ...columns.map((col) => hdrCell(`${col.label} ${col.year}`, AlignmentType.RIGHT))],
+        });
+
+        const rows = [headerRow];
+
+        const addSection = (title) => {
+            rows.push(new TableRow({
+                children: [
+                    new TableCell({
+                        columnSpan: numCols,
+                        shading: { fill: 'E8EEF5', type: ShadingType.CLEAR },
+                        margins: cellPad,
+                        borders: cellBorders,
+                        children: [new Paragraph({
+                            children: [new TextRun({ text: title, bold: true, font: FONT, size: SZ_BODY, color: '1F4E79' })],
+                        })],
+                    }),
+                ],
+            }));
         };
 
-        for (const col of columns) {
-            const snapDate = col.snapDate;
-            const key = col.key;
-
-            const [loans, repayments, ledger, creditors, assets] = await Promise.all([
-                db.query(`SELECT COALESCE(SUM(loan_amount), 0) as total FROM loan_applications WHERE status IN ('disbursed', 'active') AND approved_at <= $1`, [snapDate]),
-                db.query(`SELECT COALESCE(SUM(amount), 0) as total FROM repayments WHERE payment_date <= $1`, [snapDate]),
-                db.query(`SELECT category, entry_type, SUM(amount) as total FROM accounting_entries WHERE entry_date <= $1 GROUP BY category, entry_type`, [snapDate]),
-                db.query(`SELECT COALESCE(SUM(amount_borrowed), 0) as total FROM creditors WHERE created_at <= $1`, [snapDate]),
-                db.query(`SELECT COALESCE(SUM(value), 0) as total FROM public.assets WHERE purchase_date <= $1`, [snapDate])
-            ]);
-
-            const grossPrincipal = parseFloat(loans.rows[0].total);
-            const totalRepayments = parseFloat(repayments.rows[0].total);
-
-            let totalRevenue = 0;
-            let totalExpense = 0;
-            let shareCap = 0;
-            let interestIncomeAccum = 0;
-
-            ledger.rows.forEach(r => {
-                if (r.category === 'Share Capital') shareCap += parseFloat(r.total);
-                else {
-                    if (r.entry_type === 'revenue') {
-                        totalRevenue += parseFloat(r.total);
-                        if (r.category === 'Interest Income') interestIncomeAccum += parseFloat(r.total);
-                    }
-                    else if (r.entry_type === 'expense') totalExpense += parseFloat(r.total);
-                }
+        const addLineItems = (obj) => {
+            Object.keys(obj || {}).forEach((cat) => {
+                const months = obj[cat];
+                rows.push(new TableRow({
+                    children: [
+                        bodyLabel(cat, { bold: false }),
+                        ...columns.map((col) => bodyNum(fmt(months[col.key] ?? 0))),
+                    ],
+                }));
             });
+        };
 
-            const netProfit = totalRevenue - totalExpense;
-            const totalCreditors = parseFloat(creditors.rows[0].total);
-            const totalFixedAssets = parseFloat(assets.rows[0].total);
+        const sumBucket = (bucket, col) => {
+            let t = 0;
+            Object.values(bucket).forEach((months) => {
+                t += Number(months[col.key]) || 0;
+            });
+            return t;
+        };
 
-            // Correct Loans Receivable: Principal Disbursed - Principal Portion of Repayments
-            // Principal Portion = totalRepayments - interestIncomeAccum (roughly)
-            const principalRecovered = Math.max(0, totalRepayments - interestIncomeAccum);
-            const netLoans = Math.max(0, grossPrincipal - principalRecovered);
+        addSection('CURRENT ASSETS');
+        addLineItems(data.current_assets);
+        rows.push(new TableRow({
+            children: [
+                bodyLabel('Total current assets', { bold: true, fill: 'F5F5F5' }),
+                ...columns.map((col) => {
+                    let t = 0;
+                    Object.values(data.current_assets).forEach((months) => {
+                        t += Number(months[col.key]) || 0;
+                    });
+                    return new TableCell({
+                        shading: { fill: 'F5F5F5', type: ShadingType.CLEAR },
+                        margins: cellPad,
+                        borders: cellBorders,
+                        children: [new Paragraph({
+                            alignment: AlignmentType.RIGHT,
+                            children: [new TextRun({ text: fmt(t), bold: true, font: FONT, size: SZ_BODY, color: '1F4E79' })],
+                        })],
+                    });
+                }),
+            ],
+        }));
 
-            const cashBank = Math.max(0, (totalRevenue + shareCap + totalCreditors + totalRepayments) - (grossPrincipal + totalExpense + totalFixedAssets));
+        addSection('NON-CURRENT ASSETS');
+        addLineItems(data.non_current_assets);
+        rows.push(new TableRow({
+            children: [
+                bodyLabel('Total non-current assets', { bold: true, fill: 'F5F5F5' }),
+                ...columns.map((col) => {
+                    let t = 0;
+                    Object.values(data.non_current_assets).forEach((months) => {
+                        t += Number(months[col.key]) || 0;
+                    });
+                    return new TableCell({
+                        shading: { fill: 'F5F5F5', type: ShadingType.CLEAR },
+                        margins: cellPad,
+                        borders: cellBorders,
+                        children: [new Paragraph({
+                            alignment: AlignmentType.RIGHT,
+                            children: [new TextRun({ text: fmt(t), bold: true, font: FONT, size: SZ_BODY, color: '1F4E79' })],
+                        })],
+                    });
+                }),
+            ],
+        }));
 
-            data.current_assets["Loans Receivable"][key] = netLoans;
-            data.current_assets["Accrued Interest"][key] = netLoans * 0.15; // Accrued interest is an asset
-            data.current_liabilities["SHARE CAPITAL"][key] = shareCap;
-            data.current_liabilities["ACCUMULATED PROFITS"][key] = netProfit;
-            data.current_liabilities["Creditors / Borrowings"][key] = totalCreditors;
-            data.current_assets["BANK / CASH BALANCES"][key] = cashBank;
-            data.non_current_assets["Fixed Assets (Equipment, etc)"][key] = totalFixedAssets;
-        }
+        rows.push(new TableRow({
+            children: [
+                bodyLabel('TOTAL ASSETS', { bold: true, fill: 'E2EFDA' }),
+                ...columns.map((col) => {
+                    let curr = sumBucket(data.current_assets, col);
+                    let nonc = sumBucket(data.non_current_assets, col);
+                    return new TableCell({
+                        shading: { fill: 'E2EFDA', type: ShadingType.CLEAR },
+                        margins: cellPad,
+                        borders: cellBorders,
+                        children: [new Paragraph({
+                            alignment: AlignmentType.RIGHT,
+                            children: [new TextRun({ text: fmt(curr + nonc), bold: true, font: FONT, size: SZ_BODY, color: '1F4E79' })],
+                        })],
+                    });
+                }),
+            ],
+        }));
 
-        res.json({
-            year: startDate.getFullYear() === endDate.getFullYear() ? startDate.getFullYear() : periodLabel,
-            periodLabel,
-            columns,
-            data
+        addSection('EQUITY & LIABILITIES');
+        addLineItems(data.current_liabilities);
+        rows.push(new TableRow({
+            children: [
+                bodyLabel('Total equity & liabilities', { bold: true, fill: 'F5F5F5' }),
+                ...columns.map((col) => {
+                    let t = 0;
+                    Object.values(data.current_liabilities).forEach((months) => {
+                        t += Number(months[col.key]) || 0;
+                    });
+                    return new TableCell({
+                        shading: { fill: 'F5F5F5', type: ShadingType.CLEAR },
+                        margins: cellPad,
+                        borders: cellBorders,
+                        children: [new Paragraph({
+                            alignment: AlignmentType.RIGHT,
+                            children: [new TextRun({ text: fmt(t), bold: true, font: FONT, size: SZ_BODY, color: '1F4E79' })],
+                        })],
+                    });
+                }),
+            ],
+        }));
+
+        const tableOuter = {
+            top: { style: BorderStyle.SINGLE, size: 4, color: '1F4E79' },
+            bottom: { style: BorderStyle.SINGLE, size: 4, color: '1F4E79' },
+            left: { style: BorderStyle.SINGLE, size: 4, color: '1F4E79' },
+            right: { style: BorderStyle.SINGLE, size: 4, color: '1F4E79' },
+            insideHorizontal: borderLine,
+            insideVertical: borderLine,
+        };
+
+        const brandingLogo = loadBrandingLogo();
+        const logoParagraphs = brandingLogo
+            ? [
+                new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    spacing: { after: 200 },
+                    children: [
+                        new ImageRun({
+                            type: brandingLogo.type,
+                            data: brandingLogo.buffer,
+                            transformation: { width: 220, height: 72 },
+                        }),
+                    ],
+                }),
+            ]
+            : [];
+
+        const doc = new Document({
+            sections: [{
+                properties: {
+                    page: {
+                        margin: {
+                            top: convertInchesToTwip(1),
+                            right: convertInchesToTwip(1),
+                            bottom: convertInchesToTwip(1),
+                            left: convertInchesToTwip(1),
+                        },
+                    },
+                },
+                children: [
+                    ...logoParagraphs,
+                    new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        spacing: { after: 120 },
+                        children: [new TextRun({ text: 'M&T Growth Gateway', bold: true, font: 'Cambria', size: SZ_TITLE, color: '1F4E79' })],
+                    }),
+                    new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        spacing: { after: 80 },
+                        children: [new TextRun({ text: 'Statement of Financial Position', bold: true, font: 'Cambria', size: SZ_SUB, color: '404040' })],
+                    }),
+                    new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        spacing: { after: 80 },
+                        children: [new TextRun({ text: 'Amounts in UGX', font: FONT, size: SZ_SMALL, italics: true, color: '666666' })],
+                    }),
+                    new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        spacing: { after: 360 },
+                        children: [new TextRun({ text: `Period: ${periodLabel}`, font: FONT, size: SZ_BODY, color: '404040' })],
+                    }),
+                    new Table({
+                        width: { size: 100, type: WidthType.PERCENTAGE },
+                        layout: TableLayoutType.FIXED,
+                        columnWidths,
+                        borders: tableOuter,
+                        rows,
+                    }),
+                    new Paragraph({
+                        spacing: { before: 360 },
+                        alignment: AlignmentType.CENTER,
+                        children: [new TextRun({
+                            text: 'Generated from loans, repayments, accounting_entries, creditors, and assets. For management use; verify with your accountant.',
+                            font: FONT,
+                            size: SZ_SMALL,
+                            italics: true,
+                            color: '888888',
+                        })],
+                    }),
+                ],
+            }],
         });
+
+        const buffer = await Packer.toBuffer(doc);
+        const safeName = String(periodLabel).replace(/[^a-z0-9]+/gi, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') || 'export';
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        res.setHeader('Content-Disposition', `attachment; filename=Financial_Position_${safeName}.docx`);
+        res.send(buffer);
     } catch (err) {
-        console.error("❌ Financial Position Error:", err);
-        res.status(500).json({ error: err.message });
+        console.error('financial-position-docx', err);
+        res.status(500).json({ error: err.message || 'Failed to export' });
     }
 });
 
