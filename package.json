@@ -1,8 +1,10 @@
 {
-  "name": "vite_react_shadcn_ts",
+  "name": "mt-growth-gateway",
   "productName": "M&T Growth Gateway",
+  "description": "M&T Growth Gateway — loan management and operations for microfinance.",
+  "author": "Visionatedigital",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.3",
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
@@ -15,6 +17,7 @@
     "electron:dev": "vite build --mode development && electron .",
     "electron:build": "vite build && electron-builder --config electron-builder.config.cjs",
     "electron:build:win": "vite build && electron-builder --win --config electron-builder.config.cjs && node scripts/copy-installer-to-release.cjs",
+    "electron:publish:win": "vite build && electron-builder --win --publish always --config electron-builder.config.cjs",
     "electron:build:mac": "vite build && electron-builder --mac --config electron-builder.config.cjs",
     "electron:build:linux": "vite build && electron-builder --linux --config electron-builder.config.cjs",
     "import:cashbook": "node scripts/import-cashbook-xlsx.cjs",

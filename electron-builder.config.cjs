@@ -3,9 +3,10 @@
  *
  * Auto-update metadata (latest.yml + blockmap) is generated when `publish` is set.
  * Set at build time (CI or local):
- *   UPDATE_BASE_URL=https://your-cdn.example.com/app-releases/   (generic — must be HTTPS, public)
+ *   UPDATE_BASE_URL=https://github.com/Visionatedigital/M_and_T/releases/latest/download/
+ *   (generic provider — folder URL; must serve latest.yml + installers)
  *   or
- *   GITHUB_OWNER=org  GITHUB_REPO=m-t-growth-gateway  (+ GH_TOKEN for `electron-builder publish`)
+ *   GITHUB_OWNER=Visionatedigital  GITHUB_REPO=M_and_T  (+ GH_TOKEN for `electron-builder publish`)
  */
 
 function getPublish() {
@@ -24,6 +25,8 @@ function getPublish() {
 module.exports = {
     appId: 'com.mt-microfinance.growth-gateway',
     productName: 'M&T Growth Gateway',
+    /** Keeps GitHub/upload filenames aligned with the installer (avoids ${name}-setup-*.exe from package.json). */
+    artifactName: '${productName} Setup ${version}.${ext}',
     directories: {
         output: 'release',
         buildResources: 'build',
