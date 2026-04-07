@@ -1,4 +1,5 @@
 const express = require('express');
+const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
 const morgan = require('morgan');
@@ -89,6 +90,17 @@ app.use('/api/notifications', authMiddleware, notificationsRouter);
 app.use('/api/ai', authMiddleware, aiRouter);
 app.use('/api/guarantors', authMiddleware, guarantorsRouter);
 app.use('/api/upload', authMiddleware, uploadsRouter);
+
+// Production web UI: `npm run build` → dist/ (same origin as /api — required on a droplet)
+const distPath = path.resolve(__dirname, '..', 'dist');
+const distIndexHtml = path.join(distPath, 'index.html');
+if (fs.existsSync(distIndexHtml)) {
+    console.log(`📦 Serving SPA from ${distPath}`);
+    app.use(express.static(distPath));
+    app.get('/', (_req, res) => res.sendFile(distIndexHtml));
+} else {
+    console.warn(`⚠️ No ${distIndexHtml} — run "npm run build" in project root (or upload dist/). CWD=${process.cwd()}`);
+}
 
 /**
  * Start the server programmatically
