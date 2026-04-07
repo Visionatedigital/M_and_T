@@ -19,13 +19,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Trash2, UserPlus, Plus, User, Users, ChevronsUpDown, Crown, Search, Shield, Save, Check } from "lucide-react";
 import { api } from "@/services/api";
 import { useToast } from "@/hooks/use-toast";
-import { clearFormDraft, DRAFT_KEYS, formatDraftAge, loadFormDraft, saveFormDraft } from "@/lib/formDrafts";
+import {
+    deleteLoanApplicationDraft,
+    formatDraftAge,
+    loadLoanApplicationDraftList,
+    type LoanApplicationDraftPayload as StoredDraftPayload,
+    type LoanApplicationStoredDraft,
+    upsertLoanApplicationDraft,
+} from "@/lib/formDrafts";
 
 // Schema for Guarantor
 const guarantorSchema = z.object({
@@ -106,7 +112,7 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-type LoanApplicationDraftPayload = {
+type LoanFormDraftPayload = {
     formValues: Partial<FormValues>;
     guarantors?: any[];
     groupMembers?: any[];
@@ -115,6 +121,58 @@ type LoanApplicationDraftPayload = {
     selectedGroupLeaderId?: string;
     selectedCollateralId?: string;
 };
+
+function toStoredPayload(p: LoanFormDraftPayload): StoredDraftPayload {
+    return {
+        formValues: p.formValues as Record<string, unknown>,
+        guarantors: p.guarantors,
+        groupMembers: p.groupMembers,
+        groupLeaderAmount: p.groupLeaderAmount,
+        selectedBorrowerId: p.selectedBorrowerId,
+        selectedGroupLeaderId: p.selectedGroupLeaderId,
+        selectedCollateralId: p.selectedCollateralId,
+    };
+}
+
+function getEmptyLoanFormDefaults(): FormValues {
+    return {
+        borrower_id: "",
+        application_type: "individual",
+        loan_product: "",
+        loan_category: "Business",
+        loan_amount: "",
+        loan_duration: "",
+        duration_unit: "months",
+        repayment_frequency: "monthly",
+        interest_method: "flat_rate",
+        interest_rate: "30",
+        interest_fixed_amount: "",
+        loan_purpose: "",
+        full_name: "",
+        email: "",
+        phone_number: "",
+        id_number: "",
+        date_of_birth: "",
+        district: "",
+        division: "",
+        county: "",
+        sub_county: "",
+        parish: "",
+        village: "",
+        business_location: "",
+        security_type: "",
+        security_value: "",
+        insurance_status: "",
+        attachment_national_id: null,
+        attachment_lc1_letter: null,
+        attachment_recommendation_letter: null,
+        attachment_passport_photo: null,
+        attachment_income_statement: null,
+        guarantors: [],
+        group_name: "",
+        group_members: [],
+    };
+}
 
 function sanitizeLoanFormValuesForDraft(v: FormValues): Partial<FormValues> {
     const o: Record<string, unknown> = { ...v };
@@ -312,9 +370,12 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
     const [guarantorsDirectory, setGuarantorsDirectory] = useState<any[]>([]);
     const [addGuarantorOpen, setAddGuarantorOpen] = useState(false);
 
-    const loanDraftRef = useRef<(LoanApplicationDraftPayload & { _savedAt?: number }) | null>(null);
-    const loanDraftRestoredRef = useRef(false);
+    const loanDraftRef = useRef<(LoanFormDraftPayload & { _savedAt?: number }) | null>(null);
+    /** Active row in localStorage draft list; null = blank new until first autosave creates an id */
+    const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
     const suppressDraftSaveRef = useRef(false);
+    const [savedDrafts, setSavedDrafts] = useState<LoanApplicationStoredDraft[]>([]);
+    const refreshSavedDrafts = () => setSavedDrafts(loadLoanApplicationDraftList());
 
     useEffect(() => {
         if (form.watch("application_type") === "individual") {
@@ -379,27 +440,10 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
         }
     }, [initialData?.application_type, initialData?.borrower_id]);
 
-    // ── Draft: restore saved progress (new applications only; skip when editing or pre-filled borrower) ──
     useEffect(() => {
         if (initialData) return;
-        if (loanDraftRestoredRef.current) return;
-        loanDraftRestoredRef.current = true;
-        const d = loadFormDraft<LoanApplicationDraftPayload>(DRAFT_KEYS.LOAN_APPLICATION);
-        if (!d?.formValues || Object.keys(d.formValues).length === 0) return;
-        loanDraftRef.current = d;
-        suppressDraftSaveRef.current = true;
-        form.reset({ ...form.getValues(), ...d.formValues } as FormValues);
-        if (Array.isArray(d.guarantors)) setGuarantors(d.guarantors);
-        if (Array.isArray(d.groupMembers)) setGroupMembers(d.groupMembers);
-        if (typeof d.groupLeaderAmount === "number") setGroupLeaderAmount(d.groupLeaderAmount);
-        toast({
-            title: "Draft restored",
-            description: `Your last session was restored (${formatDraftAge(d._savedAt)}). File uploads are not saved—re-attach if needed.`,
-        });
-        window.setTimeout(() => {
-            suppressDraftSaveRef.current = false;
-        }, 600);
-    }, [initialData, form, toast]);
+        refreshSavedDrafts();
+    }, [initialData]);
 
     useEffect(() => {
         if (initialData) return;
@@ -431,10 +475,10 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
     useEffect(() => {
         if (initialData) return;
         if (suppressDraftSaveRef.current) return;
-        const id = window.setTimeout(() => {
+        const timer = window.setTimeout(() => {
             const raw = form.getValues();
             const formValues = sanitizeLoanFormValuesForDraft(raw);
-            saveFormDraft(DRAFT_KEYS.LOAN_APPLICATION, {
+            const payload: LoanFormDraftPayload = {
                 formValues,
                 guarantors,
                 groupMembers,
@@ -442,9 +486,13 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                 selectedBorrowerId: selectedBorrowerForIndividual?.id,
                 selectedGroupLeaderId: selectedGroupLeader?.id,
                 selectedCollateralId: selectedCollateral?.id,
-            });
+            };
+            const newId = upsertLoanApplicationDraft(activeDraftId, toStoredPayload(payload));
+            setActiveDraftId(newId);
+            loanDraftRef.current = { ...payload, _savedAt: Date.now() };
+            refreshSavedDrafts();
         }, 2000);
-        return () => clearTimeout(id);
+        return () => clearTimeout(timer);
     }, [
         watchedAll,
         guarantors,
@@ -455,6 +503,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
         selectedCollateral?.id,
         initialData,
         form,
+        activeDraftId,
     ]);
 
     const handleSelectCollateral = (collateral: any) => {
@@ -476,7 +525,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
         if (borrower) {
             const addr = (borrower.address || "").split(", ");
             form.setValue("full_name", borrower.full_name || "");
-            form.setValue("email", borrower.email || `${(borrower.full_name || "").replace(/\s+/g, "").toLowerCase()}@placeholder.com`);
+            form.setValue("email", borrower.email || "");
             form.setValue("phone_number", borrower.phone_number || "");
             form.setValue("id_number", borrower.id_number || "");
             form.setValue("date_of_birth", borrower.date_of_birth ? String(borrower.date_of_birth).split("T")[0] : "");
@@ -609,7 +658,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
             const borrowerData = values.application_type === "individual" ? selectedBorrowerForIndividual : selectedGroupLeader;
             const addr = (borrowerData?.address || "").split(", ");
             const fullName = borrowerData?.full_name || values.full_name || "";
-            const emailVal = borrowerData?.email || values.email || `${fullName.replace(/\s+/g, '').toLowerCase()}@placeholder.com`;
+            const emailVal = (borrowerData?.email || values.email || "").trim();
             const phoneVal = borrowerData?.phone_number || values.phone_number || "";
             const idNum = borrowerData?.id_number || values.id_number || "";
             const dob = borrowerData?.date_of_birth ? String(borrowerData.date_of_birth).split("T")[0] : values.date_of_birth || "1990-01-01";
@@ -734,14 +783,71 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
             }
 
             if (!initialData) {
-                clearFormDraft(DRAFT_KEYS.LOAN_APPLICATION);
+                if (activeDraftId) {
+                    deleteLoanApplicationDraft(activeDraftId);
+                }
+                setActiveDraftId(null);
                 loanDraftRef.current = null;
+                refreshSavedDrafts();
             }
             onSuccess();
         } catch (error: any) {
             console.error(error);
             toast({ title: "Error", description: error.message, variant: "destructive" });
         }
+    };
+
+    const resetFormWithoutDraft = () => {
+        suppressDraftSaveRef.current = true;
+        setActiveDraftId(null);
+        loanDraftRef.current = null;
+        form.reset(getEmptyLoanFormDefaults());
+        setGuarantors([]);
+        setGroupMembers([]);
+        setGroupLeaderAmount(0);
+        setSelectedBorrowerForIndividual(null);
+        setSelectedGroupLeader(null);
+        setSelectedCollateral(null);
+        setBorrowerAttachments(null);
+        window.setTimeout(() => {
+            suppressDraftSaveRef.current = false;
+        }, 400);
+    };
+
+    const applyDraftFromRecord = (draft: LoanApplicationStoredDraft) => {
+        const p = draft.payload;
+        const fv = p.formValues as Partial<FormValues>;
+        loanDraftRef.current = {
+            formValues: fv,
+            guarantors: p.guarantors as any[],
+            groupMembers: p.groupMembers as any[],
+            groupLeaderAmount: p.groupLeaderAmount,
+            selectedBorrowerId: p.selectedBorrowerId,
+            selectedGroupLeaderId: p.selectedGroupLeaderId,
+            selectedCollateralId: p.selectedCollateralId,
+            _savedAt: draft.savedAt,
+        };
+        setActiveDraftId(draft.id);
+        suppressDraftSaveRef.current = true;
+        form.reset({ ...getEmptyLoanFormDefaults(), ...fv } as FormValues);
+        if (Array.isArray(p.guarantors)) setGuarantors(p.guarantors as any[]);
+        if (Array.isArray(p.groupMembers)) setGroupMembers(p.groupMembers as any[]);
+        if (typeof p.groupLeaderAmount === "number") setGroupLeaderAmount(p.groupLeaderAmount);
+        toast({
+            title: "Draft opened",
+            description: `${draft.label} (${formatDraftAge(draft.savedAt)}). Re-attach files if needed.`,
+        });
+        window.setTimeout(() => {
+            suppressDraftSaveRef.current = false;
+        }, 600);
+    };
+
+    const removeDraftEntry = (id: string) => {
+        deleteLoanApplicationDraft(id);
+        if (activeDraftId === id) {
+            resetFormWithoutDraft();
+        }
+        refreshSavedDrafts();
     };
 
     return (
@@ -760,28 +866,63 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                 className="space-y-6"
             >
                 {!initialData && (
-                    <Alert className="border-primary/30 bg-muted/40">
-                        <Save className="h-4 w-4" />
-                        <AlertTitle>Draft auto-save</AlertTitle>
-                        <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                            <span>
-                                This form saves progress in your browser every few seconds. Uploaded files are not included—re-attach after refresh.
-                            </span>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="shrink-0"
-                                onClick={() => {
-                                    clearFormDraft(DRAFT_KEYS.LOAN_APPLICATION);
-                                    loanDraftRef.current = null;
-                                    toast({ title: "Draft discarded", description: "You can continue with a blank form." });
-                                }}
-                            >
-                                Discard draft
-                            </Button>
-                        </AlertDescription>
-                    </Alert>
+                    <div className="space-y-4">
+                        <Card className="border-primary/25 bg-muted/30">
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-base flex items-center gap-2">
+                                    <Save className="h-4 w-4" />
+                                    Saved drafts ({savedDrafts.length})
+                                </CardTitle>
+                                <CardDescription>
+                                    Stored in this browser only. Continue a draft below, or fill the form to add another (it saves automatically).
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-2">
+                                {savedDrafts.length === 0 ? (
+                                    <p className="text-sm text-muted-foreground">No drafts yet—fill the form and it will appear here automatically.</p>
+                                ) : (
+                                    <ul className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                                        {savedDrafts.map((d) => (
+                                            <li
+                                                key={d.id}
+                                                className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-md border bg-background/80 px-3 py-2 text-sm"
+                                            >
+                                                <div className="min-w-0">
+                                                    <p className="font-medium truncate">{d.label}</p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {formatDraftAge(d.savedAt)}
+                                                        {activeDraftId === d.id ? " · editing" : ""}
+                                                    </p>
+                                                </div>
+                                                <div className="flex gap-2 shrink-0">
+                                                    <Button
+                                                        type="button"
+                                                        variant="secondary"
+                                                        size="sm"
+                                                        onClick={() => applyDraftFromRecord(d)}
+                                                    >
+                                                        Continue
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="text-destructive"
+                                                        onClick={() => {
+                                                            removeDraftEntry(d.id);
+                                                            toast({ title: "Draft removed" });
+                                                        }}
+                                                    >
+                                                        Delete
+                                                    </Button>
+                                                </div>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </CardContent>
+                        </Card>
+                    </div>
                 )}
                 {/* Application Type - Individual vs Group */}
                 <Card className="border-2 border-primary/20">

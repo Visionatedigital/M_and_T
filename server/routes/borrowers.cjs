@@ -5,6 +5,25 @@ const { isAdmin, isLoanOfficer } = require('../lib/roles.cjs');
 
 const { calculateClientScore } = require('../services/scoreService');
 
+/** Basic UUID v4 check for assigned_officer_id (avoids PG 22P02 invalid input syntax) */
+function isValidUuid(val) {
+  if (val == null || val === '') return false;
+  const s = String(val).trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
+}
+
+/** YYYY-MM-DD or null — avoids PostgreSQL date errors from bad client input */
+function normalizeDateOnlyInput(val) {
+  if (val == null || val === '') return null;
+  const s = String(val).trim();
+  if (!s) return null;
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const t = Date.parse(s);
+  if (Number.isNaN(t)) return null;
+  return new Date(t).toISOString().slice(0, 10);
+}
+
 // Get all borrowers with aggregated loan data
 router.get('/', async (req, res) => {
   const isGroup = req.query.isGroup === 'true';
@@ -178,16 +197,24 @@ router.put('/:id', async (req, res) => {
   let idx = 1;
   for (const key of allowed) {
     if (Object.prototype.hasOwnProperty.call(body, key)) {
+      let v = body[key];
+      if (v === '') v = null;
+      if (key === 'email' && typeof v === 'string' && !v.trim()) v = null;
       updates.push(`${key} = $${idx}`);
-      values.push(body[key] === '' ? null : body[key]);
+      values.push(v);
       idx += 1;
     }
   }
   if (Object.prototype.hasOwnProperty.call(body, 'borrower_files')) {
     const bf = body.borrower_files;
-    const arr = bf == null ? null : (Array.isArray(bf) ? bf : [bf]);
-    updates.push(`borrower_files = $${idx}`);
-    values.push(arr);
+    const arr = bf == null ? null : (Array.isArray(bf) ? bf : [bf]).map((x) => String(x)).filter(Boolean);
+    if (arr == null) {
+      updates.push(`borrower_files = $${idx}`);
+      values.push(null);
+    } else {
+      updates.push(`borrower_files = $${idx}::text[]`);
+      values.push(arr);
+    }
     idx += 1;
   }
   if (Object.prototype.hasOwnProperty.call(body, 'assigned_officer_id')) {
@@ -195,8 +222,11 @@ router.put('/:id', async (req, res) => {
       return res.status(403).json({ error: 'Only administrators can change loan officer assignment.' });
     }
     const aid = body.assigned_officer_id;
+    if (aid !== '' && aid != null && !isValidUuid(aid)) {
+      return res.status(400).json({ error: 'Invalid loan officer id (must be a UUID).' });
+    }
     updates.push(`assigned_officer_id = $${idx}`);
-    values.push(aid === '' || aid == null ? null : aid);
+    values.push(aid === '' || aid == null ? null : String(aid).trim());
     idx += 1;
   }
   if (Object.prototype.hasOwnProperty.call(body, 'credit_score')) {
@@ -205,13 +235,14 @@ router.put('/:id', async (req, res) => {
     }
     updates.push(`credit_score = $${idx}`);
     const cs = body.credit_score;
-    values.push(cs === '' || cs == null ? null : Number(cs));
+    const n = cs === '' || cs == null ? null : Number(cs);
+    values.push(n != null && Number.isFinite(n) ? n : null);
     idx += 1;
   }
   if (Object.prototype.hasOwnProperty.call(body, 'dob') || Object.prototype.hasOwnProperty.call(body, 'date_of_birth')) {
     const d = body.dob !== undefined ? body.dob : body.date_of_birth;
     updates.push(`date_of_birth = $${idx}`);
-    values.push(d === '' || d == null ? null : d);
+    values.push(normalizeDateOnlyInput(d));
     idx += 1;
   }
   if (updates.length === 0) {
@@ -227,8 +258,15 @@ router.put('/:id', async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ error: 'Borrower not found' });
     res.json(rows[0]);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to update borrower' });
+    console.error('Borrower PUT error:', err);
+    if (err && err.code === '23505') {
+      return res.status(409).json({ error: 'Duplicate value (e.g. email already used by another borrower).' });
+    }
+    if (err && err.code === '22P02') {
+      return res.status(400).json({ error: 'Invalid data (check UUIDs and field formats).' });
+    }
+    const msg = err && err.message ? String(err.message) : 'Failed to update borrower';
+    res.status(500).json({ error: msg });
   }
 });
 

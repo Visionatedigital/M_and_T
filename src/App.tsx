@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import Index from "./pages/Index";
 import About from "./pages/About";
 import Products from "./pages/Products";
@@ -51,16 +51,26 @@ import { ElectronUpdateNotifier } from "./components/electron/ElectronUpdateNoti
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <ElectronUpdateNotifier />
-      <HashRouter>
+/** Web: marketing home at /. Electron desktop: keep opening at staff login. */
+function LandingOrStaffRedirect() {
+  const isElectron =
+    typeof window !== "undefined" &&
+    Boolean((window as unknown as { electronAPI?: unknown }).electronAPI);
+  if (isElectron) return <Navigate to="/staff-login" replace />;
+  return <Index />;
+}
+
+function isElectronApp() {
+  return (
+    typeof window !== "undefined" &&
+    Boolean((window as unknown as { electronAPI?: unknown }).electronAPI)
+  );
+}
+
+function AppRoutes() {
+  return (
         <Routes>
-          {/* Desktop app: go straight to staff login */}
-          <Route path="/" element={<Navigate to="/staff-login" replace />} />
+          <Route path="/" element={<LandingOrStaffRedirect />} />
           <Route path="/home" element={<Index />} />
           <Route path="/about" element={<About />} />
           <Route path="/products" element={<Products />} />
@@ -97,6 +107,7 @@ const App = () => (
           <Route path="/staff-dashboard/reports/loans" element={<RequireAdmin><Reports /></RequireAdmin>} />
           <Route path="/staff-dashboard/reports/financial" element={<RequireAdmin><Reports /></RequireAdmin>} />
           <Route path="/staff-dashboard/reports/borrowers" element={<RequireAdmin><Reports /></RequireAdmin>} />
+          <Route path="/staff-dashboard/reports/clients" element={<RequireAdmin><Reports /></RequireAdmin>} />
           <Route path="/staff-dashboard/reports/aging" element={<RequireAdmin><AgingReport /></RequireAdmin>} />
           <Route path="/staff-dashboard/reports/cash-books" element={<RequireAdmin><CashBooks /></RequireAdmin>} />
           <Route path="/staff-dashboard/reports/comprehensive-income" element={<RequireAdmin><ComprehensiveIncome /></RequireAdmin>} />
@@ -119,7 +130,24 @@ const App = () => (
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
-      </HashRouter>
+  );
+}
+
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <Toaster />
+      <Sonner />
+      <ElectronUpdateNotifier />
+      {isElectronApp() ? (
+        <HashRouter>
+          <AppRoutes />
+        </HashRouter>
+      ) : (
+        <BrowserRouter>
+          <AppRoutes />
+        </BrowserRouter>
+      )}
     </TooltipProvider>
   </QueryClientProvider>
 );

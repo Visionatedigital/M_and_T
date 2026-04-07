@@ -85,8 +85,11 @@ export function ElectronUpdateNotifier() {
           toast.dismiss(progressId.current);
           progressId.current = undefined;
         }
+        const desc =
+          p.message.length > 320 ? `${p.message.slice(0, 317)}…` : p.message;
         toast.error("Update check failed", {
-          description: p.message,
+          description: desc,
+          duration: 12_000,
         });
       }
     });

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, CheckCircle, XCircle, Users, User, DollarSign, Calendar, MapPin, Briefcase, FileText, Eye, Sparkles, Loader2 } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, Users, User, DollarSign, Calendar, MapPin, Briefcase, FileText, Eye, Sparkles, Loader2, Info } from "lucide-react";
 import { resolveMediaUrl } from "@/lib/resolveMediaUrl";
 import {
     AlertDialog,
@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/dialog";
 import { Edit } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface LoanApplication {
     id: string;
@@ -291,10 +292,19 @@ const LoanApplicationDetails = () => {
                     <main className="flex-1 p-4 md:p-8 bg-gradient-to-b from-background to-muted/20">
                         <div className="max-w-5xl mx-auto space-y-6">
                             {/* Back Button */}
-                            <Button variant="ghost" className="mb-4" onClick={() => navigate("/staff-dashboard/applications")}>
+                            <Button variant="ghost" className="mb-4 min-h-11 touch-manipulation" onClick={() => navigate("/staff-dashboard/applications")}>
                                 <ArrowLeft className="mr-2 h-4 w-4" />
                                 Back to Applications
                             </Button>
+
+                            {userRole === "loan_officer" && application.status === "pending" && (
+                                <Alert className="mb-4">
+                                    <Info className="h-4 w-4" />
+                                    <AlertDescription>
+                                        This application is pending an administrator&apos;s approval. Complete all details here; only an admin can approve or reject.
+                                    </AlertDescription>
+                                </Alert>
+                            )}
 
                             {/* Header Section */}
                             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">

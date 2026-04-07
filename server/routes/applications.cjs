@@ -3,7 +3,7 @@ const router = express.Router();
 const db = require('../db.cjs');
 const notificationService = require('../services/notificationService');
 const { analyzeApplication } = require('../services/aiService.cjs');
-const { isAdmin } = require('../lib/roles.cjs');
+const { isAdmin, isLoanOfficer } = require('../lib/roles.cjs');
 
 const ALLOWED_PAYMENT_METHODS = ['cash', 'bank_transfer', 'mobile_money'];
 const normalizePaymentMethod = (value) => {
@@ -116,25 +116,39 @@ router.get('/active', async (req, res) => {
     }
 });
 
+/** When a loan officer logs an application, link borrowers so officer-scoped lists include them. */
+async function ensureBorrowerAssignedToOfficer(borrowerId, officerUserId) {
+    if (!borrowerId || !officerUserId) return;
+    await db.query(
+        `UPDATE borrowers SET assigned_officer_id = $1 WHERE id = $2 AND assigned_officer_id IS NULL`,
+        [officerUserId, borrowerId]
+    );
+}
+
 // Helper: find or create borrower (used for individual and group members)
-async function findOrCreateBorrower(member) {
+async function findOrCreateBorrower(member, options = {}) {
+    const assigningOfficerId = options.assigningOfficerId || null;
     const fullName = member.full_name || member.name;
     const phone = member.phone_number || member.phone;
     const { email, id_number, date_of_birth, district, county, sub_county, parish, village } = member;
-    const emailVal = email || `${(fullName || '').replace(/\s+/g, '').toLowerCase()}@placeholder.com`;
+    const emailVal = email && String(email).trim() ? String(email).trim() : '';
     const address = [village, parish, sub_county, district].filter(Boolean).join(', ') || district || village || '';
 
     const { rows: existing } = await db.query(
         'SELECT id FROM borrowers WHERE phone_number = $1 LIMIT 1',
         [phone]
     );
-    if (existing.length > 0) return existing[0].id;
+    if (existing.length > 0) {
+        const id = existing[0].id;
+        await ensureBorrowerAssignedToOfficer(id, assigningOfficerId);
+        return id;
+    }
 
     const { rows: created } = await db.query(`
-        INSERT INTO borrowers (full_name, email, phone_number, id_number, date_of_birth, address, city)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO borrowers (full_name, email, phone_number, id_number, date_of_birth, address, city, assigned_officer_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id
-    `, [fullName, emailVal, phone, id_number || null, date_of_birth || null, address, district || village || '']);
+    `, [fullName, emailVal, phone, id_number || null, date_of_birth || null, address, district || village || '', assigningOfficerId]);
     return created[0].id;
 }
 
@@ -150,6 +164,10 @@ router.post('/', async (req, res) => {
             attachment_national_id, attachment_lc1_letter, attachment_recommendation_letter,
             attachment_passport_photo, attachment_income_statement, attachment_uploaded_at
         } = req.body;
+
+    const officerUserIdForAssign =
+        isLoanOfficer(req.user?.role) ? (req.user?.user_id || req.user?.id) : null;
+    const borrowerOpts = { assigningOfficerId: officerUserIdForAssign };
 
     try {
         await db.query('BEGIN');
@@ -182,6 +200,7 @@ router.post('/', async (req, res) => {
 
             if (leaderBorrowerId) {
                 borrower_id = leaderBorrowerId;
+                await ensureBorrowerAssignedToOfficer(leaderBorrowerId, officerUserIdForAssign);
                 membersWithBorrowerIds.push({
                     borrower_id: leaderBorrowerId,
                     name: full_name,
@@ -199,7 +218,7 @@ router.post('/', async (req, res) => {
                     full_name, email, phone_number, id_number,
                     date_of_birth: req.body.date_of_birth,
                     district, county, sub_county: req.body.sub_county, parish, village
-                });
+                }, borrowerOpts);
                 membersWithBorrowerIds.push({
                     borrower_id,
                     name: full_name,
@@ -215,7 +234,13 @@ router.post('/', async (req, res) => {
             }
 
             for (const m of others) {
-                const bid = m.borrower_id || await findOrCreateBorrower(m);
+                let bid;
+                if (m.borrower_id) {
+                    bid = m.borrower_id;
+                    await ensureBorrowerAssignedToOfficer(bid, officerUserIdForAssign);
+                } else {
+                    bid = await findOrCreateBorrower(m, borrowerOpts);
+                }
                 membersWithBorrowerIds.push({
                     borrower_id: bid,
                     name: m.full_name || m.name,
@@ -248,7 +273,9 @@ router.post('/', async (req, res) => {
                     full_name, email, phone_number, id_number,
                     date_of_birth: req.body.date_of_birth,
                     district, county, sub_county: req.body.sub_county, parish, village
-                });
+                }, borrowerOpts);
+            } else {
+                await ensureBorrowerAssignedToOfficer(borrower_id, officerUserIdForAssign);
             }
         }
 
@@ -535,8 +562,14 @@ router.put('/:id', async (req, res) => {
                 interest_rate = COALESCE($26, interest_rate),
                 interest_fixed_amount = COALESCE($27, interest_fixed_amount),
                 duration_unit = COALESCE($28, duration_unit),
+                attachment_national_id = $29,
+                attachment_lc1_letter = $30,
+                attachment_recommendation_letter = $31,
+                attachment_passport_photo = $32,
+                attachment_income_statement = $33,
+                attachment_uploaded_at = $34,
                 updated_at = NOW()
-            WHERE id = $29
+            WHERE id = $35
             RETURNING *
         `;
         const values = [
@@ -548,14 +581,21 @@ router.put('/:id', async (req, res) => {
             body.district, body.division, body.county, body.village, body.parish,
             body.business_location, body.security_type || null, body.security_value ? parseFloat(body.security_value) : null,
             body.repayment_frequency || null, body.interest_method || null, body.interest_rate != null ? parseFloat(body.interest_rate) : null, body.interest_fixed_amount != null ? parseFloat(body.interest_fixed_amount) : null, body.duration_unit || null,
+            body.attachment_national_id ?? null,
+            body.attachment_lc1_letter ?? null,
+            body.attachment_recommendation_letter ?? null,
+            body.attachment_passport_photo ?? null,
+            body.attachment_income_statement ?? null,
+            body.attachment_uploaded_at ?? null,
             id
         ];
         const { rows } = await db.query(query, values);
         if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
         res.json(rows[0]);
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Failed to update' });
+        console.error('Application PUT error:', err);
+        const msg = err && err.message ? String(err.message) : 'Failed to update';
+        res.status(500).json({ error: msg });
     }
 });
 

@@ -18,8 +18,17 @@ interface LoanStats {
   pendingLoans: number;
   totalDisbursed: number;
   totalInterest: number;
+  totalPaid?: number;
   rejectionRate: number;
   approvalRate: number;
+  disbursedCount?: number;
+  completedCount?: number;
+  settledCount?: number;
+  underReviewCount?: number;
+  avgDurationMonths?: number;
+  outstandingEstimate?: number;
+  repaymentsLast30Days?: number;
+  collectionEfficiencyPct?: number;
 }
 
 interface ProductStats {
@@ -28,6 +37,18 @@ interface ProductStats {
   approved: number;
   rejected: number;
   totalAmount: number;
+}
+
+interface BranchStatRow {
+  branch: string;
+  applications: number;
+  principalBooked: number;
+}
+
+interface CategoryStatRow {
+  category: string;
+  applications: number;
+  totalPrincipal: number;
 }
 
 const Reports = () => {
@@ -46,6 +67,8 @@ const Reports = () => {
     approvalRate: 0,
   });
   const [productStats, setProductStats] = useState<ProductStats[]>([]);
+  const [branchStats, setBranchStats] = useState<BranchStatRow[]>([]);
+  const [categoryStats, setCategoryStats] = useState<CategoryStatRow[]>([]);
   const [clientStats, setClientStats] = useState({
     totalClients: 0,
     activeClients: 0,
@@ -109,7 +132,7 @@ const Reports = () => {
     const path = location.pathname;
     // Financial reports are restricted to admins
     if (path.includes("/financial") && userRole === "admin") return "financial";
-    if (path.includes("/clients")) return "clients";
+    if (path.includes("/clients") || path.includes("/borrowers")) return "clients";
     return "loans";
   };
 
@@ -147,6 +170,8 @@ const Reports = () => {
       setLoanStats(data.loanStats);
       setProductStats(data.productStats);
       setClientStats(data.clientStats);
+      setBranchStats(data.branchStats ?? []);
+      setCategoryStats(data.categoryStats ?? []);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -274,6 +299,12 @@ const Reports = () => {
                             <span>Rejection Rate:</span>
                             <span className="font-bold">{loanStats.rejectionRate.toFixed(1)}%</span>
                           </div>
+                          {(loanStats.underReviewCount ?? 0) > 0 && (
+                            <div className="flex justify-between text-sm text-muted-foreground">
+                              <span>Under review:</span>
+                              <span>{loanStats.underReviewCount}</span>
+                            </div>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
@@ -289,8 +320,12 @@ const Reports = () => {
                             <span className="font-bold">UGX {loanStats.totalDisbursed.toLocaleString()}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span>Total Interest:</span>
+                            <span>Total Interest (est. 30% flat):</span>
                             <span className="font-bold text-green-600">UGX {loanStats.totalInterest.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Total repaid (portfolio):</span>
+                            <span className="font-bold">UGX {(loanStats.totalPaid ?? 0).toLocaleString()}</span>
                           </div>
                           <div className="flex justify-between pt-2 border-t">
                             <span>Avg Loan Size:</span>
@@ -299,6 +334,10 @@ const Reports = () => {
                                 ? (loanStats.totalDisbursed / loanStats.approvedLoans).toLocaleString()
                                 : 0}
                             </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Avg tenor (months):</span>
+                            <span className="font-bold">{(loanStats.avgDurationMonths ?? 0).toFixed(1)}</span>
                           </div>
                         </div>
                       </CardContent>
@@ -351,6 +390,127 @@ const Reports = () => {
                             </div>
                           </div>
                         </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Pipeline & lifecycle</CardTitle>
+                        <CardDescription>Counts by application status</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span>Disbursed loans</span>
+                          <span className="font-semibold">{loanStats.disbursedCount ?? "—"}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Completed</span>
+                          <span className="font-semibold">{loanStats.completedCount ?? "—"}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Settled</span>
+                          <span className="font-semibold">{loanStats.settledCount ?? "—"}</span>
+                        </div>
+                        <div className="flex justify-between border-t pt-2">
+                          <span>Outstanding (est. principal+30% − repayments)</span>
+                          <span className="font-semibold text-amber-700">
+                            UGX {(loanStats.outstandingEstimate ?? 0).toLocaleString()}
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Collections</CardTitle>
+                        <CardDescription>Recent cash-in vs portfolio</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span>Repayments (last 30 days)</span>
+                          <span className="font-semibold">UGX {(loanStats.repaymentsLast30Days ?? 0).toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Collection efficiency (est.)</span>
+                          <span className="font-semibold">
+                            {(loanStats.collectionEfficiencyPct ?? 0).toFixed(1)}%
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground pt-2">
+                          Efficiency compares total repaid to expected portfolio (principal × 1.3). Use accounting for audited figures.
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>By branch</CardTitle>
+                        <CardDescription>Applications and booked principal where branch is set</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Branch</TableHead>
+                              <TableHead className="text-right">Applications</TableHead>
+                              <TableHead className="text-right">Principal (active)</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {branchStats.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={3} className="text-center text-muted-foreground py-6">
+                                  No branch data
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              branchStats.map((b) => (
+                                <TableRow key={b.branch}>
+                                  <TableCell className="font-medium">{b.branch}</TableCell>
+                                  <TableCell className="text-right">{b.applications}</TableCell>
+                                  <TableCell className="text-right">UGX {b.principalBooked.toLocaleString()}</TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>By loan category</CardTitle>
+                        <CardDescription>Volume and count per category</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Category</TableHead>
+                              <TableHead className="text-right">Applications</TableHead>
+                              <TableHead className="text-right">Total principal</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {categoryStats.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={3} className="text-center text-muted-foreground py-6">
+                                  No category data
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              categoryStats.map((c) => (
+                                <TableRow key={c.category}>
+                                  <TableCell className="font-medium">{c.category}</TableCell>
+                                  <TableCell className="text-right">{c.applications}</TableCell>
+                                  <TableCell className="text-right">UGX {c.totalPrincipal.toLocaleString()}</TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
                       </CardContent>
                     </Card>
                   </div>

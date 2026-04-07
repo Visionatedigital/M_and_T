@@ -1,11 +1,14 @@
+import { useEffect } from "react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CheckCircle } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 
 const Products = () => {
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
   const products = [
     {
       id: "personal",
@@ -128,6 +131,18 @@ const Products = () => {
       ],
     },
   ];
+
+  useEffect(() => {
+    const section = searchParams.get("section");
+    const hashId = location.hash.replace(/^#/, "");
+    const id = section || hashId;
+    if (!id) return;
+    const el = document.getElementById(id);
+    if (!el) return;
+    requestAnimationFrame(() => {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [searchParams, location.hash, location.pathname]);
 
   return (
     <div className="min-h-screen flex flex-col">

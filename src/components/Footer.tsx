@@ -1,6 +1,6 @@
 import { MapPin, Phone, Mail } from "lucide-react";
 import { Link } from "react-router-dom";
-const appIcon = `${import.meta.env.BASE_URL}icon.png`;
+import logo from "@/assets/logo.jpg";
 
 const Footer = () => {
   return (
@@ -9,13 +9,7 @@ const Footer = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
           {/* Logo and About */}
           <div className="space-y-4">
-            <div className="inline-block rounded-lg bg-white p-2 shadow-sm">
-              <img
-                src={appIcon}
-                alt="M&T Microfinance (U) Ltd"
-                className="h-12 w-auto max-w-[220px] object-contain object-left block"
-              />
-            </div>
+            <img src={logo} alt="M&T Microfinance" className="h-16 w-auto brightness-0 invert" />
             <p className="text-sm text-primary-foreground/90">
               Developing Together - Your trusted microfinance partner in Uganda.
             </p>
@@ -101,8 +95,8 @@ const Footer = () => {
               </li>
               <li className="flex items-center gap-2 text-sm text-primary-foreground/90">
                 <Mail className="h-5 w-5 flex-shrink-0" />
-                <a href="mailto:info@m&tmicrofinance.com" className="hover:text-primary-foreground transition-colors">
-                  info@m&tmicrofinance.com
+                <a href="mailto:info@mtmicrofinance.com" className="hover:text-primary-foreground transition-colors">
+                  info@mtmicrofinance.com
                 </a>
               </li>
             </ul>

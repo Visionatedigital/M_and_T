@@ -91,7 +91,7 @@ export function StaffHeader() {
   };
 
   return (
-    <header className="h-16 border-b bg-background flex items-center px-4 gap-4 sticky top-0 z-50">
+    <header className="h-16 border-b bg-background flex items-center px-4 gap-4 sticky top-0 z-30 shrink-0">
       <SidebarTrigger className="text-foreground" />
 
       <div className="flex-1 max-w-md">
@@ -99,7 +99,7 @@ export function StaffHeader() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             type="search"
-            placeholder="Search applications, clients..."
+            placeholder="Search loans, applications, clients..."
             className="pl-10 bg-muted/50"
           />
         </div>

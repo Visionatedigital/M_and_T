@@ -477,7 +477,8 @@ export const api = {
             });
             if (!response.ok) {
                 const err = await response.json().catch(() => ({}));
-                throw new Error((err as { error?: string }).error || 'Failed to update borrower');
+                const msg = (err as { error?: string }).error;
+                throw new Error(msg || `${response.status} ${response.statusText || 'Failed to update borrower'}`);
             }
             return response.json();
         },

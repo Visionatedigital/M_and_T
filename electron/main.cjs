@@ -7,7 +7,7 @@ if (require('electron-squirrel-startup')) app.quit();
 
 const isDev = !app.isPackaged;
 
-const { setupAutoUpdater, registerUpdateIpc, getUpdater, ensureFeedConfigured } = require('./update.cjs');
+const { setupAutoUpdater, registerUpdateIpc, getUpdater, ensureFeedConfigured, canCheckForUpdates } = require('./update.cjs');
 registerUpdateIpc(isDev);
 
 // App icon path — use public/ for the source
@@ -102,6 +102,15 @@ function createMenu() {
                                 type: 'info',
                                 title: 'Updates',
                                 message: 'Automatic updates run in the installed desktop app. Use a release build to test updates.',
+                            });
+                            return;
+                        }
+                        if (!canCheckForUpdates()) {
+                            dialog.showMessageBox(mainWindow || undefined, {
+                                type: 'info',
+                                title: 'Updates',
+                                message:
+                                    'No update feed is configured. Set UPDATE_BASE_URL to a full https:// URL (not a path like /app) or set GITHUB_OWNER and GITHUB_REPO in .env beside the app. Or rebuild with electron-builder publish so app-update.yml is included.',
                             });
                             return;
                         }

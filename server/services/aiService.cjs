@@ -4,15 +4,36 @@ const generateFinancialSummary = async (stats) => {
     const apiKey = process.env.OPENAI_API_KEY;
 
     if (!apiKey || apiKey === 'mock' || apiKey.includes('sk-proj-placeholder')) {
-        return "AI Summary is in mock mode or API key is invalid. Please configure a valid OpenAI API Key. Based on the data, the branch is showing consistent performance across all loan products.";
+        const td = stats.loanStats.totalDisbursed.toLocaleString();
+        const ce = stats.loanStats.collectionEfficiency.toFixed(2);
+        const ar = stats.loanStats.approvalRate.toFixed(1);
+        return [
+            '## 1. Executive Overview',
+            `M&T Growth Gateway operates in mock AI mode: configure OPENAI_API_KEY for live analysis. From the current metrics, the institution processed ${stats.loanStats.totalApplications} applications with an approval rate of ${ar}% and total disbursements of UGX ${td}. Collection efficiency is ${ce}%, which warrants attention to recovery processes and client engagement. Active clients stand at ${stats.clientStats.activeClients}, with ${stats.clientStats.newClientsThisMonth} new clients this month.`,
+            '',
+            'This placeholder narrative is structured like the full report so Word export pagination (four pages with logo and key metrics) can be verified without calling the API.',
+            '',
+            '## 2. Portfolio Performance & Collection Analysis',
+            `Outstanding portfolio and repayment behaviour should be reviewed against expected interest (UGX ${stats.loanStats.totalInterest.toLocaleString()}) and amounts collected (UGX ${stats.loanStats.totalPaid.toLocaleString()}). Product mix and concentration in specific loan types may amplify risk if a single segment underperforms. Stress-test assumptions on default rates and ensure provisioning aligns with observed collection efficiency.`,
+            '',
+            'Group versus individual exposure, tenor distribution, and seasonal cash flows for borrowers are typical dimensions to deepen in a full analysis.',
+            '',
+            '## 3. Operational Efficiency & Risk Metrics',
+            `Average client credit score (${stats.clientStats.avgCreditScore}) should be interpreted alongside manual underwriting and field verification. High approval rates can reflect strong pipeline quality or, alternatively, relaxed gates—pair KPIs with exception reports, PAR buckets, and officer-level performance where available.`,
+            '',
+            'Operational risk includes data quality, timely booking of repayments, and follow-up on arrears. Mock mode does not replace management review of exceptions and audit trails.',
+            '',
+            '## 4. Strategic Recommendations for Growth and Risk Mitigation',
+            'Prioritize: (1) targeted collections playbooks and client education; (2) credit policy review tied to score bands and product rules; (3) diversification of products and channels; (4) regular portfolio monitoring dashboards. Replace this section with API-generated text after configuring a valid OpenAI key.',
+        ].join('\n');
     }
 
     const openai = new OpenAI({ apiKey });
 
     try {
         const prompt = `
-            Analyze the following financial data for M&T Growth Gateway (a microfinance institution) and provide a professional, concise executive summary (around 200-300 words). 
-            Focus on trends, risks, and recommendations.
+            Analyze the following financial data for M&T Growth Gateway (a microfinance institution) and produce a detailed executive-style report of approximately 900–1,200 words total.
+            Each of the four sections below must be substantive (roughly 200–300 words each), with specific references to the numbers provided, clear trends, risks, and actionable implications.
 
             Financial Metrics:
             - Total Applications: ${stats.loanStats.totalApplications}
@@ -31,11 +52,14 @@ const generateFinancialSummary = async (stats) => {
             Product Performance:
             ${stats.productStats.map(p => `- ${p.product}: ${p.applications} apps, UGX ${p.totalAmount.toLocaleString()} disbursed`).join('\n')}
 
-            Output the summary as a structured report with:
-            1. Executive Overview
-            2. Portfolio Performance & Collection Analysis
-            3. Operational Efficiency & Risk Metrics
-            4. Strategic Recommendations for Growth and Risk Mitigation
+            Formatting rules (critical):
+            - Output ONLY these four sections, in this exact order, each introduced by a Markdown H2 heading on its own line:
+            ## 1. Executive Overview
+            ## 2. Portfolio Performance & Collection Analysis
+            ## 3. Operational Efficiency & Risk Metrics
+            ## 4. Strategic Recommendations for Growth and Risk Mitigation
+            - Do not add a separate document title or "Generated on" line (those are added by the export).
+            - Use short paragraphs. You may use **bold** sparingly for key figures.
         `;
 
         const response = await openai.chat.completions.create({

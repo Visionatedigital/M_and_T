@@ -4,14 +4,14 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -65,7 +65,6 @@ const LoanApplications = () => {
   const [selectedApplication, setSelectedApplication] = useState<LoanApplication | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [isGroupDialogOpen, setIsGroupDialogOpen] = useState(false);
   const [isDisbursementDialogOpen, setIsDisbursementDialogOpen] = useState(false);
   const [pendingApprovalId, setPendingApprovalId] = useState<string | null>(null);
   const [disbursementMethod, setDisbursementMethod] = useState("cash");
@@ -303,7 +302,6 @@ const LoanApplications = () => {
         description: "Group loan application created successfully",
       });
 
-      setIsGroupDialogOpen(false);
       loadApplications();
       setGroupForm({
         group_name: "",
@@ -364,55 +362,38 @@ const LoanApplications = () => {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full">
-        <StaffSidebar />
-        <div className="flex-1 flex flex-col">
-          <StaffHeader />
-          <main className="flex-1 p-4 md:p-8 bg-gradient-to-b from-background to-muted/20">
-            <div className="max-w-7xl mx-auto space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-3xl font-bold mb-2">Loan Applications</h1>
-                  <p className="text-muted-foreground">Manage and review loan applications</p>
+      <StaffSidebar />
+      <SidebarInset className="flex min-h-svh min-w-0 flex-col">
+        <StaffHeader />
+        <div
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 md:p-8 bg-gradient-to-b from-background to-muted/20"
+          role="main"
+        >
+          <div className="max-w-7xl mx-auto space-y-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <h1 className="text-2xl sm:text-3xl font-bold mb-2">Loan Applications</h1>
+                  <p className="text-muted-foreground text-sm sm:text-base">Manage and review loan applications</p>
                 </div>
-                <Dialog open={isGroupDialogOpen} onOpenChange={setIsGroupDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button>
-                      <Plus className="mr-2 h-4 w-4" />
-                      New Loan
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
-                      <DialogTitle>Create New Loan Application</DialogTitle>
-                      <DialogDescription>
-                        Create a new loan application.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <LoanApplicationForm
-                      onSuccess={() => {
-                        setIsGroupDialogOpen(false);
-                        loadApplications();
-                      }}
-                      onCancel={() => setIsGroupDialogOpen(false)}
-                    />
-                  </DialogContent>
-                </Dialog>
+                <Button className="min-h-11 touch-manipulation w-full sm:w-auto shrink-0" onClick={() => navigate("/staff-dashboard/loans/add")}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Loan
+                </Button>
               </div>
 
               {/* Status Tabs */}
-              <div className="flex gap-2 border-b pb-2">
+              <div className="flex gap-2 border-b pb-2 overflow-x-auto flex-nowrap -mx-1 px-1 touch-pan-x">
                 <Button
                   variant={statusFilter === "all" ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/applications")}
-                  className="rounded-b-none"
+                  className="rounded-b-none shrink-0 min-h-10 touch-manipulation"
                 >
                   All Applications
                 </Button>
                 <Button
                   variant={statusFilter === "pending" ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/applications/pending")}
-                  className="rounded-b-none"
+                  className="rounded-b-none shrink-0 min-h-10 touch-manipulation"
                 >
                   <Clock className="mr-2 h-4 w-4" />
                   Pending
@@ -420,7 +401,7 @@ const LoanApplications = () => {
                 <Button
                   variant={statusFilter === "approved" ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/applications/approved")}
-                  className="rounded-b-none"
+                  className="rounded-b-none shrink-0 min-h-10 touch-manipulation"
                 >
                   <CheckCircle className="mr-2 h-4 w-4" />
                   Approved
@@ -428,7 +409,7 @@ const LoanApplications = () => {
                 <Button
                   variant={statusFilter === "rejected" ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/applications/rejected")}
-                  className="rounded-b-none"
+                  className="rounded-b-none shrink-0 min-h-10 touch-manipulation"
                 >
                   <XCircle className="mr-2 h-4 w-4" />
                   Rejected
@@ -437,19 +418,19 @@ const LoanApplications = () => {
 
               <Card>
                 <CardHeader>
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                       <CardTitle>Applications</CardTitle>
                       <CardDescription>View and manage loan applications</CardDescription>
                     </div>
-                    <div className="flex gap-2">
-                      <div className="relative">
+                    <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto min-w-0">
+                      <div className="relative w-full sm:max-w-xs">
                         <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                         <Input
                           placeholder="Search applications..."
                           value={searchTerm}
                           onChange={(e) => setSearchTerm(e.target.value)}
-                          className="pl-8 w-64"
+                          className="pl-8 w-full min-h-10"
                         />
                       </div>
                       <Select
@@ -468,7 +449,7 @@ const LoanApplications = () => {
                           }
                         }}
                       >
-                        <SelectTrigger className="w-40">
+                        <SelectTrigger className="w-full sm:w-40 min-h-10">
                           <SelectValue placeholder="Filter by status" />
                         </SelectTrigger>
                         <SelectContent>
@@ -483,106 +464,195 @@ const LoanApplications = () => {
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Applicant</TableHead>
-                        <TableHead>Product</TableHead>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>Duration</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredApplications.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                            No applications found
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        filteredApplications.map((app) => (
-                          <TableRow key={app.id}>
-                            <TableCell>
-                              <div>
-                                <div className="font-medium">{getPrimaryApplicantName(app)}</div>
-                                {isGroupApplication(app) && app.full_name && (
-                                  <div className="text-xs text-muted-foreground mt-0.5">
-                                    Leader: {app.full_name}
-                                  </div>
-                                )}
-                                {app.group_name && (
-                                  <div className="text-xs font-bold text-primary mt-0.5 flex items-center gap-1">
-                                    <Users className="h-3 w-3" />
-                                    Group: {app.group_name}
-                                  </div>
-                                )}
-                                <div className="text-sm text-muted-foreground">{app.email}</div>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="font-medium">{getLoanTitle(app)}</div>
-                              {app.group_name && (
-                                <div className="text-xs text-muted-foreground">Group Loan</div>
+                <CardContent className="min-w-0">
+                  {filteredApplications.length === 0 ? (
+                    <p className="text-center py-8 text-muted-foreground">No applications found</p>
+                  ) : (
+                    <>
+                      <div className="md:hidden space-y-3">
+                        {filteredApplications.map((app) => (
+                          <Card key={app.id} className="shadow-sm">
+                            <CardContent className="p-4 space-y-3">
+                              <div className="font-medium text-base leading-snug">{getPrimaryApplicantName(app)}</div>
+                              {isGroupApplication(app) && app.full_name && (
+                                <p className="text-xs text-muted-foreground">Leader: {app.full_name}</p>
                               )}
-                            </TableCell>
-                            <TableCell>UGX {app.loan_amount.toLocaleString()}</TableCell>
-                            <TableCell>{app.loan_duration_months} months</TableCell>
-                            <TableCell>{getStatusBadge(app.status)}</TableCell>
-                            <TableCell>{new Date(app.created_at).toLocaleDateString()}</TableCell>
-                            <TableCell>
-                              <div className="flex gap-2">
+                              {app.group_name && (
+                                <p className="text-xs font-semibold text-primary flex items-center gap-1">
+                                  <Users className="h-3 w-3 shrink-0" />
+                                  Group: {app.group_name}
+                                </p>
+                              )}
+                              <p className="text-sm text-muted-foreground break-all">{app.email}</p>
+                              <div className="grid grid-cols-2 gap-2 text-sm">
+                                <div>
+                                  <span className="text-muted-foreground block text-xs">Product</span>
+                                  <span className="font-medium">{getLoanTitle(app)}</span>
+                                </div>
+                                <div>
+                                  <span className="text-muted-foreground block text-xs">Amount</span>
+                                  <span>UGX {app.loan_amount.toLocaleString()}</span>
+                                </div>
+                                <div>
+                                  <span className="text-muted-foreground block text-xs">Duration</span>
+                                  <span>{app.loan_duration_months} months</span>
+                                </div>
+                                <div>
+                                  <span className="text-muted-foreground block text-xs">Applied</span>
+                                  <span>{new Date(app.created_at).toLocaleDateString()}</span>
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                {getStatusBadge(app.status)}
+                              </div>
+                              <div className="flex flex-wrap gap-2 pt-1">
                                 <Button
-                                  variant="ghost"
+                                  variant="secondary"
                                   size="sm"
-                                  onClick={() => {
-                                    navigate(`/staff-dashboard/applications/${app.id}`);
-                                  }}
+                                  className="min-h-10 touch-manipulation"
+                                  onClick={() => navigate(`/staff-dashboard/applications/${app.id}`)}
                                 >
-                                  <Eye className="h-4 w-4" />
+                                  <Eye className="h-4 w-4 mr-2" />
+                                  View
                                 </Button>
                                 {app.status === "pending" && (
                                   <>
                                     <Button
-                                      variant="ghost"
+                                      variant="outline"
                                       size="sm"
+                                      className="min-h-10 touch-manipulation"
                                       onClick={() => {
                                         setSelectedApplication(app);
                                         setIsEditDialogOpen(true);
                                       }}
                                     >
-                                      <Edit className="h-4 w-4 text-blue-600" />
+                                      <Edit className="h-4 w-4 mr-2 text-blue-600" />
+                                      Edit
                                     </Button>
                                     {userRole === "admin" && (
                                       <>
                                         <Button
-                                          variant="ghost"
+                                          variant="outline"
                                           size="sm"
+                                          className="min-h-10 touch-manipulation"
                                           onClick={() => openDisbursementDialog(app.id)}
                                         >
-                                          <CheckCircle className="h-4 w-4 text-green-600" />
+                                          <CheckCircle className="h-4 w-4 mr-2 text-green-600" />
+                                          Approve
                                         </Button>
                                         <Button
-                                          variant="ghost"
+                                          variant="outline"
                                           size="sm"
+                                          className="min-h-10 touch-manipulation"
                                           onClick={() => handleStatusChange(app.id, "rejected")}
                                         >
-                                          <XCircle className="h-4 w-4 text-red-600" />
+                                          <XCircle className="h-4 w-4 mr-2 text-red-600" />
+                                          Reject
                                         </Button>
                                       </>
                                     )}
                                   </>
                                 )}
                               </div>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                      <div className="hidden md:block overflow-x-auto -mx-1 px-1">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Applicant</TableHead>
+                              <TableHead>Product</TableHead>
+                              <TableHead>Amount</TableHead>
+                              <TableHead>Duration</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Date</TableHead>
+                              <TableHead>Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {filteredApplications.map((app) => (
+                              <TableRow key={app.id}>
+                                <TableCell>
+                                  <div>
+                                    <div className="font-medium">{getPrimaryApplicantName(app)}</div>
+                                    {isGroupApplication(app) && app.full_name && (
+                                      <div className="text-xs text-muted-foreground mt-0.5">
+                                        Leader: {app.full_name}
+                                      </div>
+                                    )}
+                                    {app.group_name && (
+                                      <div className="text-xs font-bold text-primary mt-0.5 flex items-center gap-1">
+                                        <Users className="h-3 w-3" />
+                                        Group: {app.group_name}
+                                      </div>
+                                    )}
+                                    <div className="text-sm text-muted-foreground">{app.email}</div>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="font-medium">{getLoanTitle(app)}</div>
+                                  {app.group_name && (
+                                    <div className="text-xs text-muted-foreground">Group Loan</div>
+                                  )}
+                                </TableCell>
+                                <TableCell>UGX {app.loan_amount.toLocaleString()}</TableCell>
+                                <TableCell>{app.loan_duration_months} months</TableCell>
+                                <TableCell>{getStatusBadge(app.status)}</TableCell>
+                                <TableCell>{new Date(app.created_at).toLocaleDateString()}</TableCell>
+                                <TableCell>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => {
+                                        navigate(`/staff-dashboard/applications/${app.id}`);
+                                      }}
+                                    >
+                                      <Eye className="h-4 w-4" />
+                                    </Button>
+                                    {app.status === "pending" && (
+                                      <>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => {
+                                            setSelectedApplication(app);
+                                            setIsEditDialogOpen(true);
+                                          }}
+                                        >
+                                          <Edit className="h-4 w-4 text-blue-600" />
+                                        </Button>
+                                        {userRole === "admin" && (
+                                          <>
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={() => openDisbursementDialog(app.id)}
+                                            >
+                                              <CheckCircle className="h-4 w-4 text-green-600" />
+                                            </Button>
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={() => handleStatusChange(app.id, "rejected")}
+                                            >
+                                              <XCircle className="h-4 w-4 text-red-600" />
+                                            </Button>
+                                          </>
+                                        )}
+                                      </>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
 
@@ -787,9 +857,8 @@ const LoanApplications = () => {
                 </DialogContent>
               </Dialog>
             </div>
-          </main>
-        </div>
-      </div>
+          </div>
+      </SidebarInset>
     </SidebarProvider>
   );
 };

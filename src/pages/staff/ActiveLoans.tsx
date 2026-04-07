@@ -11,8 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Wallet, Search, TrendingUp, DollarSign, Calendar, Users, Eye, FileSpreadsheet, Receipt, Banknote } from "lucide-react";
-import { RecordPaymentDialog, suggestInstallmentAmount } from "@/components/staff/RecordPaymentDialog";
+import { Wallet, Search, TrendingUp, DollarSign, Calendar, Users, Eye, FileSpreadsheet, Receipt } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface ActiveLoan {
@@ -46,7 +45,6 @@ const ActiveLoans = () => {
   const [productFilter, setProductFilter] = useState<string>("all");
   const [viewMode, setViewMode] = useState<"list" | "groups">("list");
   const [selectedGroup, setSelectedGroup] = useState<{ groupId: string, groupName: string, members: ActiveLoan[] } | null>(null);
-  const [recordPaymentLoan, setRecordPaymentLoan] = useState<ActiveLoan | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -95,16 +93,6 @@ const ActiveLoans = () => {
       setIsLoading(false);
     }
     return undefined;
-  };
-
-  const refreshGroupAfterPayment = async () => {
-    const data = await api.applications.getActive();
-    setLoans(data);
-    setSelectedGroup((sg) => {
-      if (!sg) return null;
-      const members = (data as ActiveLoan[]).filter((l) => l.group_id === sg.groupId);
-      return members.length ? { ...sg, members } : null;
-    });
   };
 
   const filterLoans = () => {
@@ -478,8 +466,13 @@ const ActiveLoans = () => {
                                   const total = loan.total_amount ?? 1;
                                   const progress = total > 0 ? (paid / total) * 100 : 0;
                                   const growthRate = loan.growth_rate ?? 0;
+                                  const detailsPath = `/staff-dashboard/loans/details/${loan.id}`;
                                   return (
-                                    <TableRow key={loan.id}>
+                                    <TableRow
+                                      key={loan.id}
+                                      className="cursor-pointer hover:bg-muted/50"
+                                      onClick={() => navigate(detailsPath)}
+                                    >
                                       <TableCell className="font-medium">{getLoanTitle(loan)}</TableCell>
                                       <TableCell>
                                         {isGroupLoanEntry(loan) ? loan.full_name : "-"}
@@ -499,26 +492,15 @@ const ActiveLoans = () => {
                                           <span className="text-sm text-muted-foreground">{progress.toFixed(0)}%</span>
                                         </div>
                                       </TableCell>
-                                      <TableCell>
-                                        <div className="flex flex-wrap items-center gap-1">
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => navigate(`/staff-dashboard/loans/details/${loan.id}`)}
-                                          >
-                                            <Eye className="h-4 w-4 mr-1" />
-                                            View
-                                          </Button>
-                                          <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="text-primary"
-                                            onClick={() => setRecordPaymentLoan(loan)}
-                                          >
-                                            <Banknote className="h-4 w-4 mr-1" />
-                                            Pay
-                                          </Button>
-                                        </div>
+                                      <TableCell onClick={(e) => e.stopPropagation()}>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => navigate(detailsPath)}
+                                        >
+                                          <Eye className="h-4 w-4 mr-1" />
+                                          View
+                                        </Button>
                                       </TableCell>
                                     </TableRow>
                                   );
@@ -609,8 +591,13 @@ const ActiveLoans = () => {
                                     const total = loan.total_amount ?? 1;
                                     const progress = total > 0 ? (paid / total) * 100 : 0;
                                     const growthRate = loan.growth_rate ?? 0;
+                                    const detailsPath = `/staff-dashboard/loans/details/${loan.id}`;
                                     return (
-                                      <TableRow key={loan.id}>
+                                      <TableRow
+                                        key={loan.id}
+                                        className="cursor-pointer hover:bg-muted/50"
+                                        onClick={() => navigate(detailsPath)}
+                                      >
                                         <TableCell className="font-medium">{loan.full_name}</TableCell>
                                         <TableCell>-</TableCell>
                                         <TableCell>UGX {(loan.principal ?? 0).toLocaleString()}</TableCell>
@@ -628,26 +615,15 @@ const ActiveLoans = () => {
                                             <span className="text-sm text-muted-foreground">{progress.toFixed(0)}%</span>
                                           </div>
                                         </TableCell>
-                                        <TableCell>
-                                          <div className="flex flex-wrap items-center gap-1">
-                                            <Button
-                                              variant="ghost"
-                                              size="sm"
-                                              onClick={() => navigate(`/staff-dashboard/loans/details/${loan.id}`)}
-                                            >
-                                              <Eye className="h-4 w-4 mr-1" />
-                                              View
-                                            </Button>
-                                            <Button
-                                              variant="outline"
-                                              size="sm"
-                                              className="text-primary"
-                                              onClick={() => setRecordPaymentLoan(loan)}
-                                            >
-                                              <Banknote className="h-4 w-4 mr-1" />
-                                              Pay
-                                            </Button>
-                                          </div>
+                                        <TableCell onClick={(e) => e.stopPropagation()}>
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => navigate(detailsPath)}
+                                          >
+                                            <Eye className="h-4 w-4 mr-1" />
+                                            View
+                                          </Button>
                                         </TableCell>
                                       </TableRow>
                                     );
@@ -778,8 +754,16 @@ const ActiveLoans = () => {
                     const paid = loan.amount_paid ?? 0;
                     const total = loan.total_amount ?? 1;
                     const progress = total > 0 ? (paid / total) * 100 : 0;
+                    const detailsPath = `/staff-dashboard/loans/details/${loan.id}`;
                     return (
-                      <TableRow key={loan.id}>
+                      <TableRow
+                        key={loan.id}
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => {
+                          setSelectedGroup(null);
+                          navigate(detailsPath);
+                        }}
+                      >
                         <TableCell className="font-medium">{loan.full_name}</TableCell>
                         <TableCell>UGX {(loan.principal ?? 0).toLocaleString()}</TableCell>
                         <TableCell>UGX {(loan.total_amount ?? 0).toLocaleString()}</TableCell>
@@ -791,29 +775,18 @@ const ActiveLoans = () => {
                             <span className="text-sm text-muted-foreground">{progress.toFixed(0)}%</span>
                           </div>
                         </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap items-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedGroup(null);
-                                navigate(`/staff-dashboard/loans/details/${loan.id}`);
-                              }}
-                            >
-                              <Eye className="h-4 w-4 mr-1" />
-                              View
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-primary"
-                              onClick={() => setRecordPaymentLoan(loan)}
-                            >
-                              <Banknote className="h-4 w-4 mr-1" />
-                              Pay
-                            </Button>
-                          </div>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedGroup(null);
+                              navigate(detailsPath);
+                            }}
+                          >
+                            <Eye className="h-4 w-4 mr-1" />
+                            View
+                          </Button>
                         </TableCell>
                       </TableRow>
                     );
@@ -846,34 +819,6 @@ const ActiveLoans = () => {
           )}
         </DialogContent>
       </Dialog>
-
-      <RecordPaymentDialog
-        open={!!recordPaymentLoan}
-        onOpenChange={(open) => !open && setRecordPaymentLoan(null)}
-        loanApplicationId={recordPaymentLoan?.id ?? null}
-        borrowerLabel={recordPaymentLoan ? recordPaymentLoan.full_name : ""}
-        defaultAmount={
-          recordPaymentLoan
-            ? (() => {
-                const s = suggestInstallmentAmount({
-                  total_amount: recordPaymentLoan.total_amount,
-                  loan_amount: recordPaymentLoan.loan_amount,
-                  loan_duration_months: recordPaymentLoan.loan_duration_months,
-                  group_id: recordPaymentLoan.group_id,
-                });
-                const rem = recordPaymentLoan.remaining_balance ?? 0;
-                return rem > 0 ? Math.min(s, rem) : s;
-              })()
-            : undefined
-        }
-        amountHint={
-          recordPaymentLoan
-            ? `Remaining: UGX ${(recordPaymentLoan.remaining_balance ?? 0).toLocaleString()}`
-            : undefined
-        }
-        memberBreakdownName={recordPaymentLoan?.full_name}
-        onSuccess={refreshGroupAfterPayment}
-      />
     </SidebarProvider>
   );
 };

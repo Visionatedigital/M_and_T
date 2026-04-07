@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-const appIcon = `${import.meta.env.BASE_URL}icon.png`;
+import logo from "@/assets/logo.jpg";
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -12,10 +12,9 @@ const Header = () => {
       <div className="container mx-auto px-4">
         <div className="flex h-20 items-center justify-between">
           <Link to="/" className="flex items-center">
-            <img src={appIcon} alt="M&T Microfinance" className="h-14 w-auto" />
+            <img src={logo} alt="M&T Microfinance" className="h-14 w-auto" />
           </Link>
 
-          {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-8">
             <Link
               to="/"
@@ -41,6 +40,12 @@ const Header = () => {
             >
               Our Branches
             </Link>
+            <Link
+              to="/staff-login"
+              className="text-sm font-medium text-foreground/80 hover:text-primary transition-colors"
+            >
+              Staff Portal
+            </Link>
             <Link to="/contact">
               <Button variant="default" size="default">
                 Contact Us
@@ -48,7 +53,6 @@ const Header = () => {
             </Link>
           </nav>
 
-          {/* Mobile Menu Button */}
           <button
             className="md:hidden p-2"
             onClick={() => setIsMenuOpen(!isMenuOpen)}
@@ -62,7 +66,6 @@ const Header = () => {
           </button>
         </div>
 
-        {/* Mobile Navigation */}
         {isMenuOpen && (
           <nav className="md:hidden py-4 border-t border-border animate-fade-in">
             <div className="flex flex-col gap-4">
@@ -93,6 +96,13 @@ const Header = () => {
                 onClick={() => setIsMenuOpen(false)}
               >
                 Our Branches
+              </Link>
+              <Link
+                to="/staff-login"
+                className="text-sm font-medium text-foreground/80 hover:text-primary transition-colors py-2"
+                onClick={() => setIsMenuOpen(false)}
+              >
+                Staff Portal
               </Link>
               <Link
                 to="/contact"

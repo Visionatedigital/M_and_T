@@ -5,9 +5,9 @@ const router = express.Router();
 const db = require('../db.cjs');
 const ExcelJS = require('exceljs');
 const {
-    Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell,
+    Document, Packer, Paragraph, TextRun, AlignmentType, Table, TableRow, TableCell,
     WidthType, BorderStyle, convertInchesToTwip, ShadingType, VerticalAlignTable, TableLayoutType,
-    ImageRun,
+    ImageRun, PageBreak,
 } = require('docx');
 const aiService = require('../services/aiService.cjs');
 
@@ -44,6 +44,160 @@ function loadBrandingLogo() {
         }
     }
     return null;
+}
+
+/**
+ * Parse AI financial summary into heading + body blocks. Prefers ## 1. … ## 4. Markdown sections;
+ * falls back to splitting legacy prose into four parts for pagination.
+ */
+function parseAiFinancialSummarySections(text) {
+    const t = String(text || '').trim();
+    if (!t) return [];
+    const blocks = t.split(/\n(?=##\s*\d+\.\s)/).map((b) => b.trim()).filter(Boolean);
+    const sections = [];
+    for (const block of blocks) {
+        const m = block.match(/^##\s*\d+\.\s*(.+?)(?:\n|$)/);
+        if (m) {
+            sections.push({
+                heading: m[1].trim(),
+                body: block.slice(m[0].length).trim(),
+            });
+        } else {
+            sections.push({ heading: null, body: block });
+        }
+    }
+    if (sections.length >= 2) return sections;
+
+    const paras = t.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+    if (paras.length === 0) return [{ heading: null, body: t }];
+    const chunkSize = Math.max(1, Math.ceil(paras.length / 4));
+    const titles = [
+        'Executive Overview',
+        'Portfolio Performance & Collection Analysis',
+        'Operational Efficiency & Risk Metrics',
+        'Strategic Recommendations for Growth and Risk Mitigation',
+    ];
+    const out = [];
+    for (let i = 0; i < 4; i++) {
+        const slice = paras.slice(i * chunkSize, (i + 1) * chunkSize);
+        if (slice.length) out.push({ heading: titles[i], body: slice.join('\n\n') });
+    }
+    return out.length ? out : [{ heading: null, body: t }];
+}
+
+function aiSummaryBodyToParagraphs(body, font, size) {
+    const chunks = String(body || '').split(/\n\n+/).map((s) => s.trim()).filter(Boolean);
+    if (chunks.length === 0) {
+        return [new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: ' ', font, size })] })];
+    }
+    return chunks.map((chunk) => {
+        const runs = [];
+        const parts = chunk.split(/(\*\*.+?\*\*)/g);
+        for (const part of parts) {
+            if (!part) continue;
+            if (part.startsWith('**') && part.endsWith('**')) {
+                runs.push(new TextRun({
+                    text: part.slice(2, -2),
+                    bold: true,
+                    font,
+                    size,
+                    color: '2F2F2F',
+                }));
+            } else {
+                runs.push(new TextRun({ text: part, font, size, color: '2F2F2F' }));
+            }
+        }
+        return new Paragraph({
+            spacing: { after: 160 },
+            alignment: AlignmentType.JUSTIFIED,
+            children: runs.length ? runs : [new TextRun({ text: chunk, font, size, color: '2F2F2F' })],
+        });
+    });
+}
+
+function buildAiFinancialSummaryKpiTable(stats) {
+    const FONT = 'Calibri';
+    const SZ = 22;
+    const fmtUGX = (n) => new Intl.NumberFormat('en-UG', { minimumFractionDigits: 0 }).format(n);
+    const borderLine = { style: BorderStyle.SINGLE, size: 1, color: 'C8C8C8' };
+    const cellBorders = { top: borderLine, bottom: borderLine, left: borderLine, right: borderLine };
+    const cellPad = { marginUnitType: WidthType.DXA, top: 120, bottom: 120, left: 200, right: 200 };
+    const hdr = (text) => new Paragraph({
+        spacing: { before: 40, after: 40 },
+        children: [new TextRun({ text, bold: true, font: FONT, size: SZ, color: 'FFFFFF' })],
+    });
+    const cellP = (text, align = AlignmentType.LEFT, bold = false) => new Paragraph({
+        alignment: align,
+        spacing: { before: 40, after: 40 },
+        children: [new TextRun({ text, bold, font: FONT, size: SZ, color: '2F2F2F' })],
+    });
+    const printable = convertInchesToTwip(6.5);
+    const columnWidths = [Math.round(printable * 0.58), Math.round(printable * 0.42)];
+    const rows = [
+        ['Total applications', String(stats.loanStats.totalApplications)],
+        ['Approved loans', String(stats.loanStats.approvedLoans)],
+        ['Pending applications', String(stats.loanStats.pendingLoans)],
+        ['Total disbursed (UGX)', fmtUGX(stats.loanStats.totalDisbursed)],
+        ['Total interest expected (UGX)', fmtUGX(stats.loanStats.totalInterest)],
+        ['Total collected (UGX)', fmtUGX(stats.loanStats.totalPaid)],
+        ['Outstanding portfolio (UGX)', fmtUGX(stats.loanStats.outstandingPortfolio)],
+        ['Collection efficiency', `${stats.loanStats.collectionEfficiency.toFixed(2)}%`],
+        ['Approval rate', `${stats.loanStats.approvalRate.toFixed(1)}%`],
+        ['Active clients', String(stats.clientStats.activeClients)],
+        ['Average client credit score', String(stats.clientStats.avgCreditScore)],
+        ['New clients this month', String(stats.clientStats.newClientsThisMonth)],
+    ];
+    const headerRow = new TableRow({
+        tableHeader: true,
+        children: [
+            new TableCell({
+                shading: { fill: '1F4E79', type: ShadingType.CLEAR },
+                margins: cellPad,
+                verticalAlign: VerticalAlignTable.CENTER,
+                borders: cellBorders,
+                children: [hdr('Metric')],
+            }),
+            new TableCell({
+                shading: { fill: '1F4E79', type: ShadingType.CLEAR },
+                margins: cellPad,
+                verticalAlign: VerticalAlignTable.CENTER,
+                borders: cellBorders,
+                children: [hdr('Value')],
+            }),
+        ],
+    });
+    const bodyRows = rows.map((pair, idx) => new TableRow({
+        children: [
+            new TableCell({
+                shading: { fill: idx % 2 === 0 ? 'FAFAFA' : 'FFFFFF', type: ShadingType.CLEAR },
+                margins: cellPad,
+                verticalAlign: VerticalAlignTable.CENTER,
+                borders: cellBorders,
+                children: [cellP(pair[0])],
+            }),
+            new TableCell({
+                shading: { fill: idx % 2 === 0 ? 'FAFAFA' : 'FFFFFF', type: ShadingType.CLEAR },
+                margins: cellPad,
+                verticalAlign: VerticalAlignTable.CENTER,
+                borders: cellBorders,
+                children: [cellP(pair[1], AlignmentType.RIGHT)],
+            }),
+        ],
+    }));
+    return new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        layout: TableLayoutType.FIXED,
+        columnWidths,
+        borders: {
+            top: { style: BorderStyle.SINGLE, size: 4, color: '1F4E79' },
+            bottom: { style: BorderStyle.SINGLE, size: 4, color: '1F4E79' },
+            left: { style: BorderStyle.SINGLE, size: 4, color: '1F4E79' },
+            right: { style: BorderStyle.SINGLE, size: 4, color: '1F4E79' },
+            insideHorizontal: borderLine,
+            insideVertical: borderLine,
+        },
+        rows: [headerRow, ...bodyRows],
+    });
 }
 
 /**
@@ -178,6 +332,77 @@ router.get('/stats', async (req, res) => {
         const { rows: newClientRows } = await db.query(clientMonthQuery, values);
         const { rows: activeClientRows } = await db.query(clientActiveQuery, values);
 
+        const totalPaid = parseFloat(loanStats.total_collected || 0);
+
+        // Extended status & pipeline counts
+        let statusDetailQuery = `
+            SELECT 
+                COUNT(*) FILTER (WHERE status = 'disbursed') AS disbursed_count,
+                COUNT(*) FILTER (WHERE status = 'completed') AS completed_count,
+                COUNT(*) FILTER (WHERE status = 'settled') AS settled_count,
+                COUNT(*) FILTER (WHERE status = 'under_review') AS under_review_count,
+                COALESCE(AVG(loan_duration_months) FILTER (WHERE status IN ('approved','disbursed','completed','settled')), 0)::float AS avg_duration_months
+            FROM loan_applications
+        `;
+        if (isLoanOfficer(role)) {
+            statusDetailQuery += ' WHERE borrower_id IN (SELECT id FROM borrowers WHERE assigned_officer_id = $1)';
+        }
+        const { rows: statusDetailRows } = await db.query(statusDetailQuery, values);
+
+        // Estimated outstanding: per loan max(0, principal*1.3 - repayments on that loan)
+        let outstandingQuery = `
+            WITH per_loan AS (
+                SELECT la.id,
+                    (la.loan_amount * 1.3)::numeric AS expected_total,
+                    COALESCE((SELECT SUM(r.amount) FROM repayments r WHERE r.loan_application_id = la.id), 0)::numeric AS repaid
+                FROM loan_applications la
+                WHERE la.status IN ('approved','disbursed','completed','settled')
+                ${isLoanOfficer(role) ? 'AND la.borrower_id IN (SELECT id FROM borrowers WHERE assigned_officer_id = $1)' : ''}
+            )
+            SELECT COALESCE(SUM(GREATEST(0, expected_total - repaid)), 0)::numeric AS outstanding_estimate
+            FROM per_loan
+        `;
+        const { rows: outRows } = await db.query(outstandingQuery, values);
+
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        let rep30Query = `
+            SELECT COALESCE(SUM(amount), 0)::numeric AS repaid_30d
+            FROM repayments WHERE payment_date >= $1
+        `;
+        const rep30Vals = [thirtyDaysAgo];
+        if (isLoanOfficer(role)) {
+            rep30Query += ' AND loan_application_id IN (SELECT id FROM loan_applications WHERE borrower_id IN (SELECT id FROM borrowers WHERE assigned_officer_id = $2))';
+            rep30Vals.push(user_id);
+        }
+        const { rows: rep30Rows } = await db.query(rep30Query, rep30Vals);
+
+        let branchQuery = `
+            SELECT COALESCE(NULLIF(TRIM(branch_name), ''), 'Unassigned') AS branch,
+                COUNT(*)::int AS applications,
+                COALESCE(SUM(CASE WHEN status IN ('approved','disbursed','completed','settled') THEN loan_amount ELSE 0 END), 0)::numeric AS principal_booked
+            FROM loan_applications
+            ${isLoanOfficer(role) ? 'WHERE borrower_id IN (SELECT id FROM borrowers WHERE assigned_officer_id = $1)' : ''}
+            GROUP BY 1 ORDER BY principal_booked DESC NULLS LAST
+        `;
+        const { rows: branchRows } = await db.query(branchQuery, values);
+
+        let categoryQuery = `
+            SELECT COALESCE(NULLIF(TRIM(loan_category), ''), 'Uncategorized') AS category,
+                COUNT(*)::int AS applications,
+                COALESCE(SUM(loan_amount), 0)::numeric AS total_principal
+            FROM loan_applications
+            ${isLoanOfficer(role) ? 'WHERE borrower_id IN (SELECT id FROM borrowers WHERE assigned_officer_id = $1)' : ''}
+            GROUP BY 1 ORDER BY total_principal DESC NULLS LAST
+        `;
+        const { rows: categoryRows } = await db.query(categoryQuery, values);
+
+        const sd = statusDetailRows[0] || {};
+        const outstandingEstimate = parseFloat(outRows[0]?.outstanding_estimate || 0);
+        const repaid30d = parseFloat(rep30Rows[0]?.repaid_30d || 0);
+        const collectionEfficiencyPct =
+            totalDisbursed > 0 ? Math.min(100, (totalPaid / (totalDisbursed * 1.3)) * 100) : 0;
+
         res.json({
             loanStats: {
                 totalApplications: parseInt(loanStats.total_applications),
@@ -185,10 +410,18 @@ router.get('/stats', async (req, res) => {
                 rejectedLoans: parseInt(loanStats.rejected_loans),
                 pendingLoans: parseInt(loanStats.pending_loans),
                 totalDisbursed: totalDisbursed,
-                totalPaid: parseFloat(loanStats.total_collected || 0),
+                totalPaid,
                 totalInterest: totalInterest,
                 rejectionRate: loanStats.total_applications > 0 ? (loanStats.rejected_loans / loanStats.total_applications) * 100 : 0,
                 approvalRate: loanStats.total_applications > 0 ? (loanStats.approved_loans / loanStats.total_applications) * 100 : 0,
+                disbursedCount: parseInt(sd.disbursed_count || 0),
+                completedCount: parseInt(sd.completed_count || 0),
+                settledCount: parseInt(sd.settled_count || 0),
+                underReviewCount: parseInt(sd.under_review_count || 0),
+                avgDurationMonths: parseFloat(sd.avg_duration_months || 0),
+                outstandingEstimate,
+                repaymentsLast30Days: repaid30d,
+                collectionEfficiencyPct,
             },
             productStats: productRows.map(r => ({
                 product: r.product,
@@ -201,7 +434,17 @@ router.get('/stats', async (req, res) => {
                 totalClients: parseInt(totalClientRows[0].total_clients),
                 activeClients: parseInt(activeClientRows[0].active_clients),
                 newClientsThisMonth: parseInt(newClientRows[0].new_clients)
-            }
+            },
+            branchStats: branchRows.map(r => ({
+                branch: r.branch,
+                applications: parseInt(r.applications),
+                principalBooked: parseFloat(r.principal_booked || 0),
+            })),
+            categoryStats: categoryRows.map(r => ({
+                category: r.category,
+                applications: parseInt(r.applications),
+                totalPrincipal: parseFloat(r.total_principal || 0),
+            })),
         });
     } catch (err) {
         console.error(err);
@@ -619,41 +862,135 @@ router.get('/financial-export-xlsx', async (req, res) => {
     }
 });
 
-// AI Financial Summary (Word)
+// AI Financial Summary (Word) — cover + KPI table (page 1), four-page layout with branding logo
 router.get('/ai-summary-docx', async (req, res) => {
     try {
         const stats = await getAggregatedStats(req.user);
         const aiSummary = await aiService.generateFinancialSummary(stats);
 
+        const FONT = 'Calibri';
+        const SZ_TITLE = 36;
+        const SZ_SUB = 22;
+        const SZ_HEAD = 26;
+        const SZ_BODY = 22;
+        const SZ_SMALL = 18;
+
+        const brandingLogo = loadBrandingLogo();
+        const logoParagraphs = brandingLogo
+            ? [
+                new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    spacing: { after: 200 },
+                    children: [
+                        new ImageRun({
+                            type: brandingLogo.type,
+                            data: brandingLogo.buffer,
+                            transformation: { width: 220, height: 72 },
+                        }),
+                    ],
+                }),
+            ]
+            : [];
+
+        const sections = parseAiFinancialSummarySections(aiSummary);
+        const narrativeChildren = [];
+
+        if (sections.length === 0) {
+            narrativeChildren.push(...aiSummaryBodyToParagraphs(String(aiSummary || ''), FONT, SZ_BODY));
+        }
+
+        sections.forEach((sec, idx) => {
+            if (sec.heading) {
+                narrativeChildren.push(new Paragraph({
+                    spacing: { before: idx === 0 ? 0 : 240, after: 140 },
+                    children: [new TextRun({
+                        text: sec.heading,
+                        bold: true,
+                        font: 'Cambria',
+                        size: SZ_HEAD,
+                        color: '1F4E79',
+                    })],
+                }));
+            }
+            narrativeChildren.push(...aiSummaryBodyToParagraphs(sec.body, FONT, SZ_BODY));
+            if (idx === 0 || idx === 1) {
+                narrativeChildren.push(new Paragraph({
+                    children: [new PageBreak()],
+                }));
+            }
+        });
+
         const doc = new Document({
             sections: [{
-                properties: {},
+                properties: {
+                    page: {
+                        margin: {
+                            top: convertInchesToTwip(1),
+                            right: convertInchesToTwip(1),
+                            bottom: convertInchesToTwip(1),
+                            left: convertInchesToTwip(1),
+                        },
+                    },
+                },
                 children: [
+                    ...logoParagraphs,
                     new Paragraph({
-                        text: "M&T Growth Gateway - AI Financial Analysis",
-                        heading: HeadingLevel.TITLE,
                         alignment: AlignmentType.CENTER,
+                        spacing: { after: 100 },
+                        children: [new TextRun({
+                            text: 'M&T Growth Gateway',
+                            bold: true,
+                            font: 'Cambria',
+                            size: SZ_TITLE,
+                            color: '1F4E79',
+                        })],
                     }),
                     new Paragraph({
-                        text: `Generated on: ${new Date().toLocaleDateString()}`,
                         alignment: AlignmentType.CENTER,
+                        spacing: { after: 80 },
+                        children: [new TextRun({
+                            text: 'AI Financial Analysis',
+                            bold: true,
+                            font: 'Cambria',
+                            size: SZ_SUB,
+                            color: '404040',
+                        })],
                     }),
-                    new Paragraph({ text: "", spacing: { after: 400 } }),
-                    ...aiSummary.split('\n').map(line => {
-                        if (line.match(/^\d\./) || line.includes(':')) {
-                            return new Paragraph({
-                                children: [new TextRun({ text: line, bold: true })],
-                                spacing: { before: 200, after: 100 }
-                            });
-                        }
-                        return new Paragraph({
-                            text: line,
-                            spacing: { after: 100 }
-                        });
-                    }),
-                    new Paragraph({ text: "", spacing: { before: 400 } }),
                     new Paragraph({
-                        children: [new TextRun({ text: "Disclaimer: This summary is generated by AI based on branch performance data.", italic: true, size: 18 })],
+                        alignment: AlignmentType.CENTER,
+                        spacing: { after: 280 },
+                        children: [new TextRun({
+                            text: `Generated on: ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })}`,
+                            font: FONT,
+                            size: SZ_BODY,
+                            color: '404040',
+                        })],
+                    }),
+                    new Paragraph({
+                        spacing: { before: 80, after: 140 },
+                        children: [new TextRun({
+                            text: 'Key metrics snapshot',
+                            bold: true,
+                            font: FONT,
+                            size: SZ_HEAD,
+                            color: '1F4E79',
+                        })],
+                    }),
+                    buildAiFinancialSummaryKpiTable(stats),
+                    new Paragraph({
+                        spacing: { before: 120 },
+                        children: [new PageBreak()],
+                    }),
+                    ...narrativeChildren,
+                    new Paragraph({ text: '', spacing: { before: 360 } }),
+                    new Paragraph({
+                        children: [new TextRun({
+                            text: 'Disclaimer: This summary is generated by AI based on branch performance data.',
+                            italic: true,
+                            size: SZ_SMALL,
+                            font: FONT,
+                            color: '666666',
+                        })],
                     }),
                 ],
             }],

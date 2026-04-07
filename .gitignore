@@ -33,3 +33,6 @@ release/
 
 # Local file uploads (multer)
 server/uploads/
+
+# Large local data dumps (do not commit)
+Interview Dump.xlsx

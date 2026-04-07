@@ -3,17 +3,17 @@ import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
-dotenv.config({ path: path.resolve('d:/m-t-growth-gateway/.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 const supabase = createClient(process.env.VITE_SUPABASE_URL!, process.env.VITE_SUPABASE_SERVICE_ROLE_KEY!);
 
 async function createAdmin() {
-    console.log("Creating Admin User...");
+    console.log("Creating admin user (Liz Keza)...");
 
-    const email = 'admin@mandt.placeholder';
-    const password = 'AdminUser123!';
-    const name = 'System Admin';
-    const phone = '256700000000';
+    const email = 'liz.keza@mtgrowth.local';
+    const password = 'MtGrowth2025!';
+    const name = 'Liz Keza';
+    const phone = '256700000001';
 
     // 1. Check if exists
     const { data: users } = await supabase.auth.admin.listUsers();
@@ -22,14 +22,14 @@ async function createAdmin() {
     let userId;
 
     if (existing) {
-        console.log(`Admin User already exists: ${existing.id}`);
+        console.log(`Admin user already exists: ${existing.id}`);
         userId = existing.id;
     } else {
         // 2. Create User
         const { data: newUser, error } = await supabase.auth.admin.createUser({
             email: email,
             password: password,
-            email_confirm: true, // Auto-confirm
+            email_confirm: true,
             user_metadata: { full_name: name, phone_number: phone }
         });
 
@@ -39,15 +39,16 @@ async function createAdmin() {
         }
 
         userId = newUser.user.id;
-        console.log(`Created Admin User: ${userId}`);
+        console.log(`Created admin user: ${userId}`);
 
         // 3. Create Profile
         await supabase.from('profiles').insert({
             id: userId,
             full_name: name,
+            first_name: 'Liz',
+            last_name: 'Keza',
             phone_number: phone,
             email: email,
-            role: 'admin'
         });
     }
 
@@ -64,7 +65,7 @@ async function createAdmin() {
         console.log("Role already assigned.");
     }
 
-    console.log(`\nAdmin Credentials:\nEmail: ${email}\nPassword: ${password}`);
+    console.log(`\nAdmin credentials:\n  Email: ${email}\n  Password: ${password}`);
 }
 
 createAdmin();

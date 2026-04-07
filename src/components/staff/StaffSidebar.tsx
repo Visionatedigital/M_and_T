@@ -29,7 +29,6 @@ import {
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -48,19 +47,10 @@ const menuItems = [
   },
 
   {
-    title: "Loan Applications",
-    icon: FileText,
-    items: [
-      { title: "View Applications", url: "/staff-dashboard/applications", icon: FileText },
-      { title: "Pending Review", url: "/staff-dashboard/applications/pending", icon: Clock },
-      { title: "Approved Loans", url: "/staff-dashboard/applications/approved", icon: CheckCircle },
-      { title: "Rejected Applications", url: "/staff-dashboard/applications/rejected", icon: XCircle },
-    ],
-  },
-  {
     title: "Loans",
     icon: Wallet,
     items: [
+      { title: "View Applications", url: "/staff-dashboard/applications", icon: FileText },
       { title: "View All Loans", url: "/staff-dashboard/loans", icon: Wallet },
       { title: "Add Loans", url: "/staff-dashboard/loans/add", icon: UserPlus },
       { title: "Approve Loans", url: "/staff-dashboard/loans/approve", icon: CheckCircle },
@@ -165,8 +155,6 @@ export function StaffSidebar() {
   const { role, loading } = useUserRole();
   const isCollapsed = state === "collapsed";
 
-  if (loading) return null; // or a skeleton
-
   const normalizedRole = (role || "").toString().toLowerCase().trim().replace(/[\s-]+/g, "_");
 
   // Filter menu items based on role
@@ -194,10 +182,16 @@ export function StaffSidebar() {
 
   const isActive = (url: string) => location.pathname === url;
   const isGroupActive = (items?: { url: string }[]) =>
-    items?.some(item => location.pathname === item.url);
+    items?.some((item) => {
+      const base = item.url.split("?")[0];
+      if (base.includes("/applications")) {
+        return location.pathname.startsWith("/staff-dashboard/applications");
+      }
+      return location.pathname === base || location.pathname.startsWith(`${base}/`);
+    }) ?? false;
 
   return (
-    <Sidebar className={isCollapsed ? "w-14" : "w-64"} collapsible="icon">
+    <Sidebar collapsible="icon">
       <SidebarContent className="bg-[hsl(220,26%,14%)]">
         <div className="px-4 py-6">
           {!isCollapsed && (
@@ -205,6 +199,13 @@ export function StaffSidebar() {
           )}
         </div>
 
+        {loading ? (
+          <div className="px-4 space-y-3 pb-6" aria-hidden="true">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="h-9 rounded-md bg-white/10 animate-pulse" />
+            ))}
+          </div>
+        ) : (
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -264,6 +265,7 @@ export function StaffSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        )}
       </SidebarContent>
     </Sidebar>
   );

@@ -64,8 +64,17 @@ async function startServer(userDataPath) {
         console.log(`🔑 Login attempt: ${email}`);
 
         let user = null;
-        if (email === 'admin@example.com' && (password === 'admin123' || password === 'password')) {
-            user = { id: '00000000-0000-0000-0000-000000000001', email, full_name: 'Admin User', role: 'admin' };
+        const adminId = '00000000-0000-0000-0000-000000000001';
+        const isAdminEmail = email === 'liz.keza@mtgrowth.local' || email === 'admin@example.com';
+        const adminPasswordOk =
+            password === 'MtGrowth2025!' || password === 'admin123' || password === 'password';
+        if (isAdminEmail && adminPasswordOk) {
+            user = {
+                id: adminId,
+                email,
+                full_name: 'Liz Keza',
+                role: 'admin',
+            };
         } else if (email === 'officer@example.com' && (password === 'officer123' || password === 'password')) {
             user = { id: '00000000-0000-0000-0000-000000000002', email, full_name: 'Loan Officer One', role: 'loan_officer' };
         }
