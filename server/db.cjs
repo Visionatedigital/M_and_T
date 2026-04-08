@@ -1,5 +1,6 @@
+const path = require('path');
 const { Pool } = require('pg');
-require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 // Strip sslmode from URL so ssl.rejectUnauthorized: false takes effect (fixes self-signed cert with Supabase)
 let connStr = process.env.DATABASE_URL || '';

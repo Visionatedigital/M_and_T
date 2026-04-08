@@ -4,7 +4,8 @@ const path = require('path');
 const cors = require('cors');
 const morgan = require('morgan');
 const cron = require('node-cron');
-require('dotenv').config();
+// Load .env from project root (PM2 cwd is often not the app dir — default dotenv misses .env)
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 // Overdue alerts - run weekly (default Monday 8:00 AM)
 const OVERDUE_CRON = process.env.OVERDUE_CRON || '0 8 * * 1'; // 8am every Monday
@@ -70,6 +71,38 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Public Routes
 app.use('/api/auth', authRoutes);
 app.get('/health', (req, res) => res.json({ status: 'ok', database: 'connected' }));
+/** Real DB check — open in browser if login returns 500 (does not expose secrets). */
+app.get('/api/health/db', async (req, res) => {
+    const urlSet = Boolean(process.env.DATABASE_URL && String(process.env.DATABASE_URL).trim().length > 0);
+    const jwtSet = Boolean(process.env.JWT_SECRET && String(process.env.JWT_SECRET).trim().length > 0);
+    if (!urlSet) {
+        return res.status(503).json({
+            ok: false,
+            databaseUrlConfigured: false,
+            jwtSecretConfigured: jwtSet,
+            hint: 'DATABASE_URL missing — dotenv not loading or .env empty. Ensure .env exists at project root and restart PM2 from app directory or deploy latest server (loads .env via __dirname).'
+        });
+    }
+    try {
+        const db = require('./db.cjs');
+        await db.query('SELECT 1 AS ok');
+        return res.json({
+            ok: true,
+            databaseUrlConfigured: true,
+            jwtSecretConfigured: jwtSet,
+            database: 'reachable'
+        });
+    } catch (e) {
+        console.error('[health/db]', e.code, e.message);
+        return res.status(503).json({
+            ok: false,
+            databaseUrlConfigured: true,
+            jwtSecretConfigured: jwtSet,
+            code: e.code || 'UNKNOWN',
+            database: 'unreachable'
+        });
+    }
+});
 
 // Protected Routes
 app.use('/api/reports', authMiddleware, reportsRouter);
@@ -98,6 +131,11 @@ if (fs.existsSync(distIndexHtml)) {
     console.log(`📦 Serving SPA from ${distPath}`);
     app.use(express.static(distPath));
     app.get('/', (_req, res) => res.sendFile(distIndexHtml));
+    // BrowserRouter deep links (/staff-login, /staff-dashboard/...) need index.html
+    app.get('*', (req, res, next) => {
+        if (req.path.startsWith('/api')) return next();
+        res.sendFile(distIndexHtml);
+    });
 } else {
     console.warn(`⚠️ No ${distIndexHtml} — run "npm run build" in project root (or upload dist/). CWD=${process.cwd()}`);
 }
