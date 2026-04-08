@@ -6,6 +6,15 @@ const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
+/** Host label for error messages (pg Pool may not set options.host when using connectionString). */
+function dbHostLabel() {
+    const url = process.env.DATABASE_URL || '';
+    const m = url.match(/@([^/?:]+)/);
+    if (m) return m[1];
+    const h = db.pool && db.pool.options && db.pool.options.host;
+    return h || 'unknown';
+}
+
 // Login
 router.post('/login', async (req, res) => {
     const { email, password } = req.body;
@@ -16,7 +25,7 @@ router.post('/login', async (req, res) => {
         console.log(`[LOGIN ATTEMPT] Email: ${email}`);
         console.log(`[LOGIN ATTEMPT] DB row count: ${rows.length}`);
 
-        const dbHost = (db.pool && db.pool.options) ? db.pool.options.host : 'unknown';
+        const dbHost = dbHostLabel();
 
         if (rows.length === 0) {
             console.log(`[LOGIN FAILED] Reason: User not found in auth.users by email.`);
