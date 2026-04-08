@@ -131,8 +131,9 @@ if (fs.existsSync(distIndexHtml)) {
     console.log(`📦 Serving SPA from ${distPath}`);
     app.use(express.static(distPath));
     app.get('/', (_req, res) => res.sendFile(distIndexHtml));
-    // BrowserRouter deep links (/staff-login, /staff-dashboard/...) need index.html
-    app.get('*', (req, res, next) => {
+    // BrowserRouter deep links — Express 5 path-to-regexp rejects app.get('*'); use middleware
+    app.use((req, res, next) => {
+        if (req.method !== 'GET' && req.method !== 'HEAD') return next();
         if (req.path.startsWith('/api')) return next();
         res.sendFile(distIndexHtml);
     });
