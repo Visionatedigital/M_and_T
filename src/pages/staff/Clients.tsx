@@ -249,7 +249,7 @@ const Clients = () => {
               </div>
 
               <Tabs defaultValue="list" className="space-y-4">
-                <TabsList>
+                <TabsList className="w-full justify-start">
                   <TabsTrigger value="list">Client List</TabsTrigger>
                   <TabsTrigger value="find">Find My Client</TabsTrigger>
                   <TabsTrigger value="map">Client Locations</TabsTrigger>

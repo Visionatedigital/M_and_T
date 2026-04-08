@@ -91,10 +91,10 @@ export function StaffHeader() {
   };
 
   return (
-    <header className="h-16 border-b bg-background flex items-center px-4 gap-4 sticky top-0 z-30 shrink-0">
-      <SidebarTrigger className="text-foreground" />
+    <header className="flex h-16 min-w-0 shrink-0 items-center gap-4 border-b bg-background px-4 sticky top-0 z-30">
+      <SidebarTrigger className="shrink-0 text-foreground" />
 
-      <div className="flex-1 max-w-md">
+      <div className="min-w-0 flex-1 max-w-md">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input

@@ -138,7 +138,7 @@ const CashBooks = () => {
                             </div>
 
               <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="w-full">
-                                <TabsList className="grid w-full grid-cols-3 max-w-md h-12 p-1 bg-muted/50">
+                                <TabsList className="grid h-auto min-h-12 w-full max-w-full grid-cols-1 gap-1 p-1 sm:max-w-md sm:grid-cols-3 bg-muted/50">
                                     <TabsTrigger value="cash" className="gap-2 data-[state=active]:bg-background shadow-none border-none">
                                         <Wallet className="h-4 w-4" /> Cash Account
                                     </TabsTrigger>

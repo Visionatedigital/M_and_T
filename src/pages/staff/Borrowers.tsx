@@ -258,62 +258,69 @@ const Borrowers = () => {
 
     return (
         <SidebarProvider>
-            <div className="min-h-screen flex w-full">
+            <div className="flex min-h-screen w-full min-w-0 overflow-x-hidden">
                 <StaffSidebar />
-                <div className="flex-1 flex flex-col">
+                <div className="flex min-w-0 flex-1 flex-col">
                     <StaffHeader />
-                    <main className="flex-1 p-4 md:p-8 bg-gradient-to-b from-background to-muted/20">
-                        <div className="w-full max-w-full space-y-6">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <h1 className="text-3xl font-bold mb-2">Borrowers</h1>
-                                    <p className="text-muted-foreground">Manage branch borrowers and their loan performance</p>
-                                </div>
+                    <main className="min-w-0 flex-1 overflow-x-clip bg-gradient-to-b from-background to-muted/20 p-3 sm:p-4 md:p-8">
+                        <div className="mx-auto w-full min-w-0 max-w-7xl space-y-4 sm:space-y-6">
+                            <div className="min-w-0 max-w-full">
+                                <h1 className="text-xl font-bold tracking-tight sm:text-2xl md:text-3xl">Borrowers</h1>
+                                <p className="mt-1 break-words text-sm text-muted-foreground sm:text-base">
+                                    Manage branch borrowers and their loan performance
+                                </p>
                             </div>
 
-                            <Tabs defaultValue="list" className="space-y-4">
-                                <TabsList>
+                            <Tabs defaultValue="list" className="min-w-0 space-y-4">
+                                <TabsList className="w-full min-w-0 justify-start">
                                     <TabsTrigger value="list">Borrower List</TabsTrigger>
                                     <TabsTrigger value="find">Find My Borrower</TabsTrigger>
                                     <TabsTrigger value="map">Borrower Locations</TabsTrigger>
                                 </TabsList>
 
-                                <TabsContent value="list" className="space-y-4">
-                                    <Card>
-                                        <CardHeader>
-                                            <div className="flex items-center justify-between">
-                                                <div>
-                                                    <CardTitle>Borrower List</CardTitle>
-                                                    <CardDescription>View and manage all borrowers</CardDescription>
-                                                </div>
-                                                <div className="flex items-center space-x-2">
-                                                    <Label htmlFor="view-mode">Show Group Totals</Label>
+                                <TabsContent value="list" className="min-w-0 space-y-4">
+                                    <Card className="min-w-0 max-w-full border shadow-sm">
+                                        <CardHeader className="min-w-0 space-y-4">
+                                            <div className="min-w-0">
+                                                <CardTitle className="text-base sm:text-lg">Borrower List</CardTitle>
+                                                <CardDescription>View and manage all borrowers</CardDescription>
+                                            </div>
+                                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+                                                <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/40 px-3 py-2.5 sm:bg-transparent sm:p-0 lg:min-w-[220px] lg:rounded-none lg:border-0">
+                                                    <Label htmlFor="view-mode" className="cursor-pointer text-sm">
+                                                        Show Group Totals
+                                                    </Label>
                                                     <Switch
                                                         id="view-mode"
                                                         checked={isGroupView}
                                                         onCheckedChange={setIsGroupView}
                                                     />
                                                 </div>
-                                                <div className="flex items-center gap-2">
-                                                    <div className="relative">
-                                                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                                                <div className="flex min-w-0 w-full flex-col gap-2 lg:max-w-xl lg:flex-row lg:items-stretch lg:gap-2">
+                                                    <div className="relative min-w-0 flex-1">
+                                                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 shrink-0 text-muted-foreground" />
                                                         <Input
                                                             placeholder="Search borrowers..."
                                                             value={searchTerm}
                                                             onChange={(e) => setSearchTerm(e.target.value)}
-                                                            className="pl-8 w-64"
+                                                            className="h-9 w-full min-w-0 pl-9 text-sm"
                                                         />
                                                     </div>
-                                                    <Button variant="outline" size="sm" onClick={() => setShowAdvanced(!showAdvanced)} className="gap-2">
-                                                        <Filter className="h-4 w-4" /> Advanced Filter
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => setShowAdvanced(!showAdvanced)}
+                                                        className="h-9 w-full shrink-0 gap-2 touch-manipulation lg:w-auto"
+                                                    >
+                                                        <Filter className="h-4 w-4 shrink-0" /> Advanced Filter
                                                     </Button>
                                                 </div>
                                             </div>
                                             {showAdvanced && (
-                                                <div className="mt-6 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                                <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
                                                         <div>
-                                                            <label className="text-xs text-muted-foreground mb-1 block">Borrower Status</label>
+                                                            <label className="mb-1 block text-xs text-muted-foreground">Borrower Status</label>
                                                             <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
                                                                 <option value="">Any Status</option>
                                                                 <option value="Current">Current</option>
@@ -322,22 +329,22 @@ const Borrowers = () => {
                                                             </select>
                                                         </div>
                                                         <div>
-                                                            <label className="text-xs text-muted-foreground mb-1 block">Assigned Officer</label>
+                                                            <label className="mb-1 block text-xs text-muted-foreground">Assigned Officer</label>
                                                             <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
                                                                 <option value="">Any Officer</option>
                                                             </select>
                                                         </div>
                                                         <div>
-                                                            <label className="text-xs text-muted-foreground mb-1 block">Location / Village</label>
+                                                            <label className="mb-1 block text-xs text-muted-foreground">Location / Village</label>
                                                             <Input placeholder="Village" />
                                                         </div>
                                                         <div className="flex gap-2">
                                                             <div className="flex-1">
-                                                                <label className="text-xs text-muted-foreground mb-1 block">Added From</label>
+                                                                <label className="mb-1 block text-xs text-muted-foreground">Added From</label>
                                                                 <Input type="date" />
                                                             </div>
                                                             <div className="flex-1">
-                                                                <label className="text-xs text-muted-foreground mb-1 block">Added To</label>
+                                                                <label className="mb-1 block text-xs text-muted-foreground">Added To</label>
                                                                 <Input type="date" />
                                                             </div>
                                                         </div>
@@ -350,98 +357,244 @@ const Borrowers = () => {
                                                 </div>
                                             )}
                                         </CardHeader>
-                                        <CardContent className="overflow-x-auto">
-                                            <Table className="w-full text-sm">
-                                                <TableHeader>
-                                                    <TableRow>
-                                                        <TableHead className="w-10 py-2">View</TableHead>
-                                                        <TableHead className="py-2">Full Name</TableHead>
-                                                        <TableHead className="py-2">Business</TableHead>
-                                                        <TableHead className="py-2">Unique#</TableHead>
-                                                        <TableHead className="py-2">Mobile</TableHead>
-                                                        <TableHead className="py-2">Email</TableHead>
-                                                        <TableHead className="text-right py-2">Paid</TableHead>
-                                                        <TableHead className="text-right py-2">Balance</TableHead>
-                                                        <TableHead className="py-2">Status</TableHead>
-                                                        <TableHead className="text-right py-2">Actions</TableHead>
-                                                    </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                    {filteredBorrowers.length === 0 ? (
-                                                        <TableRow>
-                                                            <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
-                                                                No borrowers found
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    ) : (
-                                                        filteredBorrowers.map((borrower) => (
-                                                            <TableRow key={borrower.id}>
-                                                                <TableCell className="py-2">
-                                                                    <Button
-                                                                        size="icon"
-                                                                        variant="ghost"
-                                                                        className="h-8 w-8 shrink-0"
-                                                                        onClick={() => navigate(`/staff-dashboard/borrowers/history?id=${borrower.id}`)}
-                                                                    >
-                                                                        <Eye className="h-4 w-4" />
-                                                                    </Button>
-                                                                </TableCell>
-                                                                <TableCell className="font-medium py-2">
-                                                                    <div className="flex items-center gap-2 min-w-0">
-                                                                        <div className="h-8 w-8 rounded-full bg-muted overflow-hidden shrink-0 flex items-center justify-center border border-border">
+                                        <CardContent className="min-w-0 px-4 pb-4 pt-0 sm:px-6 sm:pb-6">
+                                            {filteredBorrowers.length === 0 ? (
+                                                <p className="min-w-0 break-words px-1 py-10 text-center text-sm text-muted-foreground">
+                                                    No borrowers found
+                                                </p>
+                                            ) : (
+                                                <>
+                                                    <div className="space-y-3 lg:hidden">
+                                                        {filteredBorrowers.map((borrower) => (
+                                                            <Card key={borrower.id} className="min-w-0 overflow-hidden shadow-sm">
+                                                                <CardContent className="min-w-0 space-y-3 p-4">
+                                                                    <div className="flex min-w-0 gap-3">
+                                                                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-border bg-muted flex items-center justify-center">
                                                                             {resolveMediaUrl(borrower.borrower_photo) ? (
-                                                                                <img src={resolveMediaUrl(borrower.borrower_photo)!} alt="" className="h-full w-full object-cover" />
+                                                                                <img
+                                                                                    src={resolveMediaUrl(borrower.borrower_photo)!}
+                                                                                    alt=""
+                                                                                    className="h-full w-full object-cover"
+                                                                                />
                                                                             ) : (
-                                                                                <User className="h-4 w-4 text-muted-foreground" />
+                                                                                <User className="h-5 w-5 text-muted-foreground" />
                                                                             )}
                                                                         </div>
-                                                                        <span className="block truncate max-w-[120px]" title={borrower.full_name}>{borrower.full_name}</span>
+                                                                        <div className="min-w-0 flex-1">
+                                                                            <div className="font-medium leading-snug">{borrower.full_name}</div>
+                                                                            <p className="mt-0.5 text-xs text-muted-foreground">
+                                                                                {borrower.business_name || "—"}
+                                                                            </p>
+                                                                        </div>
                                                                     </div>
-                                                                </TableCell>
-                                                                <TableCell className="py-2"><span className="block truncate max-w-[90px]" title={borrower.business_name || undefined}>{borrower.business_name || "-"}</span></TableCell>
-                                                                <TableCell className="py-2">{borrower.unique_number || "-"}</TableCell>
-                                                                <TableCell className="py-2"><span className="block truncate max-w-[90px]" title={borrower.phone_number || undefined}>{borrower.phone_number || "-"}</span></TableCell>
-                                                                <TableCell className="py-2"><span className="block truncate max-w-[100px]" title={borrower.email || undefined}>{borrower.email || "-"}</span></TableCell>
-                                                                <TableCell className="text-right py-2 whitespace-nowrap">{(borrower.total_paid || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</TableCell>
-                                                                <TableCell className="text-right py-2 whitespace-nowrap">{(borrower.open_loans_balance || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</TableCell>
-                                                                <TableCell className="py-2">
-                                                                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${borrower.status === 'Current' ? 'bg-green-100 text-green-800' :
-                                                                        borrower.status === 'Fully Paid' ? 'bg-blue-100 text-blue-800' :
-                                                                            borrower.status === 'Past Maturity' ? 'bg-red-100 text-red-800' :
-                                                                                'bg-gray-100 text-gray-800'
-                                                                        }`}>
-                                                                        {borrower.status || "No Active Loans"}
-                                                                    </span>
-                                                                </TableCell>
-                                                                <TableCell className="text-right shrink-0">
-                                                                    <Button
-                                                                        size="sm"
-                                                                        variant="outline"
-                                                                        className="text-xs h-8"
-                                                                        onClick={() => navigate(`/staff-dashboard/loans/add?borrower=${borrower.id}`)}
-                                                                    >
-                                                                        Loans
-                                                                    </Button>
-                                                                </TableCell>
-                                                            </TableRow>
-                                                        ))
-                                                    )}
-                                                </TableBody>
-                                            </Table>
+                                                                    <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                                                                        <div>
+                                                                            <span className="block text-xs text-muted-foreground">Unique#</span>
+                                                                            <span className="break-all">{borrower.unique_number || "—"}</span>
+                                                                        </div>
+                                                                        <div>
+                                                                            <span className="block text-xs text-muted-foreground">Mobile</span>
+                                                                            <span className="break-all">{borrower.phone_number || "—"}</span>
+                                                                        </div>
+                                                                        <div className="col-span-2">
+                                                                            <span className="block text-xs text-muted-foreground">Email</span>
+                                                                            <span className="break-all text-xs">{borrower.email || "—"}</span>
+                                                                        </div>
+                                                                        <div>
+                                                                            <span className="block text-xs text-muted-foreground">Paid</span>
+                                                                            <span>
+                                                                                {(borrower.total_paid || 0).toLocaleString(undefined, {
+                                                                                    minimumFractionDigits: 0,
+                                                                                    maximumFractionDigits: 0,
+                                                                                })}
+                                                                            </span>
+                                                                        </div>
+                                                                        <div>
+                                                                            <span className="block text-xs text-muted-foreground">Balance</span>
+                                                                            <span className="font-medium">
+                                                                                {(borrower.open_loans_balance || 0).toLocaleString(undefined, {
+                                                                                    minimumFractionDigits: 0,
+                                                                                    maximumFractionDigits: 0,
+                                                                                })}
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <span
+                                                                            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${borrower.status === "Current"
+                                                                                ? "bg-green-100 text-green-800"
+                                                                                : borrower.status === "Fully Paid"
+                                                                                  ? "bg-blue-100 text-blue-800"
+                                                                                  : borrower.status === "Past Maturity"
+                                                                                    ? "bg-red-100 text-red-800"
+                                                                                    : "bg-gray-100 text-gray-800"
+                                                                                }`}
+                                                                        >
+                                                                            {borrower.status || "No Active Loans"}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex flex-wrap gap-2 border-t pt-3">
+                                                                        <Button
+                                                                            variant="secondary"
+                                                                            size="sm"
+                                                                            className="min-h-10 touch-manipulation"
+                                                                            onClick={() =>
+                                                                                navigate(`/staff-dashboard/borrowers/history?id=${borrower.id}`)
+                                                                            }
+                                                                        >
+                                                                            <Eye className="mr-2 h-4 w-4" />
+                                                                            View
+                                                                        </Button>
+                                                                        <Button
+                                                                            variant="outline"
+                                                                            size="sm"
+                                                                            className="min-h-10 touch-manipulation"
+                                                                            onClick={() =>
+                                                                                navigate(`/staff-dashboard/loans/add?borrower=${borrower.id}`)
+                                                                            }
+                                                                        >
+                                                                            Loans
+                                                                        </Button>
+                                                                    </div>
+                                                                </CardContent>
+                                                            </Card>
+                                                        ))}
+                                                    </div>
+                                                    <div className="hidden min-w-0 lg:block">
+                                                        <div className="w-full max-w-full min-w-0 overflow-x-auto overscroll-x-contain rounded-md border [-webkit-overflow-scrolling:touch]">
+                                                            <Table className="min-w-[56rem] w-full text-xs sm:text-sm">
+                                                                <TableHeader>
+                                                                    <TableRow>
+                                                                        <TableHead className="w-10 py-2">View</TableHead>
+                                                                        <TableHead className="py-2">Full Name</TableHead>
+                                                                        <TableHead className="py-2">Business</TableHead>
+                                                                        <TableHead className="py-2">Unique#</TableHead>
+                                                                        <TableHead className="py-2">Mobile</TableHead>
+                                                                        <TableHead className="py-2">Email</TableHead>
+                                                                        <TableHead className="py-2 text-right">Paid</TableHead>
+                                                                        <TableHead className="py-2 text-right">Balance</TableHead>
+                                                                        <TableHead className="py-2">Status</TableHead>
+                                                                        <TableHead className="py-2 text-right">Actions</TableHead>
+                                                                    </TableRow>
+                                                                </TableHeader>
+                                                                <TableBody>
+                                                                    {filteredBorrowers.map((borrower) => (
+                                                                        <TableRow key={borrower.id}>
+                                                                            <TableCell className="py-2">
+                                                                                <Button
+                                                                                    size="icon"
+                                                                                    variant="ghost"
+                                                                                    className="h-8 w-8 shrink-0"
+                                                                                    onClick={() =>
+                                                                                        navigate(`/staff-dashboard/borrowers/history?id=${borrower.id}`)
+                                                                                    }
+                                                                                >
+                                                                                    <Eye className="h-4 w-4" />
+                                                                                </Button>
+                                                                            </TableCell>
+                                                                            <TableCell className="py-2 font-medium">
+                                                                                <div className="flex min-w-0 items-center gap-2">
+                                                                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-muted">
+                                                                                        {resolveMediaUrl(borrower.borrower_photo) ? (
+                                                                                            <img
+                                                                                                src={resolveMediaUrl(borrower.borrower_photo)!}
+                                                                                                alt=""
+                                                                                                className="h-full w-full object-cover"
+                                                                                            />
+                                                                                        ) : (
+                                                                                            <User className="h-4 w-4 text-muted-foreground" />
+                                                                                        )}
+                                                                                    </div>
+                                                                                    <span className="block max-w-[140px] truncate" title={borrower.full_name}>
+                                                                                        {borrower.full_name}
+                                                                                    </span>
+                                                                                </div>
+                                                                            </TableCell>
+                                                                            <TableCell className="py-2">
+                                                                                <span
+                                                                                    className="block max-w-[100px] truncate"
+                                                                                    title={borrower.business_name || undefined}
+                                                                                >
+                                                                                    {borrower.business_name || "-"}
+                                                                                </span>
+                                                                            </TableCell>
+                                                                            <TableCell className="py-2">{borrower.unique_number || "-"}</TableCell>
+                                                                            <TableCell className="py-2">
+                                                                                <span
+                                                                                    className="block max-w-[90px] truncate"
+                                                                                    title={borrower.phone_number || undefined}
+                                                                                >
+                                                                                    {borrower.phone_number || "-"}
+                                                                                </span>
+                                                                            </TableCell>
+                                                                            <TableCell className="py-2">
+                                                                                <span
+                                                                                    className="block max-w-[120px] truncate"
+                                                                                    title={borrower.email || undefined}
+                                                                                >
+                                                                                    {borrower.email || "-"}
+                                                                                </span>
+                                                                            </TableCell>
+                                                                            <TableCell className="whitespace-nowrap py-2 text-right">
+                                                                                {(borrower.total_paid || 0).toLocaleString(undefined, {
+                                                                                    minimumFractionDigits: 0,
+                                                                                    maximumFractionDigits: 0,
+                                                                                })}
+                                                                            </TableCell>
+                                                                            <TableCell className="whitespace-nowrap py-2 text-right">
+                                                                                {(borrower.open_loans_balance || 0).toLocaleString(undefined, {
+                                                                                    minimumFractionDigits: 0,
+                                                                                    maximumFractionDigits: 0,
+                                                                                })}
+                                                                            </TableCell>
+                                                                            <TableCell className="py-2">
+                                                                                <span
+                                                                                    className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${borrower.status === "Current"
+                                                                                        ? "bg-green-100 text-green-800"
+                                                                                        : borrower.status === "Fully Paid"
+                                                                                          ? "bg-blue-100 text-blue-800"
+                                                                                          : borrower.status === "Past Maturity"
+                                                                                            ? "bg-red-100 text-red-800"
+                                                                                            : "bg-gray-100 text-gray-800"
+                                                                                        }`}
+                                                                                >
+                                                                                    {borrower.status || "No Active Loans"}
+                                                                                </span>
+                                                                            </TableCell>
+                                                                            <TableCell className="shrink-0 py-2 text-right">
+                                                                                <Button
+                                                                                    size="sm"
+                                                                                    variant="outline"
+                                                                                    className="h-8 text-xs"
+                                                                                    onClick={() =>
+                                                                                        navigate(`/staff-dashboard/loans/add?borrower=${borrower.id}`)
+                                                                                    }
+                                                                                >
+                                                                                    Loans
+                                                                                </Button>
+                                                                            </TableCell>
+                                                                        </TableRow>
+                                                                    ))}
+                                                                </TableBody>
+                                                            </Table>
+                                                        </div>
+                                                    </div>
+                                                </>
+                                            )}
                                         </CardContent>
                                     </Card>
                                 </TabsContent>
 
-                                <TabsContent value="find" className="space-y-4">
-                                    <Card>
-                                        <CardHeader>
-                                            <CardTitle>Find My Borrower</CardTitle>
-                                            <CardDescription>
+                                <TabsContent value="find" className="min-w-0 space-y-4">
+                                    <Card className="min-w-0 max-w-full">
+                                        <CardHeader className="min-w-0">
+                                            <CardTitle className="text-base sm:text-lg">Find My Borrower</CardTitle>
+                                            <CardDescription className="break-words">
                                                 Search clients in your portfolio by name, phone, email, ID, or location. Loan officers only see borrowers assigned to them; admins see everyone.
                                             </CardDescription>
                                         </CardHeader>
-                                        <CardContent className="space-y-4">
-                                            <div className="relative w-full max-w-xl">
+                                        <CardContent className="min-w-0 space-y-4">
+                                            <div className="relative w-full min-w-0 max-w-xl">
                                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none z-10" />
                                                 <Input
                                                     type="search"
@@ -552,15 +705,15 @@ const Borrowers = () => {
                                     </Card>
                                 </TabsContent>
 
-                                <TabsContent value="map" className="h-[600px]">
-                                    <Card className="h-full">
-                                        <CardHeader>
-                                            <CardTitle>Borrower Locations</CardTitle>
-                                            <CardDescription>
+                                <TabsContent value="map" className="min-w-0 space-y-4">
+                                    <Card className="flex min-h-0 min-w-0 max-w-full flex-col overflow-hidden">
+                                        <CardHeader className="min-w-0 shrink-0">
+                                            <CardTitle className="text-base sm:text-lg">Borrower Locations</CardTitle>
+                                            <CardDescription className="break-words">
                                                 Pins appear when a borrower has GPS saved (latitude & longitude). Use <strong>Find My Borrower</strong> → <strong>Set location</strong> to add coordinates.
                                             </CardDescription>
                                         </CardHeader>
-                                        <CardContent className="h-[500px] p-0 overflow-hidden rounded-b-lg relative">
+                                        <CardContent className="relative h-[min(70vh,520px)] min-h-[240px] overflow-hidden rounded-b-lg p-0 sm:h-[500px]">
                                             {borrowers.filter((b) => b.latitude != null && b.longitude != null && !Number.isNaN(Number(b.latitude)) && !Number.isNaN(Number(b.longitude))).length === 0 && (
                                                 <div className="absolute inset-0 z-[500] flex items-center justify-center p-4 bg-background/85">
                                                     <div className="bg-card border rounded-lg shadow-lg p-6 max-w-md text-center space-y-2">

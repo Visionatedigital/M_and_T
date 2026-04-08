@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell, Area, AreaChart,
@@ -997,18 +998,43 @@ const Accounting = () => {
 
               {/* ── Report Tabs ── */}
               <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
-                <div className="flex flex-wrap items-center gap-3">
-                  <TabsList className="flex-wrap h-auto gap-1 p-1 bg-slate-100">
-                    <TabsTrigger value="pl" className="text-xs">Financial Overview</TabsTrigger>
-                    <TabsTrigger value="portfolio" className="text-xs">Loan Portfolio</TabsTrigger>
-                    <TabsTrigger value="aging_report" className="text-xs">Aging Report</TabsTrigger>
-                    <TabsTrigger value="comprehensive_income" className="text-xs">Comprehensive Income</TabsTrigger>
-                    <TabsTrigger value="financial_position" className="text-xs">Financial Position</TabsTrigger>
-                    <TabsTrigger value="cashflow_statement" className="text-xs">Cashflow Statement</TabsTrigger>
-                    <TabsTrigger value="equity_statement" className="text-xs">Equity Statement</TabsTrigger>
-                    <TabsTrigger value="financial_analysis" className="text-xs">Financial Analysis</TabsTrigger>
-                    <TabsTrigger value="cashbook" className="text-xs">Cash Book</TabsTrigger>
-                    <TabsTrigger value="trial" className="text-xs">Trial Balance</TabsTrigger>
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                  <TabsList
+                    className={cn(
+                      "max-w-full flex-nowrap gap-1 overflow-x-auto overflow-y-hidden bg-slate-100 p-1 [scrollbar-width:thin] touch-pan-x",
+                      "h-auto min-h-11 justify-start",
+                    )}
+                  >
+                    <TabsTrigger value="pl" className="shrink-0 text-xs">
+                      Financial Overview
+                    </TabsTrigger>
+                    <TabsTrigger value="portfolio" className="shrink-0 text-xs">
+                      Loan Portfolio
+                    </TabsTrigger>
+                    <TabsTrigger value="aging_report" className="shrink-0 text-xs">
+                      Aging Report
+                    </TabsTrigger>
+                    <TabsTrigger value="comprehensive_income" className="shrink-0 text-xs">
+                      Comprehensive Income
+                    </TabsTrigger>
+                    <TabsTrigger value="financial_position" className="shrink-0 text-xs">
+                      Financial Position
+                    </TabsTrigger>
+                    <TabsTrigger value="cashflow_statement" className="shrink-0 text-xs">
+                      Cashflow Statement
+                    </TabsTrigger>
+                    <TabsTrigger value="equity_statement" className="shrink-0 text-xs">
+                      Equity Statement
+                    </TabsTrigger>
+                    <TabsTrigger value="financial_analysis" className="shrink-0 text-xs">
+                      Financial Analysis
+                    </TabsTrigger>
+                    <TabsTrigger value="cashbook" className="shrink-0 text-xs">
+                      Cash Book
+                    </TabsTrigger>
+                    <TabsTrigger value="trial" className="shrink-0 text-xs">
+                      Trial Balance
+                    </TabsTrigger>
                   </TabsList>
                   {activeTab !== "pl" && (
                     <div className="flex gap-2 items-center">

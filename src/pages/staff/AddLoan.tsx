@@ -66,32 +66,32 @@ const AddLoan = () => {
 
     return (
         <SidebarProvider>
-            <div className="min-h-screen flex w-full">
+            <div className="flex min-h-screen w-full min-w-0 overflow-x-hidden">
                 <StaffSidebar />
-                <div className="flex-1 flex flex-col">
+                <div className="flex min-w-0 flex-1 flex-col">
                     <StaffHeader />
-                    <main className="flex-1 p-4 md:p-8 bg-muted/20">
-                        <div className="max-w-5xl mx-auto space-y-6">
-                            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                                <div className="flex flex-col gap-3 min-w-0 w-full">
-                                    <div className="flex flex-wrap items-center gap-2 sm:gap-4">
-                                        <Button variant="ghost" className="min-h-11 touch-manipulation shrink-0" onClick={() => navigate("/staff-dashboard/loans")}>
-                                            <ArrowLeft className="h-4 w-4 mr-2" />
+                    <main className="min-w-0 flex-1 overflow-x-clip bg-muted/20 p-3 sm:p-6 md:p-8">
+                        <div className="mx-auto w-full min-w-0 max-w-5xl space-y-6">
+                            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <div className="flex min-w-0 w-full max-w-full flex-col gap-2">
+                                    <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
+                                        <Button variant="ghost" size="sm" className="h-9 min-h-9 shrink-0 touch-manipulation text-xs" onClick={() => navigate("/staff-dashboard/loans")}>
+                                            <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
                                             Back
                                         </Button>
-                                        <h1 className="text-2xl sm:text-3xl font-bold font-mono tracking-tighter">New Loan Application</h1>
+                                        <h1 className="text-lg font-bold font-mono tracking-tight sm:text-xl">New Loan Application</h1>
                                     </div>
                                     {!roleLoading && isLoanOfficer && (
-                                        <Alert>
-                                            <Info className="h-4 w-4" />
-                                            <AlertDescription>
+                                        <Alert className="max-w-full min-w-0 py-2">
+                                            <Info className="h-3.5 w-3.5 shrink-0" />
+                                            <AlertDescription className="break-words text-xs leading-snug">
                                                 Submit the application when complete. An administrator will review and approve or reject it.
                                             </AlertDescription>
                                         </Alert>
                                     )}
                                 </div>
-                                <Button variant="outline" className="gap-2 min-h-11 touch-manipulation w-full sm:w-auto shrink-0" onClick={() => navigate("/staff-dashboard/loans/calculator")}>
-                                    <Calculator className="h-4 w-4" />
+                                <Button variant="outline" size="sm" className="h-9 min-h-9 w-full max-w-full shrink-0 gap-1.5 text-xs touch-manipulation sm:w-auto sm:max-w-none" onClick={() => navigate("/staff-dashboard/loans/calculator")}>
+                                    <Calculator className="h-3.5 w-3.5" />
                                     Loan Calculator
                                 </Button>
                             </div>

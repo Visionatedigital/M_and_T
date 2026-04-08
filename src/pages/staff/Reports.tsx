@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { BarChart3, DollarSign, Users, TrendingUp, FileText, FileSpreadsheet, Loader2, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { staffTabButtonClass, staffTabRowClass } from "@/lib/staffNavClasses";
 
 interface LoanStats {
   totalApplications: number;
@@ -236,31 +237,31 @@ const Reports = () => {
               </div>
 
               {/* Navigation Tabs */}
-              <div className="flex gap-2 border-b pb-2">
+              <div className={staffTabRowClass}>
                 <Button
                   variant={getActiveTab() === "loans" ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/reports/loans")}
-                  className="rounded-b-none"
+                  className={staffTabButtonClass}
                 >
-                  <BarChart3 className="mr-2 h-4 w-4" />
+                  <BarChart3 className="mr-1.5 h-4 w-4 shrink-0 sm:mr-2" />
                   {userRole === "loan_officer" ? "My Reports" : "Loan Reports"}
                 </Button>
                 {userRole === "admin" && (
                   <Button
                     variant={getActiveTab() === "financial" ? "default" : "ghost"}
                     onClick={() => navigate("/staff-dashboard/reports/financial")}
-                    className="rounded-b-none"
+                    className={staffTabButtonClass}
                   >
-                    <DollarSign className="mr-2 h-4 w-4" />
+                    <DollarSign className="mr-1.5 h-4 w-4 shrink-0 sm:mr-2" />
                     Financial Reports
                   </Button>
                 )}
                 <Button
                   variant={getActiveTab() === "clients" ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/reports/clients")}
-                  className="rounded-b-none"
+                  className={staffTabButtonClass}
                 >
-                  <Users className="mr-2 h-4 w-4" />
+                  <Users className="mr-1.5 h-4 w-4 shrink-0 sm:mr-2" />
                   Client Reports
                 </Button>
               </div>

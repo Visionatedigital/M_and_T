@@ -232,14 +232,17 @@ export function StaffSidebar() {
                           <SidebarMenuSub>
                             {item.items.map((subItem) => (
                               <SidebarMenuSubItem key={subItem.title}>
-                                <SidebarMenuSubButton asChild>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  className="!h-auto min-h-11 gap-2 py-2.5 sm:min-h-8 sm:py-1.5 [&>span:last-child]:line-clamp-2 [&>span:last-child]:whitespace-normal [&>span:last-child]:text-left"
+                                >
                                   <NavLink
                                     to={subItem.url}
                                     className="text-gray-400 hover:text-white hover:bg-[hsl(220,26%,18%)]"
                                     activeClassName="bg-[hsl(220,26%,20%)] text-white font-medium"
                                   >
-                                    <subItem.icon className="h-3 w-3 text-white" />
-                                    <span>{subItem.title}</span>
+                                    <subItem.icon className="h-3.5 w-3.5 shrink-0 text-white sm:h-3 sm:w-3" />
+                                    <span className="break-words">{subItem.title}</span>
                                   </NavLink>
                                 </SidebarMenuSubButton>
                               </SidebarMenuSubItem>

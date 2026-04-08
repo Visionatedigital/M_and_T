@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Shield, Plus, FileText, FileSpreadsheet, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { staffTabButtonClass, staffTabRowClass } from "@/lib/staffNavClasses";
 
 interface Collateral {
   id: string;
@@ -110,29 +111,29 @@ const CollateralAssets = () => {
               </div>
 
               {/* Navigation Tabs */}
-              <div className="flex gap-2 border-b pb-2">
+              <div className={staffTabRowClass}>
                 <Button
                   variant={!location.pathname.includes("/valuations") && !location.pathname.includes("/insurance") ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/collateral")}
-                  className="rounded-b-none"
+                  className={staffTabButtonClass}
                 >
-                  <Shield className="mr-2 h-4 w-4" />
+                  <Shield className="mr-1.5 h-4 w-4 shrink-0 sm:mr-2" />
                   Collateral Register
                 </Button>
                 <Button
                   variant={location.pathname.includes("/valuations") ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/collateral/valuations")}
-                  className="rounded-b-none"
+                  className={staffTabButtonClass}
                 >
-                  <FileSpreadsheet className="mr-2 h-4 w-4" />
+                  <FileSpreadsheet className="mr-1.5 h-4 w-4 shrink-0 sm:mr-2" />
                   Asset Valuations
                 </Button>
                 <Button
                   variant={location.pathname.includes("/insurance") ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/collateral/insurance")}
-                  className="rounded-b-none"
+                  className={staffTabButtonClass}
                 >
-                  <Shield className="mr-2 h-4 w-4" />
+                  <Shield className="mr-1.5 h-4 w-4 shrink-0 sm:mr-2" />
                   Insurance Tracking
                 </Button>
               </div>

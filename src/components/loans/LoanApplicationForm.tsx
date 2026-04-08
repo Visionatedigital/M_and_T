@@ -863,42 +863,43 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                         variant: "destructive"
                     });
                 })}
-                className="space-y-6"
+                className="w-full min-w-0 max-w-full space-y-4 overflow-x-clip text-sm leading-snug [&_label]:text-xs [&_label]:font-medium"
             >
                 {!initialData && (
                     <div className="space-y-4">
-                        <Card className="border-primary/25 bg-muted/30">
-                            <CardHeader className="pb-2">
-                                <CardTitle className="text-base flex items-center gap-2">
-                                    <Save className="h-4 w-4" />
-                                    Saved drafts ({savedDrafts.length})
+                        <Card className="w-full min-w-0 max-w-full overflow-hidden border-primary/25 bg-muted/30">
+                            <CardHeader className="min-w-0 pb-2">
+                                <CardTitle className="flex min-w-0 items-center gap-2 text-sm">
+                                    <Save className="h-3.5 w-3.5 shrink-0" />
+                                    <span className="min-w-0 truncate">Saved drafts ({savedDrafts.length})</span>
                                 </CardTitle>
-                                <CardDescription>
+                                <CardDescription className="break-words">
                                     Stored in this browser only. Continue a draft below, or fill the form to add another (it saves automatically).
                                 </CardDescription>
                             </CardHeader>
-                            <CardContent className="space-y-2">
+                            <CardContent className="min-w-0 space-y-2">
                                 {savedDrafts.length === 0 ? (
                                     <p className="text-sm text-muted-foreground">No drafts yet—fill the form and it will appear here automatically.</p>
                                 ) : (
-                                    <ul className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                                    <ul className="max-h-56 space-y-2 overflow-y-auto overflow-x-hidden pr-1">
                                         {savedDrafts.map((d) => (
                                             <li
                                                 key={d.id}
-                                                className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-md border bg-background/80 px-3 py-2 text-sm"
+                                                className="flex min-w-0 flex-col gap-2 rounded-md border bg-background/80 px-2 py-2 text-sm sm:flex-row sm:items-center sm:justify-between sm:px-3"
                                             >
-                                                <div className="min-w-0">
-                                                    <p className="font-medium truncate">{d.label}</p>
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="truncate font-medium">{d.label}</p>
                                                     <p className="text-xs text-muted-foreground">
                                                         {formatDraftAge(d.savedAt)}
                                                         {activeDraftId === d.id ? " · editing" : ""}
                                                     </p>
                                                 </div>
-                                                <div className="flex gap-2 shrink-0">
+                                                <div className="flex min-w-0 w-full flex-wrap gap-2 sm:w-auto sm:shrink-0">
                                                     <Button
                                                         type="button"
                                                         variant="secondary"
                                                         size="sm"
+                                                        className="min-w-0 flex-1 sm:flex-initial"
                                                         onClick={() => applyDraftFromRecord(d)}
                                                     >
                                                         Continue
@@ -907,7 +908,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                                         type="button"
                                                         variant="ghost"
                                                         size="sm"
-                                                        className="text-destructive"
+                                                        className="min-w-0 flex-1 text-destructive sm:flex-initial"
                                                         onClick={() => {
                                                             removeDraftEntry(d.id);
                                                             toast({ title: "Draft removed" });
@@ -925,44 +926,46 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                     </div>
                 )}
                 {/* Application Type - Individual vs Group */}
-                <Card className="border-2 border-primary/20">
-                    <CardHeader className="pb-3">
-                        <CardTitle className="text-base">Application Type</CardTitle>
-                        <FormDescription>Select whether this is an individual or group loan application. The requirements differ for each.</FormDescription>
+                <Card className="w-full min-w-0 max-w-full overflow-hidden border-2 border-primary/20">
+                    <CardHeader className="min-w-0 space-y-1 pb-3">
+                        <CardTitle className="text-sm">Application Type</CardTitle>
+                        <FormDescription className="break-words text-xs leading-snug">
+                            Select whether this is an individual or group loan application. The requirements differ for each.
+                        </FormDescription>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="min-w-0">
                         <FormField
                             control={form.control}
                             name="application_type"
                             render={({ field }) => (
-                                <FormItem>
+                                <FormItem className="min-w-0">
                                     <FormControl>
-                                        <div className="grid grid-cols-2 gap-4">
+                                        <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
                                             <button
                                                 type="button"
                                                 onClick={() => field.onChange("individual")}
-                                                className={`flex flex-col items-center gap-2 p-6 rounded-lg border-2 transition-all ${
+                                                className={`flex min-h-[40px] min-w-0 w-full max-w-full flex-col items-center gap-1.5 rounded-lg border-2 p-2.5 transition-all touch-manipulation sm:gap-2 sm:p-4 ${
                                                     field.value === "individual"
                                                         ? "border-primary bg-primary/10"
                                                         : "border-muted hover:border-muted-foreground/30"
                                                 }`}
                                             >
-                                                <User className="h-10 w-10 text-muted-foreground" />
-                                                <span className="font-semibold">Individual</span>
-                                                <span className="text-xs text-muted-foreground text-center">Single borrower application</span>
+                                                <User className="h-6 w-6 shrink-0 text-muted-foreground sm:h-7 sm:w-7" />
+                                                <span className="text-sm font-semibold">Individual</span>
+                                                <span className="text-center text-[11px] text-muted-foreground leading-tight sm:text-xs">Single borrower application</span>
                                             </button>
                                             <button
                                                 type="button"
                                                 onClick={() => field.onChange("group")}
-                                                className={`flex flex-col items-center gap-2 p-6 rounded-lg border-2 transition-all ${
+                                                className={`flex min-h-[40px] min-w-0 w-full max-w-full flex-col items-center gap-1.5 rounded-lg border-2 p-2.5 transition-all touch-manipulation sm:gap-2 sm:p-4 ${
                                                     field.value === "group"
                                                         ? "border-primary bg-primary/10"
                                                         : "border-muted hover:border-muted-foreground/30"
                                                 }`}
                                             >
-                                                <Users className="h-10 w-10 text-muted-foreground" />
-                                                <span className="font-semibold">Group</span>
-                                                <span className="text-xs text-muted-foreground text-center">Group loan with multiple members</span>
+                                                <Users className="h-6 w-6 shrink-0 text-muted-foreground sm:h-7 sm:w-7" />
+                                                <span className="text-sm font-semibold">Group</span>
+                                                <span className="text-center text-[11px] text-muted-foreground leading-tight sm:text-xs">Group loan with multiple members</span>
                                             </button>
                                         </div>
                                     </FormControl>
@@ -975,18 +978,18 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
 
                 {/* Loan Details */}
                 <div className="space-y-4">
-                    <h3 className="text-lg font-semibold">Loan Details</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <h3 className="text-sm font-semibold">Loan Details</h3>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-4">
                         <FormField
                             control={form.control}
                             name="loan_category"
                             render={({ field }) => (
-                                <FormItem>
+                                <FormItem className="min-w-0">
                                     <FormLabel>Product</FormLabel>
                                     <FormDescription className="text-xs">Purpose of the loan</FormDescription>
                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                                         <FormControl>
-                                            <SelectTrigger>
+                                            <SelectTrigger className="h-8 min-h-8 w-full px-2 text-xs">
                                                 <SelectValue placeholder="Select product" />
                                             </SelectTrigger>
                                         </FormControl>
@@ -1006,12 +1009,12 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                             control={form.control}
                             name="loan_product"
                             render={({ field }) => (
-                                <FormItem>
+                                <FormItem className="min-w-0">
                                     <FormLabel>Loan category</FormLabel>
                                     <FormDescription className="text-xs">Individual or Group lending</FormDescription>
                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                                         <FormControl>
-                                            <SelectTrigger>
+                                            <SelectTrigger className="h-8 min-h-8 w-full px-2 text-xs">
                                                 <SelectValue placeholder="Select loan category" />
                                             </SelectTrigger>
                                         </FormControl>
@@ -1038,9 +1041,11 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                             control={form.control}
                             name="loan_amount"
                             render={({ field }) => (
-                                <FormItem>
+                                <FormItem className="min-w-0">
                                     <FormLabel>Amount (UGX)</FormLabel>
-                                    <FormControl><Input type="number" {...field} /></FormControl>
+                                    <FormControl>
+                                        <Input type="number" className="h-8 min-h-8 w-full px-2 text-xs" {...field} />
+                                    </FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )}
@@ -1049,9 +1054,11 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                             control={form.control}
                             name="loan_duration"
                             render={({ field }) => (
-                                <FormItem>
+                                <FormItem className="min-w-0">
                                     <FormLabel>Duration</FormLabel>
-                                    <FormControl><Input type="number" {...field} placeholder="e.g. 12" /></FormControl>
+                                    <FormControl>
+                                        <Input type="number" className="h-8 min-h-8 w-full px-2 text-xs" {...field} placeholder="e.g. 12" />
+                                    </FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )}
@@ -1064,7 +1071,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                     <FormLabel>Duration Unit</FormLabel>
                                     <Select onValueChange={field.onChange} value={field.value}>
                                         <FormControl>
-                                            <SelectTrigger>
+                                            <SelectTrigger className="h-8 min-h-8 w-full px-2 text-xs">
                                                 <SelectValue placeholder="Unit" />
                                             </SelectTrigger>
                                         </FormControl>
@@ -1085,7 +1092,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                     <FormLabel>Repayment Frequency</FormLabel>
                                     <Select onValueChange={field.onChange} value={field.value}>
                                         <FormControl>
-                                            <SelectTrigger>
+                                            <SelectTrigger className="h-8 min-h-8 w-full px-2 text-xs">
                                                 <SelectValue placeholder="Frequency" />
                                             </SelectTrigger>
                                         </FormControl>
@@ -1106,7 +1113,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                     <FormLabel>Interest Method</FormLabel>
                                     <Select onValueChange={field.onChange} value={field.value}>
                                         <FormControl>
-                                            <SelectTrigger>
+                                            <SelectTrigger className="h-8 min-h-8 w-full px-2 text-xs">
                                                 <SelectValue placeholder="Method" />
                                             </SelectTrigger>
                                         </FormControl>
@@ -1125,9 +1132,11 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                 control={form.control}
                                 name="interest_fixed_amount"
                                 render={({ field }) => (
-                                    <FormItem>
+                                    <FormItem className="min-w-0">
                                         <FormLabel>Fixed Fee (UGX)</FormLabel>
-                                        <FormControl><Input type="number" {...field} placeholder="e.g. 50000" /></FormControl>
+                                        <FormControl>
+                                            <Input type="number" className="h-8 min-h-8 w-full px-2 text-xs" {...field} placeholder="e.g. 50000" />
+                                        </FormControl>
                                         <FormMessage />
                                     </FormItem>
                                 )}
@@ -1137,9 +1146,11 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                 control={form.control}
                                 name="interest_rate"
                                 render={({ field }) => (
-                                    <FormItem>
+                                    <FormItem className="min-w-0">
                                         <FormLabel>Interest Rate (%)</FormLabel>
-                                        <FormControl><Input type="number" step="0.1" {...field} placeholder="e.g. 30" /></FormControl>
+                                        <FormControl>
+                                            <Input type="number" step="0.1" className="h-8 min-h-8 w-full px-2 text-xs" {...field} placeholder="e.g. 30" />
+                                        </FormControl>
                                         <FormMessage />
                                     </FormItem>
                                 )}
@@ -1190,7 +1201,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                         return (
                             <div className="space-y-2">
                                 <p className="text-sm font-medium text-muted-foreground">Loan Summary</p>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 rounded-lg border bg-primary/5 p-4">
+                                <div className="grid grid-cols-1 gap-3 rounded-lg border bg-primary/5 p-3 sm:grid-cols-2 sm:gap-4 sm:p-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                                     <div>
                                         <p className="text-xs text-muted-foreground">Principal</p>
                                         <p className="font-semibold">{principal.toLocaleString()} UGX</p>
@@ -1284,11 +1295,11 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                 <div>
                                     <p className="font-semibold text-xs text-muted-foreground mb-2">A. Application Stage (Payable Regardless of Approval)</p>
                                     <div className="space-y-1">
-                                        <div className="flex justify-between">
+                                        <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between">
                                             <span>Application Fee:</span>
                                             <span className="font-semibold">5,000 UGX</span>
                                         </div>
-                                        <div className="flex justify-between">
+                                        <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between">
                                             <span>Processing Fee:</span>
                                             <span className="font-semibold">5,000 UGX</span>
                                         </div>
@@ -1299,23 +1310,23 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                 <div>
                                     <p className="font-semibold text-xs text-muted-foreground mb-2">B. Upon Approval (Before Disbursement)</p>
                                     <div className="space-y-1">
-                                        <div className="flex justify-between">
+                                        <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between">
                                             <span>Admission Fee:</span>
                                             <span className="font-semibold">5,000 UGX</span>
                                         </div>
-                                        <div className="flex justify-between">
+                                        <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between">
                                             <span>Passbook Fee:</span>
                                             <span className="font-semibold">5,000 UGX</span>
                                         </div>
-                                        <div className="flex justify-between">
-                                            <span>Insurance (1% of principal):</span>
-                                            <span className="font-semibold">
+                                        <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                                            <span className="min-w-0 pr-2">Insurance (1% of principal):</span>
+                                            <span className="shrink-0 font-semibold">
                                                 {(Number(form.watch("loan_amount")) * 0.01).toLocaleString()} UGX
                                             </span>
                                         </div>
-                                        <div className="flex justify-between">
-                                            <span>Security Deposit - 10% (Refundable):</span>
-                                            <span className="font-semibold">
+                                        <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                                            <span className="min-w-0 pr-2">Security Deposit - 10% (Refundable):</span>
+                                            <span className="shrink-0 font-semibold">
                                                 {(Number(form.watch("loan_amount")) * 0.10).toLocaleString()} UGX
                                             </span>
                                         </div>
@@ -1324,9 +1335,9 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
 
                                 {/* Total Upfront Fees */}
                                 <div className="pt-2 border-t">
-                                    <div className="flex justify-between font-bold">
+                                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between font-bold">
                                         <span>Total Upfront Fees:</span>
-                                        <span>
+                                        <span className="break-all sm:break-normal">
                                             {(
                                                 5000 + 5000 + 5000 + 5000 + 5000 +
                                                 (Number(form.watch("loan_amount")) * 0.01) +
@@ -1335,9 +1346,9 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                         </span>
                                     </div>
                                     {form.watch("application_type") === "group" && (groupMembers.length + 1) > 0 && (
-                                        <div className="flex justify-between text-blue-600 font-semibold mt-1">
-                                            <span>Per Member (Total Members: {groupMembers.length + 1}):</span>
-                                            <span>
+                                        <div className="mt-1 flex flex-col gap-1 text-blue-600 sm:flex-row sm:items-center sm:justify-between font-semibold">
+                                            <span className="min-w-0">Per Member (Total Members: {groupMembers.length + 1}):</span>
+                                            <span className="shrink-0">
                                                 {(
                                                     (5000 + 5000 + 5000 + 5000 + 5000 +
                                                         (Number(form.watch("loan_amount")) * 0.01) +
@@ -1357,18 +1368,18 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                 {/* Conditional Fees */}
                                 <div className="pt-2 border-t">
                                     <p className="font-semibold text-xs text-muted-foreground mb-2">C. Conditional Fees (If Applicable)</p>
-                                    <div className="space-y-1 text-xs">
-                                        <div className="flex justify-between">
-                                            <span>Late Payment Penalty (per missed installment):</span>
-                                            <span className="font-medium">5,000 UGX</span>
+                                    <div className="space-y-2 text-xs">
+                                        <div className="flex flex-col gap-0.5 sm:flex-row sm:items-start sm:justify-between">
+                                            <span className="min-w-0 pr-2">Late Payment Penalty (per missed installment):</span>
+                                            <span className="shrink-0 font-medium">5,000 UGX</span>
                                         </div>
-                                        <div className="flex justify-between">
-                                            <span>Loan Restructuring (≤ 600,000 UGX):</span>
-                                            <span className="font-medium">30,000 UGX</span>
+                                        <div className="flex flex-col gap-0.5 sm:flex-row sm:items-start sm:justify-between">
+                                            <span className="min-w-0 pr-2">Loan Restructuring (≤ 600,000 UGX):</span>
+                                            <span className="shrink-0 font-medium">30,000 UGX</span>
                                         </div>
-                                        <div className="flex justify-between">
-                                            <span>Loan Restructuring (&gt; 600,000 UGX):</span>
-                                            <span className="font-medium">60,000 UGX</span>
+                                        <div className="flex flex-col gap-0.5 sm:flex-row sm:items-start sm:justify-between">
+                                            <span className="min-w-0 pr-2">Loan Restructuring (&gt; 600,000 UGX):</span>
+                                            <span className="shrink-0 font-medium">60,000 UGX</span>
                                         </div>
                                     </div>
                                 </div>
@@ -1384,13 +1395,13 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                     {form.watch("application_type") === "group" ? (
                         <Card className="border-2 border-primary/10">
                             <CardHeader className="pb-3">
-                                <CardTitle className="text-base flex items-center gap-2">
-                                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600">
-                                        <Crown className="h-5 w-5" />
+                                <CardTitle className="text-sm flex items-center gap-2">
+                                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600">
+                                        <Crown className="h-4 w-4" />
                                     </div>
                                     Group Leader
                                 </CardTitle>
-                                <p className="text-sm text-muted-foreground mt-1">
+                                <p className="mt-1 text-xs text-muted-foreground">
                                     Select the borrower who will lead this group loan.
                                 </p>
                             </CardHeader>
@@ -1401,12 +1412,12 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                             variant="outline"
                                             role="combobox"
                                             aria-expanded={groupLeaderOpen}
-                                            className="w-full justify-between font-normal h-12 px-4 hover:bg-muted/50"
+                                            className="h-10 w-full justify-between px-3 text-sm font-normal hover:bg-muted/50"
                                         >
                                             {selectedGroupLeader ? (
                                                 <div className="flex items-center gap-3 min-w-0">
-                                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                                        <User className="h-4 w-4" />
+                                                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                                        <User className="h-3.5 w-3.5" />
                                                     </div>
                                                     <div className="flex flex-col items-start text-left min-w-0">
                                                         <span className="font-medium truncate">{selectedGroupLeader.full_name}</span>
@@ -1415,7 +1426,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                                 </div>
                                             ) : (
                                                 <div className="flex items-center gap-3 text-muted-foreground">
-                                                    <Search className="h-5 w-5 shrink-0" />
+                                                    <Search className="h-4 w-4 shrink-0" />
                                                     <span>Search borrower to be group leader...</span>
                                                 </div>
                                             )}
@@ -1445,7 +1456,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                                             className="py-3"
                                                         >
                                                             <div className="flex items-center gap-3">
-                                                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                                                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
                                                                     <User className="h-4 w-4 text-muted-foreground" />
                                                                 </div>
                                                                 <div className="flex flex-col gap-0.5 min-w-0 flex-1">
@@ -1477,13 +1488,13 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                     ) : (
                         <Card className="border-2 border-primary/10">
                             <CardHeader className="pb-3">
-                                <CardTitle className="text-base flex items-center gap-2">
-                                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/15 text-primary">
-                                        <User className="h-5 w-5" />
+                                <CardTitle className="text-sm flex items-center gap-2">
+                                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                                        <User className="h-3.5 w-3.5" />
                                     </div>
                                     Select Borrower
                                 </CardTitle>
-                                <p className="text-sm text-muted-foreground mt-1">
+                                <p className="mt-1 text-xs text-muted-foreground">
                                     Select a registered borrower from the directory. Borrowers are registered first, then attached to loans.
                                 </p>
                             </CardHeader>
@@ -1494,12 +1505,12 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                             variant="outline"
                                             role="combobox"
                                             aria-expanded={individualBorrowerOpen}
-                                            className="w-full justify-between font-normal h-12 px-4 hover:bg-muted/50"
+                                            className="h-10 w-full justify-between px-3 text-sm font-normal hover:bg-muted/50"
                                         >
                                             {selectedBorrowerForIndividual ? (
                                                 <div className="flex items-center gap-3 min-w-0">
-                                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                                        <User className="h-4 w-4" />
+                                                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                                        <User className="h-3.5 w-3.5" />
                                                     </div>
                                                     <div className="flex flex-col items-start text-left min-w-0">
                                                         <span className="font-medium truncate">{selectedBorrowerForIndividual.full_name}</span>
@@ -1508,7 +1519,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                                 </div>
                                             ) : (
                                                 <div className="flex items-center gap-3 text-muted-foreground">
-                                                    <Search className="h-5 w-5 shrink-0" />
+                                                    <Search className="h-4 w-4 shrink-0" />
                                                     <span>Search borrower to attach to this loan...</span>
                                                 </div>
                                             )}
@@ -1539,7 +1550,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                                             className="py-3"
                                                         >
                                                             <div className="flex items-center gap-3">
-                                                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                                                                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
                                                                     <User className="h-4 w-4 text-muted-foreground" />
                                                                 </div>
                                                                 <div className="flex flex-col gap-0.5 min-w-0 flex-1">
@@ -1567,21 +1578,22 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                     {form.watch("application_type") === "group" && (
                         <Card className="border-2 border-primary/10">
                             <CardHeader className="pb-3">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <CardTitle className="text-base flex items-center gap-2">
-                                            <Users className="h-5 w-5 text-primary" />
+                                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                                    <div className="min-w-0">
+                                        <CardTitle className="text-sm flex items-center gap-2">
+                                            <Users className="h-4 w-4 shrink-0 text-primary" />
                                             Other Group Members
                                         </CardTitle>
-                                        <p className="text-sm text-muted-foreground mt-1">
+                                        <p className="mt-1 text-xs text-muted-foreground">
                                             Select existing borrowers. All members serve as co-guarantors for the group&apos;s total loan liability.
                                         </p>
                                     </div>
-                                    <div className="flex gap-2">
+                                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:shrink-0">
                                         <Button
                                             type="button"
                                             variant="outline"
                                             size="sm"
+                                            className="h-9 min-h-9 w-full touch-manipulation text-xs sm:w-auto"
                                             onClick={distributeEqually}
                                             disabled={!form.watch("loan_amount") || (groupMembers.length === 0 && !selectedGroupLeader)}
                                         >
@@ -1589,8 +1601,8 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                         </Button>
                                         <Popover open={addMemberOpen} onOpenChange={setAddMemberOpen}>
                                             <PopoverTrigger asChild>
-                                                <Button type="button" size="sm">
-                                                    <Plus className="mr-2 h-4 w-4" /> Add Member
+                                                <Button type="button" size="sm" className="h-9 min-h-9 w-full touch-manipulation text-xs sm:w-auto">
+                                                    <Plus className="mr-1.5 h-3.5 w-3.5" /> Add Member
                                                 </Button>
                                             </PopoverTrigger>
                                         <PopoverContent
@@ -1646,11 +1658,11 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                         {groupMembers.map((member, index) => (
                                             <div
                                                 key={member.id || index}
-                                                className="flex items-center justify-between gap-3 rounded-lg border bg-muted/40 px-4 py-3 shadow-sm transition-colors hover:bg-muted/60"
+                                                className="flex flex-col gap-3 rounded-lg border bg-muted/40 px-3 py-3 shadow-sm transition-colors hover:bg-muted/60 sm:flex-row sm:items-center sm:justify-between sm:px-4"
                                             >
                                                 <div className="flex items-center gap-3 min-w-0 flex-1">
-                                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                                        <User className="h-4 w-4" />
+                                                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                                        <User className="h-3.5 w-3.5" />
                                                     </div>
                                                     <div className="min-w-0 flex-1">
                                                         <p className="font-medium truncate">{member.full_name || member.name}</p>
@@ -1661,7 +1673,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                                                     type="number"
                                                                     min={0}
                                                                     placeholder="Amount (UGX)"
-                                                                    className="h-8 text-sm"
+                                                                    className="h-7 text-xs"
                                                                     value={member.amount ?? ""}
                                                                     onChange={(e) => updateGroupMemberAmount(index, Number(e.target.value) || 0)}
                                                                 />
@@ -1673,7 +1685,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                                     type="button"
                                                     variant="ghost"
                                                     size="sm"
-                                                    className="shrink-0 text-muted-foreground hover:text-destructive"
+                                                    className="h-8 min-h-8 shrink-0 self-end px-2 text-muted-foreground hover:text-destructive sm:self-auto"
                                                     onClick={() => removeGroupMember(index)}
                                                 >
                                                     <Trash2 className="h-4 w-4" />
@@ -1683,8 +1695,8 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                     </div>
                                 ) : (
                                     <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 bg-muted/20 py-12 px-6 text-center">
-                                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted mb-3">
-                                            <UserPlus className="h-6 w-6 text-muted-foreground" />
+                                        <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                                            <UserPlus className="h-5 w-5 text-muted-foreground" />
                                         </div>
                                         <p className="font-medium text-muted-foreground">No members added yet</p>
                                         <p className="text-sm text-muted-foreground mt-1">
@@ -1749,9 +1761,9 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                     <>
                         <Card className="border-2 border-primary/10">
                             <CardHeader className="pb-3">
-                                <CardTitle className="text-base flex items-center gap-2">
-                                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/15 text-primary">
-                                        <Shield className="h-5 w-5" />
+                                <CardTitle className="text-sm flex items-center gap-2">
+                                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                                        <Shield className="h-4 w-4" />
                                     </div>
                                     Security & Collateral (Secured Loans Only)
                                 </CardTitle>
@@ -1849,11 +1861,11 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                                 variant="outline"
                                                 role="combobox"
                                                 aria-expanded={collateralOpen}
-                                                className="w-full justify-between font-normal h-12 px-4 mt-2 hover:bg-muted/50"
+                                                className="mt-2 h-10 w-full justify-between px-3 text-sm font-normal hover:bg-muted/50"
                                             >
                                                 {selectedCollateral ? (
                                                     <div className="flex items-center gap-3 min-w-0">
-                                                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
                                                             <Shield className="h-4 w-4" />
                                                         </div>
                                                         <div className="flex flex-col items-start text-left min-w-0">
@@ -1865,7 +1877,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                                     </div>
                                                 ) : (
                                                     <div className="flex items-center gap-3 text-muted-foreground">
-                                                        <Search className="h-5 w-5 shrink-0" />
+                                                        <Search className="h-4 w-4 shrink-0" />
                                                         <span>Open list to search or pick collateral…</span>
                                                     </div>
                                                 )}
@@ -1908,7 +1920,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                                                 className="py-3"
                                                             >
                                                                 <div className="flex items-center gap-3">
-                                                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                                                                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
                                                                         <Shield className="h-4 w-4 text-muted-foreground" />
                                                                     </div>
                                                                     <div className="flex flex-col gap-0.5 min-w-0 flex-1">
@@ -1953,8 +1965,8 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                         <CardHeader className="pb-3">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <CardTitle className="text-base flex items-center gap-2">
-                                        <Shield className="h-5 w-5 text-primary" />
+                                    <CardTitle className="text-sm flex items-center gap-2">
+                                        <Shield className="h-4 w-4 text-primary" />
                                         Guarantors
                                     </CardTitle>
                                     <p className="text-sm text-muted-foreground mt-1">
@@ -2014,7 +2026,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                             className="flex items-center justify-between rounded-lg border bg-muted/40 px-4 py-3 shadow-sm transition-colors hover:bg-muted/60"
                                         >
                                             <div className="flex items-center gap-3 min-w-0">
-                                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
                                                     <Shield className="h-4 w-4" />
                                                 </div>
                                                 <div className="min-w-0">
@@ -2044,9 +2056,13 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                     </Card>
                 )}
 
-                <div className="flex justify-end gap-2 pt-4">
-                    <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
-                    <Button type="submit">Submit Application</Button>
+                <div className="flex flex-col-reverse gap-2 pt-3 sm:flex-row sm:justify-end">
+                    <Button type="button" variant="outline" size="sm" onClick={onCancel} className="h-9 min-h-9 w-full text-xs touch-manipulation sm:w-auto">
+                        Cancel
+                    </Button>
+                    <Button type="submit" size="sm" className="h-9 min-h-9 w-full text-xs touch-manipulation sm:w-auto">
+                        Submit Application
+                    </Button>
                 </div>
             </form>
         </Form >

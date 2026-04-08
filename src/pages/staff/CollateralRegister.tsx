@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -135,31 +135,36 @@ const CollateralRegister = () => {
 
     return (
         <SidebarProvider>
-            <div className="min-h-screen flex w-full">
+            <div className="flex min-h-screen w-full min-w-0 overflow-x-hidden">
                 <StaffSidebar />
-                <div className="flex-1 flex flex-col">
+                <div className="flex min-w-0 flex-1 flex-col">
                     <StaffHeader />
-                    <main className="flex-1 p-4 md:p-8 bg-muted/20">
-                        <div className="max-w-7xl mx-auto space-y-6">
-                            <div className="flex justify-between items-center">
-                                <div>
-                                    <h1 className="text-3xl font-bold">Collateral Register</h1>
-                                    <p className="text-muted-foreground">Manage and track borrower collateral assets.</p>
+                    <main className="min-w-0 flex-1 overflow-x-clip bg-muted/20 p-3 sm:p-4 md:p-8">
+                        <div className="mx-auto w-full min-w-0 max-w-7xl space-y-4 sm:space-y-6">
+                            <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
+                                <div className="min-w-0 max-w-full">
+                                    <h1 className="text-xl font-bold tracking-tight sm:text-2xl md:text-3xl">Collateral Register</h1>
+                                    <p className="mt-1 break-words text-sm text-muted-foreground sm:text-base">
+                                        Manage and track borrower collateral assets.
+                                    </p>
                                 </div>
-                                <Button className="gap-2 shadow-md" onClick={() => navigate("/staff-dashboard/collateral/add")}>
-                                    <Plus className="h-4 w-4" /> Add Collateral
+                                <Button
+                                    className="h-10 w-full gap-2 shadow-md touch-manipulation lg:w-auto"
+                                    onClick={() => navigate("/staff-dashboard/collateral/add")}
+                                >
+                                    <Plus className="h-4 w-4 shrink-0" /> Add Collateral
                                 </Button>
                             </div>
 
-                            <Card>
-                                <CardHeader className="pb-3 border-b">
-                                    <div className="flex items-center justify-between">
-                                        <CardTitle className="text-lg flex items-center gap-2">
-                                            <Filter className="h-5 w-5 text-primary" />
-                                            Advanced Search:
+                            <Card className="min-w-0 max-w-full border shadow-sm">
+                                <CardHeader className="min-w-0 space-y-3 border-b pb-3">
+                                    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                        <CardTitle className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-base sm:text-lg">
+                                            <Filter className="h-4 w-4 shrink-0 text-primary sm:h-5 sm:w-5" />
+                                            <span className="shrink-0">Advanced Search:</span>
                                             <Button
                                                 variant="link"
-                                                className="p-0 h-auto font-bold"
+                                                className="h-auto min-h-0 p-0 font-semibold"
                                                 onClick={() => setShowAdvanced(!showAdvanced)}
                                             >
                                                 Click here to {showAdvanced ? "Hide" : "Show"}
@@ -211,85 +216,145 @@ const CollateralRegister = () => {
                                         </div>
                                     )}
                                 </CardHeader>
-                                <CardContent className="pt-6">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                            Show
-                                            <select className="border rounded px-1 py-0.5">
+                                <CardContent className="min-w-0 px-4 pb-4 pt-4 sm:px-6 sm:pb-6">
+                                    <div className="mb-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                                            <span>Show</span>
+                                            <select className="rounded border bg-background px-2 py-1 text-sm">
                                                 <option>100</option>
                                                 <option>50</option>
                                                 <option>25</option>
                                             </select>
-                                            entries
+                                            <span>entries</span>
                                         </div>
-                                        <div className="relative w-64">
-                                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                                            <Input 
-                                                placeholder="Search table..." 
-                                                className="pl-9 h-9" 
+                                        <div className="relative min-w-0 w-full sm:max-w-xs">
+                                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                                            <Input
+                                                placeholder="Search table..."
+                                                className="h-9 w-full min-w-0 pl-9 text-sm"
                                                 value={searchTerm}
                                                 onChange={(e) => setSearchTerm(e.target.value)}
                                             />
                                         </div>
                                     </div>
 
-                                    <div className="rounded-md border overflow-hidden">
-                                        <Table>
-                                            <TableHeader className="bg-muted/50">
-                                                <TableRow>
-                                                    <TableHead className="w-[80px]">View</TableHead>
-                                                    <TableHead>Borrower</TableHead>
-                                                    <TableHead>Name</TableHead>
-                                                    <TableHead>Model</TableHead>
-                                                    <TableHead>Serial Number</TableHead>
-                                                    <TableHead>Status</TableHead>
-                                                    <TableHead>Condition</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {loading ? (
-                                                    <TableRow>
-                                                        <TableCell colSpan={7} className="text-center py-20">
-                                                            <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary mb-2" />
-                                                            <p className="text-muted-foreground text-xs">Loading collateral assets...</p>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ) : filteredCollaterals.length === 0 ? (
-                                                    <TableRow>
-                                                        <TableCell colSpan={7} className="text-center py-20">
-                                                            <p className="text-muted-foreground">No collateral assets found.</p>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ) : (
-                                                    filteredCollaterals.map(c => (
-                                                        <TableRow key={c.id}>
-                                                            <TableCell>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="h-8 w-8 p-0"
-                                                                    onClick={() => openEditDialog(c)}
-                                                                    title="View / Edit"
+                                    {loading ? (
+                                        <div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground">
+                                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                                            <p className="text-center text-sm">Loading collateral assets...</p>
+                                        </div>
+                                    ) : filteredCollaterals.length === 0 ? (
+                                        <p className="min-w-0 break-words px-1 py-10 text-center text-sm text-muted-foreground">
+                                            No collateral assets found.
+                                        </p>
+                                    ) : (
+                                        <>
+                                            <div className="space-y-3 lg:hidden">
+                                                {filteredCollaterals.map((c) => (
+                                                    <Card key={c.id} className="min-w-0 overflow-hidden shadow-sm">
+                                                        <CardContent className="min-w-0 space-y-3 p-4">
+                                                            <div className="min-w-0">
+                                                                <div className="font-medium text-blue-800 dark:text-blue-300">
+                                                                    {c.client_name || "N/A"}
+                                                                </div>
+                                                                <p className="mt-1 text-sm leading-snug">{c.description}</p>
+                                                            </div>
+                                                            <div className="grid grid-cols-2 gap-2 text-sm">
+                                                                <div>
+                                                                    <span className="block text-xs text-muted-foreground">Model / type</span>
+                                                                    <span>{c.make_model || c.type || "—"}</span>
+                                                                </div>
+                                                                <div>
+                                                                    <span className="block text-xs text-muted-foreground">Serial #</span>
+                                                                    <span className="break-all font-mono text-xs">
+                                                                        {c.serial_number || c.plate_number || "—"}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="col-span-2">
+                                                                    <span className="block text-xs text-muted-foreground">Condition</span>
+                                                                    <span>{c.condition || "—"}</span>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+                                                                <Badge
+                                                                    className={
+                                                                        (c.status || "").includes("Branch")
+                                                                            ? "bg-green-100 text-green-800"
+                                                                            : "bg-blue-100 text-blue-800"
+                                                                    }
                                                                 >
-                                                                    <LayoutGrid className="h-4 w-4 text-primary" />
-                                                                </Button>
-                                                            </TableCell>
-                                                            <TableCell className="font-medium text-blue-700">{c.client_name || 'N/A'}</TableCell>
-                                                            <TableCell>{c.description}</TableCell>
-                                                            <TableCell>{c.make_model || c.type}</TableCell>
-                                                            <TableCell className="font-mono text-xs">{c.serial_number || c.plate_number || '---'}</TableCell>
-                                                            <TableCell>
-                                                                <Badge className={(c.status || "").includes("Branch") ? "bg-green-100 text-green-800" : "bg-blue-100 text-blue-800"}>
-                                                                    {c.status || 'Active'}
+                                                                    {c.status || "Active"}
                                                                 </Badge>
-                                                            </TableCell>
-                                                            <TableCell>{c.condition || '---'}</TableCell>
-                                                        </TableRow>
-                                                    ))
-                                                )}
-                                            </TableBody>
-                                        </Table>
-                                    </div>
+                                                                <Button
+                                                                    variant="secondary"
+                                                                    size="sm"
+                                                                    className="min-h-10 touch-manipulation"
+                                                                    onClick={() => openEditDialog(c)}
+                                                                >
+                                                                    <LayoutGrid className="mr-2 h-4 w-4" />
+                                                                    View / Edit
+                                                                </Button>
+                                                            </div>
+                                                        </CardContent>
+                                                    </Card>
+                                                ))}
+                                            </div>
+                                            <div className="hidden min-w-0 lg:block">
+                                                <div className="w-full max-w-full min-w-0 overflow-x-auto overscroll-x-contain rounded-md border [-webkit-overflow-scrolling:touch]">
+                                                    <Table className="min-w-[52rem] w-full text-xs sm:text-sm">
+                                                        <TableHeader className="bg-muted/50">
+                                                            <TableRow>
+                                                                <TableHead className="w-[80px]">View</TableHead>
+                                                                <TableHead>Borrower</TableHead>
+                                                                <TableHead>Name</TableHead>
+                                                                <TableHead>Model</TableHead>
+                                                                <TableHead>Serial Number</TableHead>
+                                                                <TableHead>Status</TableHead>
+                                                                <TableHead>Condition</TableHead>
+                                                            </TableRow>
+                                                        </TableHeader>
+                                                        <TableBody>
+                                                            {filteredCollaterals.map((c) => (
+                                                                <TableRow key={c.id}>
+                                                                    <TableCell>
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="sm"
+                                                                            className="h-8 w-8 p-0"
+                                                                            onClick={() => openEditDialog(c)}
+                                                                            title="View / Edit"
+                                                                        >
+                                                                            <LayoutGrid className="h-4 w-4 text-primary" />
+                                                                        </Button>
+                                                                    </TableCell>
+                                                                    <TableCell className="font-medium text-blue-700">
+                                                                        {c.client_name || "N/A"}
+                                                                    </TableCell>
+                                                                    <TableCell>{c.description}</TableCell>
+                                                                    <TableCell>{c.make_model || c.type}</TableCell>
+                                                                    <TableCell className="font-mono text-xs">
+                                                                        {c.serial_number || c.plate_number || "---"}
+                                                                    </TableCell>
+                                                                    <TableCell>
+                                                                        <Badge
+                                                                            className={
+                                                                                (c.status || "").includes("Branch")
+                                                                                    ? "bg-green-100 text-green-800"
+                                                                                    : "bg-blue-100 text-blue-800"
+                                                                            }
+                                                                        >
+                                                                            {c.status || "Active"}
+                                                                        </Badge>
+                                                                    </TableCell>
+                                                                    <TableCell>{c.condition || "---"}</TableCell>
+                                                                </TableRow>
+                                                            ))}
+                                                        </TableBody>
+                                                    </Table>
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
                                 </CardContent>
                             </Card>
                         </div>

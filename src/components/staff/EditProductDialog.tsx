@@ -315,7 +315,7 @@ export function EditProductDialog({ open, onOpenChange, product, mode = "edit", 
                         defaultValue="terms"
                         className="flex-1 flex flex-col min-h-0 px-6"
                     >
-                        <TabsList className="grid w-full grid-cols-4 mb-2">
+                        <TabsList className="mb-2 grid w-full grid-cols-2 gap-1 sm:grid-cols-4">
                             <TabsTrigger value="terms" className="text-xs">
                                 Terms
                             </TabsTrigger>

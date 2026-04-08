@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { FileText, Users, Plus, Search, CheckCircle, XCircle, Clock, Eye, DollarSign, Edit } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { staffTabButtonClass, staffTabRowClass } from "@/lib/staffNavClasses";
 
 interface LoanApplication {
   id: string;
@@ -382,18 +383,18 @@ const LoanApplications = () => {
               </div>
 
               {/* Status Tabs */}
-              <div className="flex gap-2 border-b pb-2 overflow-x-auto flex-nowrap -mx-1 px-1 touch-pan-x">
+              <div className={staffTabRowClass}>
                 <Button
                   variant={statusFilter === "all" ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/applications")}
-                  className="rounded-b-none shrink-0 min-h-10 touch-manipulation"
+                  className={staffTabButtonClass}
                 >
                   All Applications
                 </Button>
                 <Button
                   variant={statusFilter === "pending" ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/applications/pending")}
-                  className="rounded-b-none shrink-0 min-h-10 touch-manipulation"
+                  className={staffTabButtonClass}
                 >
                   <Clock className="mr-2 h-4 w-4" />
                   Pending
@@ -401,7 +402,7 @@ const LoanApplications = () => {
                 <Button
                   variant={statusFilter === "approved" ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/applications/approved")}
-                  className="rounded-b-none shrink-0 min-h-10 touch-manipulation"
+                  className={staffTabButtonClass}
                 >
                   <CheckCircle className="mr-2 h-4 w-4" />
                   Approved
@@ -409,7 +410,7 @@ const LoanApplications = () => {
                 <Button
                   variant={statusFilter === "rejected" ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/applications/rejected")}
-                  className="rounded-b-none shrink-0 min-h-10 touch-manipulation"
+                  className={staffTabButtonClass}
                 >
                   <XCircle className="mr-2 h-4 w-4" />
                   Rejected

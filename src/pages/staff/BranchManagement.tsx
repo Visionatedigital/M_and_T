@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Building2, BarChart3, MapPin, Phone, Mail, FileText, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { staffTabButtonClass, staffTabRowClass } from "@/lib/staffNavClasses";
 
 interface Branch {
   id: string;
@@ -124,29 +125,29 @@ const BranchManagement = () => {
               </div>
 
               {/* Navigation Tabs */}
-              <div className="flex gap-2 border-b pb-2">
+              <div className={staffTabRowClass}>
                 <Button
                   variant={location.pathname.includes("/performance") ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/branches/performance")}
-                  className="rounded-b-none"
+                  className={staffTabButtonClass}
                 >
-                  <BarChart3 className="mr-2 h-4 w-4" />
+                  <BarChart3 className="mr-1.5 h-4 w-4 shrink-0 sm:mr-2" />
                   Branch Performance
                 </Button>
                 <Button
                   variant={location.pathname.includes("/territories") ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/branches/territories")}
-                  className="rounded-b-none"
+                  className={staffTabButtonClass}
                 >
-                  <Building2 className="mr-2 h-4 w-4" />
+                  <Building2 className="mr-1.5 h-4 w-4 shrink-0 sm:mr-2" />
                   Territory Management
                 </Button>
                 <Button
                   variant={location.pathname.includes("/transfers") ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/branches/transfers")}
-                  className="rounded-b-none"
+                  className={staffTabButtonClass}
                 >
-                  <FileText className="mr-2 h-4 w-4" />
+                  <FileText className="mr-1.5 h-4 w-4 shrink-0 sm:mr-2" />
                   Branch Transfers
                 </Button>
               </div>

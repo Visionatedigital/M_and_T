@@ -4,7 +4,7 @@ import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Eye, Download, Printer, Filter, Plus, Banknote } from "lucide-react";
 import { RecordPaymentDialog, suggestInstallmentAmount } from "@/components/staff/RecordPaymentDialog";
 import { useToast } from "@/hooks/use-toast";
+import { useUserRole } from "@/hooks/useUserRole";
 
 interface Loan {
     id: string;
@@ -38,6 +39,7 @@ interface LoansListProps {
 const LoansList = ({ title, description, filterType }: LoansListProps) => {
     const navigate = useNavigate();
     const { toast } = useToast();
+    const { isLoanOfficer, loading: roleLoading } = useUserRole();
     const [isLoading, setIsLoading] = useState(true);
     const [loans, setLoans] = useState<Loan[]>([]);
     const [searchTerm, setSearchTerm] = useState("");
@@ -104,48 +106,55 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
 
     return (
         <SidebarProvider>
-            <div className="min-h-screen flex w-full">
+            <div className="flex min-h-screen w-full min-w-0 overflow-x-hidden">
                 <StaffSidebar />
-                <div className="flex-1 flex flex-col">
+                <div className="flex min-w-0 flex-1 flex-col">
                     <StaffHeader />
-                    <main className="flex-1 p-4 md:p-8 bg-muted/20">
-                        <div className="max-w-7xl mx-auto space-y-6">
-                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                <div>
-                                    <h1 className="text-3xl font-bold">{title}</h1>
-                                    <p className="text-muted-foreground">{description}</p>
+                    <main className="min-w-0 flex-1 overflow-x-clip bg-muted/20 p-3 sm:p-4 md:p-8">
+                        <div className="mx-auto w-full min-w-0 max-w-7xl space-y-4 sm:space-y-6">
+                            <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
+                                <div className="min-w-0 max-w-full">
+                                    <h1 className="text-xl font-bold tracking-tight sm:text-2xl md:text-3xl">{title}</h1>
+                                    <p className="mt-1 break-words text-sm text-muted-foreground sm:text-base">{description}</p>
                                 </div>
-                                <div className="flex gap-2">
-                                    <Button variant="outline" size="sm" className="gap-2">
-                                        <Download className="h-4 w-4" /> Export
-                                    </Button>
-                                    <Button variant="outline" size="sm" className="gap-2">
-                                        <Printer className="h-4 w-4" /> Print
-                                    </Button>
-                                    <Button onClick={() => navigate("/staff-dashboard/loans/add")} className="gap-2 shadow-md">
-                                        <Plus className="h-4 w-4" /> Add Loan
+                                <div className="flex min-w-0 w-full flex-col gap-2 lg:flex-row lg:flex-wrap lg:justify-end lg:w-auto lg:max-w-none">
+                                    {!roleLoading && !isLoanOfficer && (
+                                        <>
+                                            <Button variant="outline" size="sm" className="h-9 w-full shrink-0 gap-2 touch-manipulation lg:w-auto lg:min-w-0">
+                                                <Download className="h-4 w-4 shrink-0" /> Export
+                                            </Button>
+                                            <Button variant="outline" size="sm" className="h-9 w-full shrink-0 gap-2 touch-manipulation lg:w-auto lg:min-w-0">
+                                                <Printer className="h-4 w-4 shrink-0" /> Print
+                                            </Button>
+                                        </>
+                                    )}
+                                    <Button onClick={() => navigate("/staff-dashboard/loans/add")} className="h-9 w-full gap-2 shadow-md touch-manipulation lg:w-auto">
+                                        <Plus className="h-4 w-4 shrink-0" /> Add Loan
                                     </Button>
                                 </div>
                             </div>
 
-                            <Card className="border-none shadow-sm">
-                                <CardHeader className="pb-3">
-                                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                        <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                                            Loans Database
-                                        </CardTitle>
-                                        <div className="flex items-center gap-2">
-                                            <div className="relative w-full md:w-96">
-                                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Card className="min-w-0 max-w-full border-none shadow-sm">
+                                <CardHeader className="min-w-0 space-y-4 pb-3 pt-4 sm:pt-6">
+                                    <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+                                        <CardTitle className="text-base font-semibold sm:text-lg">Loans Database</CardTitle>
+                                        <div className="flex min-w-0 w-full flex-col gap-2 lg:flex-row lg:items-stretch lg:gap-2 lg:w-auto lg:max-w-xl">
+                                            <div className="relative min-w-0 w-full flex-1 lg:max-w-md">
+                                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 shrink-0 text-muted-foreground" />
                                                 <Input
                                                     placeholder="Search by name, loan #..."
-                                                    className="pl-9 h-10 w-full"
+                                                    className="h-9 w-full min-w-0 pl-9 text-sm"
                                                     value={searchTerm}
                                                     onChange={(e) => setSearchTerm(e.target.value)}
                                                 />
                                             </div>
-                                            <Button variant="outline" size="sm" onClick={() => setShowAdvanced(!showAdvanced)} className="gap-2 h-10">
-                                                <Filter className="h-4 w-4" /> Advanced Filter
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setShowAdvanced(!showAdvanced)}
+                                                className="h-9 w-full shrink-0 gap-2 touch-manipulation lg:w-auto"
+                                            >
+                                                <Filter className="h-4 w-4 shrink-0" /> Advanced Filter
                                             </Button>
                                         </div>
                                     </div>
@@ -198,94 +207,205 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
                                         </div>
                                     )}
                                 </CardHeader>
-                                <CardContent>
-                                    <div className="rounded-md border">
-                                        <Table>
-                                            <TableHeader className="bg-muted/50">
-                                                <TableRow>
-                                                    <TableHead className="w-[140px]">Actions</TableHead>
-                                                    <TableHead>Released</TableHead>
-                                                    <TableHead>Name</TableHead>
-                                                    <TableHead>Loan#</TableHead>
-                                                    <TableHead className="text-right">Principal</TableHead>
-                                                    <TableHead>Interest Rate</TableHead>
-                                                    <TableHead className="text-right">Total Due</TableHead>
-                                                    <TableHead className="text-right">Paid</TableHead>
-                                                    <TableHead className="text-right">Balance</TableHead>
-                                                    <TableHead>Last Payment</TableHead>
-                                                    <TableHead>Status</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {isLoading ? (
-                                                    <TableRow>
-                                                        <TableCell colSpan={11} className="h-24 text-center">
-                                                            <div className="flex items-center justify-center gap-2">
-                                                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
-                                                                Loading loans...
+                                <CardContent className="min-w-0 px-4 pb-4 pt-0 sm:px-6 sm:pb-6">
+                                    {isLoading ? (
+                                        <div className="flex h-28 items-center justify-center gap-2 text-sm text-muted-foreground">
+                                            <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-primary" />
+                                            Loading loans...
+                                        </div>
+                                    ) : filteredLoans.length === 0 ? (
+                                        <p className="min-w-0 break-words px-1 py-10 text-center text-sm text-muted-foreground">
+                                            No loans found matching your criteria.
+                                        </p>
+                                    ) : (
+                                        <>
+                                            <div className="space-y-3 lg:hidden">
+                                                {filteredLoans.map((loan) => (
+                                                    <Card key={loan.id} className="min-w-0 overflow-hidden shadow-sm">
+                                                        <CardContent className="min-w-0 space-y-3 p-4">
+                                                            <div className="min-w-0">
+                                                                <div className="font-medium leading-snug">{loan.borrower_name}</div>
+                                                                <p className="mt-0.5 break-all font-mono text-xs text-muted-foreground">
+                                                                    {loan.loan_number}
+                                                                </p>
                                                             </div>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ) : filteredLoans.length === 0 ? (
-                                                    <TableRow>
-                                                        <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">
-                                                            No loans found matching your criteria.
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ) : (
-                                                    filteredLoans.map((loan) => (
-                                                        <TableRow key={loan.id} className="hover:bg-muted/30 transition-colors">
-                                                            <TableCell>
-                                                                <div className="flex items-center gap-1">
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="icon"
-                                                                        title="View loan"
-                                                                        onClick={() => navigate(`/staff-dashboard/loans/details/${loan.id}`)}
-                                                                    >
-                                                                        <Eye className="h-4 w-4 text-primary" />
-                                                                    </Button>
-                                                                    <Button
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        className="h-8 gap-1 text-primary"
-                                                                        title="Record payment"
-                                                                        onClick={() => setPayLoan(loan)}
-                                                                    >
-                                                                        <Banknote className="h-3.5 w-3.5" />
-                                                                        Pay
-                                                                    </Button>
+                                                            <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                                                                <div>
+                                                                    <span className="block text-xs text-muted-foreground">Released</span>
+                                                                    <span className="text-xs">
+                                                                        {new Date(loan.released_date).toLocaleDateString()}
+                                                                    </span>
                                                                 </div>
-                                                            </TableCell>
-                                                            <TableCell className="text-xs">
-                                                                {new Date(loan.released_date).toLocaleDateString()}
-                                                            </TableCell>
-                                                            <TableCell className="font-medium">{loan.borrower_name}</TableCell>
-                                                            <TableCell className="text-xs font-mono">{loan.loan_number}</TableCell>
-                                                            <TableCell className="text-right">{loan.principal.toLocaleString()}</TableCell>
-                                                            <TableCell className="text-xs">{loan.interest_rate}</TableCell>
-                                                            <TableCell className="text-right">{loan.total_due.toLocaleString()}</TableCell>
-                                                            <TableCell className="text-right text-green-600">{loan.paid.toLocaleString()}</TableCell>
-                                                            <TableCell className="text-right font-semibold text-red-600">
-                                                                {loan.balance.toLocaleString()}
-                                                            </TableCell>
-                                                            <TableCell className="text-xs text-muted-foreground">
-                                                                {loan.last_payment_date}
-                                                            </TableCell>
-                                                            <TableCell>
+                                                                <div>
+                                                                    <span className="block text-xs text-muted-foreground">Interest</span>
+                                                                    <span className="text-xs">{loan.interest_rate}</span>
+                                                                </div>
+                                                                <div>
+                                                                    <span className="block text-xs text-muted-foreground">Principal</span>
+                                                                    <span>UGX {loan.principal.toLocaleString()}</span>
+                                                                </div>
+                                                                <div>
+                                                                    <span className="block text-xs text-muted-foreground">Total due</span>
+                                                                    <span>UGX {loan.total_due.toLocaleString()}</span>
+                                                                </div>
+                                                                <div>
+                                                                    <span className="block text-xs text-muted-foreground">Paid</span>
+                                                                    <span className="text-green-700">UGX {loan.paid.toLocaleString()}</span>
+                                                                </div>
+                                                                <div>
+                                                                    <span className="block text-xs text-muted-foreground">Balance</span>
+                                                                    <span className="font-semibold text-red-600">
+                                                                        UGX {loan.balance.toLocaleString()}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="col-span-2">
+                                                                    <span className="block text-xs text-muted-foreground">Last payment</span>
+                                                                    <span className="text-xs text-muted-foreground">
+                                                                        {loan.last_payment_date}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex flex-wrap items-center gap-2">
                                                                 <Badge
-                                                                    variant={loan.status === 'Current' ? 'secondary' : 'outline'}
-                                                                    className={loan.status === 'Current' ? 'bg-green-100 text-green-800 border-none' : ''}
+                                                                    variant={loan.status === "Current" ? "secondary" : "outline"}
+                                                                    className={
+                                                                        loan.status === "Current"
+                                                                            ? "border-none bg-green-100 text-green-800"
+                                                                            : ""
+                                                                    }
                                                                 >
                                                                     {loan.status}
                                                                 </Badge>
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    ))
-                                                )}
-                                            </TableBody>
-                                        </Table>
-                                    </div>
+                                                            </div>
+                                                            <div className="flex flex-wrap gap-2 border-t pt-3">
+                                                                <Button
+                                                                    variant="secondary"
+                                                                    size="sm"
+                                                                    className="min-h-10 touch-manipulation"
+                                                                    onClick={() =>
+                                                                        navigate(`/staff-dashboard/loans/details/${loan.id}`)
+                                                                    }
+                                                                >
+                                                                    <Eye className="mr-2 h-4 w-4" />
+                                                                    View
+                                                                </Button>
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    className="min-h-10 touch-manipulation text-primary"
+                                                                    onClick={() => setPayLoan(loan)}
+                                                                >
+                                                                    <Banknote className="mr-2 h-3.5 w-3.5" />
+                                                                    Pay
+                                                                </Button>
+                                                            </div>
+                                                        </CardContent>
+                                                    </Card>
+                                                ))}
+                                            </div>
+                                            <div className="hidden min-w-0 lg:block">
+                                                <div className="w-full max-w-full min-w-0 overflow-x-auto overscroll-x-contain rounded-md border [-webkit-overflow-scrolling:touch]">
+                                                    <Table className="min-w-[52rem] text-xs sm:text-sm">
+                                                        <TableHeader className="bg-muted/50">
+                                                            <TableRow>
+                                                                <TableHead className="w-[128px] whitespace-nowrap sm:w-[140px]">
+                                                                    Actions
+                                                                </TableHead>
+                                                                <TableHead>Released</TableHead>
+                                                                <TableHead>Name</TableHead>
+                                                                <TableHead>Loan#</TableHead>
+                                                                <TableHead className="text-right">Principal</TableHead>
+                                                                <TableHead>Interest Rate</TableHead>
+                                                                <TableHead className="text-right">Total Due</TableHead>
+                                                                <TableHead className="text-right">Paid</TableHead>
+                                                                <TableHead className="text-right">Balance</TableHead>
+                                                                <TableHead>Last Payment</TableHead>
+                                                                <TableHead>Status</TableHead>
+                                                            </TableRow>
+                                                        </TableHeader>
+                                                        <TableBody>
+                                                            {filteredLoans.map((loan) => (
+                                                                <TableRow
+                                                                    key={loan.id}
+                                                                    className="transition-colors hover:bg-muted/30"
+                                                                >
+                                                                    <TableCell>
+                                                                        <div className="flex items-center gap-1">
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="icon"
+                                                                                title="View loan"
+                                                                                onClick={() =>
+                                                                                    navigate(
+                                                                                        `/staff-dashboard/loans/details/${loan.id}`,
+                                                                                    )
+                                                                                }
+                                                                            >
+                                                                                <Eye className="h-4 w-4 text-primary" />
+                                                                            </Button>
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                className="h-8 gap-1 text-primary"
+                                                                                title="Record payment"
+                                                                                onClick={() => setPayLoan(loan)}
+                                                                            >
+                                                                                <Banknote className="h-3.5 w-3.5" />
+                                                                                Pay
+                                                                            </Button>
+                                                                        </div>
+                                                                    </TableCell>
+                                                                    <TableCell className="text-xs">
+                                                                        {new Date(loan.released_date).toLocaleDateString()}
+                                                                    </TableCell>
+                                                                    <TableCell className="font-medium">
+                                                                        {loan.borrower_name}
+                                                                    </TableCell>
+                                                                    <TableCell className="font-mono text-xs">
+                                                                        {loan.loan_number}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-right">
+                                                                        {loan.principal.toLocaleString()}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-xs">
+                                                                        {loan.interest_rate}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-right">
+                                                                        {loan.total_due.toLocaleString()}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-right text-green-600">
+                                                                        {loan.paid.toLocaleString()}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-right font-semibold text-red-600">
+                                                                        {loan.balance.toLocaleString()}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-xs text-muted-foreground">
+                                                                        {loan.last_payment_date}
+                                                                    </TableCell>
+                                                                    <TableCell>
+                                                                        <Badge
+                                                                            variant={
+                                                                                loan.status === "Current"
+                                                                                    ? "secondary"
+                                                                                    : "outline"
+                                                                            }
+                                                                            className={
+                                                                                loan.status === "Current"
+                                                                                    ? "border-none bg-green-100 text-green-800"
+                                                                                    : ""
+                                                                            }
+                                                                        >
+                                                                            {loan.status}
+                                                                        </Badge>
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            ))}
+                                                        </TableBody>
+                                                    </Table>
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
                                 </CardContent>
                             </Card>
                         </div>

@@ -351,25 +351,34 @@ const Repayments = () => {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full">
+      <div className="flex min-h-screen w-full min-w-0 overflow-x-hidden">
         <StaffSidebar />
-        <div className="flex-1 flex flex-col">
+        <div className="flex min-w-0 flex-1 flex-col">
           <StaffHeader />
-          <main className="flex-1 p-4 md:p-8 bg-gradient-to-b from-background to-muted/20">
-            <div className="max-w-7xl mx-auto space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-3xl font-bold mb-2">Repayments</h1>
-                  <p className="text-muted-foreground">Monitor and record loan repayments</p>
+          <main className="min-w-0 flex-1 overflow-x-clip bg-gradient-to-b from-background to-muted/20 p-3 sm:p-4 md:p-8">
+            <div className="mx-auto w-full min-w-0 max-w-7xl space-y-4 sm:space-y-6">
+              <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
+                <div className="min-w-0 max-w-full">
+                  <h1 className="text-xl font-bold tracking-tight sm:text-2xl md:text-3xl">Repayments</h1>
+                  <p className="mt-1 break-words text-sm text-muted-foreground sm:text-base">
+                    Monitor and record loan repayments
+                  </p>
                 </div>
-                <Button onClick={() => { setSelectedMemberName(""); setSelectedMemberOutstanding(null); setIsDialogOpen(true); }} className="gap-2">
-                  <Plus className="h-4 w-4" />
+                <Button
+                  onClick={() => {
+                    setSelectedMemberName("");
+                    setSelectedMemberOutstanding(null);
+                    setIsDialogOpen(true);
+                  }}
+                  className="h-10 w-full gap-2 touch-manipulation lg:w-auto"
+                >
+                  <Plus className="h-4 w-4 shrink-0" />
                   Record Payment
                 </Button>
               </div>
 
               {/* Statistics */}
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-3 sm:gap-4 md:grid-cols-3">
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Expected Today</CardTitle>
@@ -409,22 +418,22 @@ const Repayments = () => {
               </div>
 
               {/* Filters */}
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex flex-wrap gap-4">
-                    <div className="flex-1 min-w-[200px]">
+              <Card className="min-w-0 max-w-full">
+                <CardContent className="min-w-0 p-4">
+                  <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-stretch">
+                    <div className="min-w-0 w-full flex-1 sm:min-w-[200px]">
                       <div className="relative">
-                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Search className="absolute left-2 top-2.5 h-4 w-4 shrink-0 text-muted-foreground" />
                         <Input
                           placeholder="Search clients or groups..."
                           value={searchTerm}
                           onChange={(e) => setSearchTerm(e.target.value)}
-                          className="pl-8"
+                          className="min-h-10 w-full min-w-0 pl-8"
                         />
                       </div>
                     </div>
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
-                      <SelectTrigger className="w-[150px]">
+                      <SelectTrigger className="h-10 w-full min-w-0 sm:w-[160px]">
                         <SelectValue placeholder="Status" />
                       </SelectTrigger>
                       <SelectContent>
@@ -437,7 +446,7 @@ const Repayments = () => {
                       </SelectContent>
                     </Select>
                     <Select value={typeFilter} onValueChange={setTypeFilter}>
-                      <SelectTrigger className="w-[150px]">
+                      <SelectTrigger className="h-10 w-full min-w-0 sm:w-[160px]">
                         <SelectValue placeholder="Type" />
                       </SelectTrigger>
                       <SelectContent>
@@ -451,45 +460,193 @@ const Repayments = () => {
               </Card>
 
               {/* Main List */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Repayment Schedule</CardTitle>
+              <Card className="min-w-0 max-w-full border shadow-sm">
+                <CardHeader className="min-w-0">
+                  <CardTitle className="text-base sm:text-lg">Repayment Schedule</CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Client / Group</TableHead>
-                        <TableHead>Installment</TableHead>
-                        <TableHead>Collected</TableHead>
-                        <TableHead>Balance</TableHead>
-                        <TableHead>Next Due</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {groupedRepayments.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                            No repayments found matching filters.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        groupedRepayments.map((record: any) => (
-                          <TableRow key={record.id} className={record.isGroup ? "bg-muted/30 cursor-pointer hover:bg-muted/50" : ""} onClick={() => { if (record.isGroup) { setSelectedGroup(record); setIsGroupDialogOpen(true); } }}>
-                            <TableCell className="font-medium flex items-center gap-2">{record.name || (record.isGroup ? 'Unknown Group' : '-')}{record.isGroup && <span className="text-[10px] bg-primary/10 text-primary px-1 rounded ml-1 font-bold whitespace-nowrap">GROUP</span>}</TableCell>
-                            <TableCell>UGX {record.installmentAmount.toLocaleString()}</TableCell>
-                            <TableCell>UGX {record.totalCollection.toLocaleString()}</TableCell>
-                            <TableCell>UGX {record.totalBalance.toLocaleString()}</TableCell>
-                            <TableCell>{new Date(record.date).toLocaleDateString()}</TableCell>
-                            <TableCell><span className={`px-2 py-1 rounded text-xs whitespace-nowrap ${record.status === "Fully Paid" ? "bg-green-100 text-green-800" : record.status === "Past Maturity" ? "bg-red-100 text-red-800" : record.status === "Missed Repayment" ? "bg-orange-100 text-orange-800" : record.status === "Due Today" ? "bg-yellow-100 text-yellow-800" : "bg-blue-100 text-blue-800"}`}>{record.status}</span></TableCell>
-                            <TableCell>{record.isGroup ? <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setSelectedGroup(record); setIsGroupDialogOpen(true); }}>View</Button> : <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); setSelectedLoanId(record.id); setSelectedMemberName(""); setSelectedMemberOutstanding(null); setAmount(record.installmentAmount.toString()); setIsDialogOpen(true); }}>Record</Button>}</TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
+                <CardContent className="min-w-0 px-4 pb-4 pt-0 sm:px-6 sm:pb-6">
+                  {groupedRepayments.length === 0 ? (
+                    <p className="min-w-0 break-words px-1 py-10 text-center text-sm text-muted-foreground">
+                      No repayments found matching filters.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="space-y-3 lg:hidden">
+                        {groupedRepayments.map((record: any) => (
+                          <Card
+                            key={record.id}
+                            className={
+                              record.isGroup
+                                ? "min-w-0 cursor-pointer overflow-hidden shadow-sm active:bg-muted/40"
+                                : "min-w-0 overflow-hidden shadow-sm"
+                            }
+                            onClick={() => {
+                              if (record.isGroup) {
+                                setSelectedGroup(record);
+                                setIsGroupDialogOpen(true);
+                              }
+                            }}
+                          >
+                            <CardContent className="space-y-3 p-4">
+                              <div className="flex min-w-0 flex-wrap items-center gap-2 font-medium">
+                                <span className="min-w-0 break-words">
+                                  {record.name || (record.isGroup ? "Unknown Group" : "-")}
+                                </span>
+                                {record.isGroup && (
+                                  <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold uppercase text-primary">
+                                    GROUP
+                                  </span>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                                <div>
+                                  <span className="block text-xs text-muted-foreground">Installment</span>
+                                  <span>UGX {record.installmentAmount.toLocaleString()}</span>
+                                </div>
+                                <div>
+                                  <span className="block text-xs text-muted-foreground">Collected</span>
+                                  <span>UGX {record.totalCollection.toLocaleString()}</span>
+                                </div>
+                                <div>
+                                  <span className="block text-xs text-muted-foreground">Balance</span>
+                                  <span>UGX {record.totalBalance.toLocaleString()}</span>
+                                </div>
+                                <div>
+                                  <span className="block text-xs text-muted-foreground">Next due</span>
+                                  <span className="text-xs">{new Date(record.date).toLocaleDateString()}</span>
+                                </div>
+                              </div>
+                              <div>
+                                <span
+                                  className={`inline-flex rounded px-2 py-1 text-xs whitespace-nowrap ${record.status === "Fully Paid" ? "bg-green-100 text-green-800" : record.status === "Past Maturity" ? "bg-red-100 text-red-800" : record.status === "Missed Repayment" ? "bg-orange-100 text-orange-800" : record.status === "Due Today" ? "bg-yellow-100 text-yellow-800" : "bg-blue-100 text-blue-800"}`}
+                                >
+                                  {record.status}
+                                </span>
+                              </div>
+                              <div
+                                className="flex flex-wrap gap-2 border-t pt-3"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {record.isGroup ? (
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    className="min-h-10 touch-manipulation"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedGroup(record);
+                                      setIsGroupDialogOpen(true);
+                                    }}
+                                  >
+                                    View
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    variant="default"
+                                    size="sm"
+                                    className="min-h-10 touch-manipulation"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedLoanId(record.id);
+                                      setSelectedMemberName("");
+                                      setSelectedMemberOutstanding(null);
+                                      setAmount(record.installmentAmount.toString());
+                                      setIsDialogOpen(true);
+                                    }}
+                                  >
+                                    Record
+                                  </Button>
+                                )}
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                      <div className="hidden min-w-0 lg:block">
+                        <div className="w-full max-w-full min-w-0 overflow-x-auto overscroll-x-contain rounded-md border [-webkit-overflow-scrolling:touch]">
+                          <Table className="min-w-[56rem] w-full text-xs sm:text-sm">
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Client / Group</TableHead>
+                                <TableHead>Installment</TableHead>
+                                <TableHead>Collected</TableHead>
+                                <TableHead>Balance</TableHead>
+                                <TableHead>Next Due</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead>Actions</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {groupedRepayments.map((record: any) => (
+                                <TableRow
+                                  key={record.id}
+                                  className={
+                                    record.isGroup ? "cursor-pointer bg-muted/30 hover:bg-muted/50" : ""
+                                  }
+                                  onClick={() => {
+                                    if (record.isGroup) {
+                                      setSelectedGroup(record);
+                                      setIsGroupDialogOpen(true);
+                                    }
+                                  }}
+                                >
+                                  <TableCell className="flex items-center gap-2 font-medium">
+                                    {record.name || (record.isGroup ? "Unknown Group" : "-")}
+                                    {record.isGroup && (
+                                      <span className="ml-1 whitespace-nowrap rounded bg-primary/10 px-1 text-[10px] font-bold text-primary">
+                                        GROUP
+                                      </span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>UGX {record.installmentAmount.toLocaleString()}</TableCell>
+                                  <TableCell>UGX {record.totalCollection.toLocaleString()}</TableCell>
+                                  <TableCell>UGX {record.totalBalance.toLocaleString()}</TableCell>
+                                  <TableCell>{new Date(record.date).toLocaleDateString()}</TableCell>
+                                  <TableCell>
+                                    <span
+                                      className={`whitespace-nowrap rounded px-2 py-1 text-xs ${record.status === "Fully Paid" ? "bg-green-100 text-green-800" : record.status === "Past Maturity" ? "bg-red-100 text-red-800" : record.status === "Missed Repayment" ? "bg-orange-100 text-orange-800" : record.status === "Due Today" ? "bg-yellow-100 text-yellow-800" : "bg-blue-100 text-blue-800"}`}
+                                    >
+                                      {record.status}
+                                    </span>
+                                  </TableCell>
+                                  <TableCell>
+                                    {record.isGroup ? (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSelectedGroup(record);
+                                          setIsGroupDialogOpen(true);
+                                        }}
+                                      >
+                                        View
+                                      </Button>
+                                    ) : (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSelectedLoanId(record.id);
+                                          setSelectedMemberName("");
+                                          setSelectedMemberOutstanding(null);
+                                          setAmount(record.installmentAmount.toString());
+                                          setIsDialogOpen(true);
+                                        }}
+                                      >
+                                        Record
+                                      </Button>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
 

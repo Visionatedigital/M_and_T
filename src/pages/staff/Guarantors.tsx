@@ -129,7 +129,7 @@ export function Guarantors() {
                 <StaffSidebar />
                 <div className="flex-1 flex flex-col">
                     <StaffHeader />
-                    <main className="flex-1 p-8 bg-muted/30">
+                    <main className="flex-1 p-4 md:p-8 bg-muted/30">
                         <div className="space-y-6 max-w-7xl mx-auto">
                             <div>
                                 <h2 className="text-3xl font-bold tracking-tight">Guarantors</h2>
@@ -164,12 +164,12 @@ export function Guarantors() {
                                 }}
                                 className="space-y-4"
                             >
-                                <TabsList className="h-11 p-1 bg-muted/50">
-                                    <TabsTrigger value="view" className="gap-2">
-                                        <Users className="h-4 w-4" /> View Guarantors
+                                <TabsList className="h-auto min-h-11 w-full flex-wrap gap-1 bg-muted/50 p-1 sm:flex-nowrap sm:overflow-x-auto sm:[scrollbar-width:thin]">
+                                    <TabsTrigger value="view" className="gap-2 text-xs sm:text-sm">
+                                        <Users className="h-4 w-4 shrink-0" /> View Guarantors
                                     </TabsTrigger>
-                                    <TabsTrigger value="add" className="gap-2">
-                                        <UserPlus className="h-4 w-4" /> Add Guarantor
+                                    <TabsTrigger value="add" className="gap-2 text-xs sm:text-sm">
+                                        <UserPlus className="h-4 w-4 shrink-0" /> Add Guarantor
                                     </TabsTrigger>
                                 </TabsList>
 

@@ -13,6 +13,7 @@ import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Wallet, Search, TrendingUp, DollarSign, Calendar, Users, Eye, FileSpreadsheet, Receipt } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { staffTabButtonClass, staffTabRowClass } from "@/lib/staffNavClasses";
 
 interface ActiveLoan {
   id: string;
@@ -205,21 +206,21 @@ const ActiveLoans = () => {
               </div>
 
               {/* Navigation Tabs */}
-              <div className="flex gap-2 border-b pb-2">
+              <div className={staffTabRowClass}>
                 <Button
                   variant={!location.pathname.includes("/schedule") ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/loans")}
-                  className="rounded-b-none"
+                  className={staffTabButtonClass}
                 >
-                  <Wallet className="mr-2 h-4 w-4" />
+                  <Wallet className="mr-1.5 h-4 w-4 shrink-0 sm:mr-2" />
                   All Loans
                 </Button>
                 <Button
                   variant={location.pathname.includes("/schedule") ? "default" : "ghost"}
                   onClick={() => navigate("/staff-dashboard/loans/schedule")}
-                  className="rounded-b-none"
+                  className={staffTabButtonClass}
                 >
-                  <Receipt className="mr-2 h-4 w-4" />
+                  <Receipt className="mr-1.5 h-4 w-4 shrink-0 sm:mr-2" />
                   Loan Schedule
                 </Button>
               </div>

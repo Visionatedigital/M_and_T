@@ -12,7 +12,8 @@ const TabsList = React.forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      "inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground",
+      "flex h-auto min-h-8 w-full min-w-0 flex-wrap items-stretch justify-start gap-0.5 rounded-md bg-muted p-0.5 text-muted-foreground sm:min-h-9 sm:gap-1 sm:p-1",
+      "sm:flex-nowrap sm:overflow-x-auto sm:overflow-y-hidden sm:[scrollbar-width:thin] touch-pan-x",
       className,
     )}
     {...props}
@@ -27,7 +28,7 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+      "inline-flex h-8 min-h-8 shrink-0 items-center justify-center whitespace-nowrap rounded-sm px-2 py-1 text-[11px] font-medium ring-offset-background transition-all data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 touch-manipulation sm:h-9 sm:min-h-9 sm:px-2.5 sm:text-xs",
       className,
     )}
     {...props}
