@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
@@ -78,51 +78,93 @@ const StaffDashboard = () => {
   const outstandingPrincipal = totalOutstanding * 0.85;
   const outstandingInterest = totalOutstanding * 0.13;
 
-  let cumCol = 0, cumDue = 0;
-  const monthlyFinancials = (chartData || []).map((d: any) => {
-    const released = (d.disbursed || 0) * 1000000;
-    const collections = (d.repayments || 0) * 1000000;
-    const due = released * 0.35;
-    cumCol += collections;
-    cumDue += due;
-    return { name: d.month, released, collections, due, cumulativeCollections: cumCol, cumulativeDue: cumDue };
-  });
+  const hasPortfolio =
+    (stats.totalApplications ?? 0) > 0 ||
+    (stats.totalDisbursed ?? 0) > 0 ||
+    (stats.totalPaid ?? 0) > 0;
 
-  const monthlyBreakdown = monthlyFinancials.map((m: any, i: number) => ({
-    name: m.name,
-    principalDue: m.released * 0.7,
-    principalColl: m.collections * 0.75,
-    interestDue: m.released * 0.08,
-    interestColl: m.collections * 0.2,
-    feeDue: 50000,
-    feeColl: 45000,
-    penDue: 10000,
-    penColl: 8000
-  }));
+  const monthlyFinancials = useMemo(() => {
+    let cumCol = 0;
+    let cumDue = 0;
+    return (chartData || []).map((d: any) => {
+      const released = (d.disbursed || 0) * 1000000;
+      const collections = (d.repayments || 0) * 1000000;
+      const due = hasPortfolio ? released * 0.35 : 0;
+      cumCol += collections;
+      cumDue += due;
+      return { name: d.month, released, collections, due, cumulativeCollections: cumCol, cumulativeDue: cumDue };
+    });
+  }, [chartData, hasPortfolio]);
 
-  const monthlyCounts = monthlyFinancials.map((m: any, i: number) => ({
-    name: m.name,
-    openLoans: 60 + i * 3,
-    releasedLoans: Math.round((m.released || 0) / 800000),
-    repayments: 100 + i * 10,
-    fullPaid: 3 + i,
-    newClients: 5 + (i % 3)
-  }));
+  const monthlyBreakdown = useMemo(() => {
+    return monthlyFinancials.map((m: any) => {
+      if (!hasPortfolio || ((m.released || 0) === 0 && (m.collections || 0) === 0)) {
+        return {
+          name: m.name,
+          principalDue: 0,
+          principalColl: 0,
+          interestDue: 0,
+          interestColl: 0,
+          feeDue: 0,
+          feeColl: 0,
+          penDue: 0,
+          penColl: 0,
+        };
+      }
+      return {
+        name: m.name,
+        principalDue: m.released * 0.7,
+        principalColl: m.collections * 0.75,
+        interestDue: m.released * 0.08,
+        interestColl: m.collections * 0.2,
+        feeDue: 50000,
+        feeColl: 45000,
+        penDue: 10000,
+        penColl: 8000,
+      };
+    });
+  }, [monthlyFinancials, hasPortfolio]);
 
-  const genderData = [{ name: 'Male', value: 76 }, { name: 'Female', value: 23 }];
-  const statusData = [
-    { name: 'Loans on Schedule', value: 30 },
-    { name: 'Loans Due Today', value: 2 },
-    { name: 'Missed Repayments', value: 4 },
-    { name: 'Loans in Arrears', value: 2 },
-    { name: 'Past Maturity', value: 12 }
-  ];
-  const ageData = [
-    { name: '18-25', open: 8, fullyPaid: 4, defaulted: 1, openRecovery: 35, allRecovery: 80 },
-    { name: '26-35', open: 42, fullyPaid: 15, defaulted: 2, openRecovery: 45, allRecovery: 94 },
-    { name: '36-45', open: 25, fullyPaid: 6, defaulted: 0, openRecovery: 48, allRecovery: 96 },
-    { name: '46+', open: 15, fullyPaid: 3, defaulted: 0, openRecovery: 32, allRecovery: 88 }
-  ];
+  const monthlyCounts = useMemo(() => {
+    return monthlyFinancials.map((m: any) => ({
+      name: m.name,
+      openLoans: hasPortfolio ? Math.round((m.released || 0) / 800000) : 0,
+      releasedLoans: hasPortfolio ? Math.round((m.released || 0) / 800000) : 0,
+      repayments: hasPortfolio ? Math.round((m.collections || 0) / 50000) : 0,
+      fullPaid: 0,
+      newClients: 0,
+    }));
+  }, [monthlyFinancials, hasPortfolio]);
+
+  const genderData = useMemo(
+    () => (hasPortfolio ? [{ name: "Male", value: 0 }, { name: "Female", value: 0 }] : []),
+    [hasPortfolio]
+  );
+  const statusData = useMemo(
+    () =>
+      hasPortfolio
+        ? [
+            { name: "Loans on Schedule", value: 0 },
+            { name: "Loans Due Today", value: 0 },
+            { name: "Missed Repayments", value: 0 },
+            { name: "Loans in Arrears", value: 0 },
+            { name: "Past Maturity", value: 0 },
+          ]
+        : [],
+    [hasPortfolio]
+  );
+  const ageData = useMemo(
+    () =>
+      hasPortfolio
+        ? [
+            { name: "18-25", open: 0, fullyPaid: 0, defaulted: 0, openRecovery: 0, allRecovery: 0 },
+            { name: "26-35", open: 0, fullyPaid: 0, defaulted: 0, openRecovery: 0, allRecovery: 0 },
+            { name: "36-45", open: 0, fullyPaid: 0, defaulted: 0, openRecovery: 0, allRecovery: 0 },
+            { name: "46+", open: 0, fullyPaid: 0, defaulted: 0, openRecovery: 0, allRecovery: 0 },
+          ]
+        : [],
+    [hasPortfolio]
+  );
 
   const getFilteredData = (dataArray: any[]) => {
     let limit = dataArray.length;
@@ -267,14 +309,14 @@ const StaffDashboard = () => {
                   <CardContent className="p-4 flex flex-col h-full justify-center">
                     <p className="text-[11px] font-semibold text-slate-500 mb-1">Rate of Recovery (All)</p>
                     <p className="text-[10px] text-slate-400 mb-2 leading-tight">% of due amount paid for all loans</p>
-                    <p className="text-2xl font-bold text-slate-800">{stats.collectionRate || 93.62}%</p>
+                    <p className="text-2xl font-bold text-slate-800">{Number(stats.collectionRate ?? 0).toFixed(2)}%</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-white shadow-sm border border-l-[3px] border-l-blue-500">
                   <CardContent className="p-4 flex flex-col h-full justify-center">
                     <p className="text-[11px] font-semibold text-slate-500 mb-1">Rate of Recovery (Open)</p>
                     <p className="text-[10px] text-slate-400 mb-2 leading-tight">% of due paid for open loans</p>
-                    <p className="text-2xl font-bold text-slate-800">42.84%</p>
+                    <p className="text-2xl font-bold text-slate-800">{Number(stats.recoveryOpenPct ?? 0).toFixed(2)}%</p>
                   </CardContent>
                 </Card>
               </div>
@@ -319,20 +361,20 @@ const StaffDashboard = () => {
                     <p className="text-[11px] text-slate-500 mb-6 leading-relaxed border-b pb-4">Interest, Fees, Penalty collected vs Principal Due</p>
                     <div className="space-y-6">
                       <div>
-                        <div className="flex justify-between text-xs mb-2"><span className="font-bold">All Loans</span><span className="font-bold">20.02/100%</span></div>
-                        <Progress value={20.02} className="h-2 bg-slate-100" />
+                        <div className="flex justify-between text-xs mb-2"><span className="font-bold">All Loans</span><span className="font-bold">{Number(stats.rateOfReturn?.all ?? 0).toFixed(2)}/100%</span></div>
+                        <Progress value={Math.min(100, Number(stats.rateOfReturn?.all ?? 0))} className="h-2 bg-slate-100" />
                       </div>
                       <div>
-                        <div className="flex justify-between text-xs mb-2"><span className="font-bold text-blue-600">Open Loans</span><span className="font-bold text-blue-600">6.71/100%</span></div>
-                        <Progress value={6.71} className="h-2 bg-blue-50 [&>div]:bg-blue-600" />
+                        <div className="flex justify-between text-xs mb-2"><span className="font-bold text-blue-600">Open Loans</span><span className="font-bold text-blue-600">{Number(stats.rateOfReturn?.open ?? 0).toFixed(2)}/100%</span></div>
+                        <Progress value={Math.min(100, Number(stats.rateOfReturn?.open ?? 0))} className="h-2 bg-blue-50 [&>div]:bg-blue-600" />
                       </div>
                       <div>
-                        <div className="flex justify-between text-xs mb-2"><span className="font-bold text-emerald-600">Fully Paid Loans</span><span className="font-bold text-emerald-600">20.62/100%</span></div>
-                        <Progress value={20.62} className="h-2 bg-emerald-50 [&>div]:bg-emerald-600" />
+                        <div className="flex justify-between text-xs mb-2"><span className="font-bold text-emerald-600">Fully Paid Loans</span><span className="font-bold text-emerald-600">{Number(stats.rateOfReturn?.fullyPaid ?? 0).toFixed(2)}/100%</span></div>
+                        <Progress value={Math.min(100, Number(stats.rateOfReturn?.fullyPaid ?? 0))} className="h-2 bg-emerald-50 [&>div]:bg-emerald-600" />
                       </div>
                       <div>
-                        <div className="flex justify-between text-xs mb-2"><span className="font-bold text-red-600">Default Loans</span><span className="font-bold text-red-600">41.41/100%</span></div>
-                        <Progress value={41.41} className="h-2 bg-red-50 [&>div]:bg-red-600" />
+                        <div className="flex justify-between text-xs mb-2"><span className="font-bold text-red-600">Default Loans</span><span className="font-bold text-red-600">{Number(stats.rateOfReturn?.defaulted ?? 0).toFixed(2)}/100%</span></div>
+                        <Progress value={Math.min(100, Number(stats.rateOfReturn?.defaulted ?? 0))} className="h-2 bg-red-50 [&>div]:bg-red-600" />
                       </div>
                     </div>
                   </CardContent>
@@ -389,15 +431,21 @@ const StaffDashboard = () => {
                     <CardTitle className="text-xs font-semibold text-center">Open Loans Status - To Date</CardTitle>
                   </CardHeader>
                   <CardContent className="h-[300px] flex items-center justify-center pt-6">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie data={statusData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                          {statusData.map((_, i) => <Cell key={i} fill={STATUS_COLORS[i % STATUS_COLORS.length]} />)}
-                        </Pie>
-                        <Tooltip />
-                        <Legend verticalAlign="bottom" height={40} iconType="circle" formatter={(value: string, entry: any) => <span className="text-[10px] font-medium text-slate-600">{value} ({entry.payload.value} Loans)</span>} />
-                      </PieChart>
-                    </ResponsiveContainer>
+                    {!hasPortfolio ? (
+                      <p className="text-sm text-muted-foreground text-center px-4">No portfolio data yet. Status breakdown will appear when you have active loans.</p>
+                    ) : statusData.reduce((s, x) => s + x.value, 0) === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center px-4">No loan status breakdown available (pipeline not configured).</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie data={statusData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                            {statusData.map((_, i) => <Cell key={i} fill={STATUS_COLORS[i % STATUS_COLORS.length]} />)}
+                          </Pie>
+                          <Tooltip />
+                          <Legend verticalAlign="bottom" height={40} iconType="circle" formatter={(value: string, entry: any) => <span className="text-[10px] font-medium text-slate-600">{value} ({entry.payload.value} Loans)</span>} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    )}
                   </CardContent>
                 </Card>
                 <Card className="bg-white shadow-sm border lg:col-span-2 grid grid-cols-1 md:grid-cols-2">
@@ -405,33 +453,43 @@ const StaffDashboard = () => {
                     <CardHeader className="py-2 border-b">
                       <CardTitle className="text-[11px] font-semibold text-center text-slate-500">Gender Chart % (All Time)</CardTitle>
                     </CardHeader>
-                    <div className="h-[220px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={genderData} cx="50%" cy="50%" outerRadius={70} fill="#8884d8" dataKey="value">
-                            {genderData.map((_, i) => <Cell key={i} fill={GENDER_COLORS[i % GENDER_COLORS.length]} />)}
-                          </Pie>
-                          <Tooltip />
-                          <Legend verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: '10px' }} formatter={(value: string, entry: any) => <span>{value} ({entry.payload.value} Loans)</span>} />
-                        </PieChart>
-                      </ResponsiveContainer>
+                    <div className="h-[220px] flex items-center justify-center">
+                      {!hasPortfolio ? (
+                        <p className="text-xs text-muted-foreground text-center px-2">No portfolio data yet.</p>
+                      ) : genderData.reduce((s, x) => s + x.value, 0) === 0 ? (
+                        <p className="text-xs text-muted-foreground text-center px-2">Gender breakdown will show when borrower gender is recorded.</p>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={genderData} cx="50%" cy="50%" outerRadius={70} fill="#8884d8" dataKey="value">
+                              {genderData.map((_, i) => <Cell key={i} fill={GENDER_COLORS[i % GENDER_COLORS.length]} />)}
+                            </Pie>
+                            <Tooltip />
+                            <Legend verticalAlign="bottom" iconType="circle" wrapperStyle={{ fontSize: '10px' }} formatter={(value: string, entry: any) => <span>{value} ({entry.payload.value} Loans)</span>} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      )}
                     </div>
                   </div>
                   <div>
                     <CardHeader className="py-2 border-b">
                       <CardTitle className="text-[11px] font-semibold text-center text-slate-500">Age Group: Open, Fully Paid & Default</CardTitle>
                     </CardHeader>
-                    <div className="h-[220px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={ageData} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                          <XAxis dataKey="name" fontSize={9} tickLine={false} axisLine={false} />
-                          <Tooltip />
-                          <Bar dataKey="open" name="Open" fill="#3b82f6" stackId="a" />
-                          <Bar dataKey="fullyPaid" name="Paid" fill="#10b981" stackId="a" />
-                          <Bar dataKey="defaulted" name="Default" fill="#ef4444" stackId="a" />
-                        </BarChart>
-                      </ResponsiveContainer>
+                    <div className="h-[220px] flex items-center justify-center">
+                      {!hasPortfolio ? (
+                        <p className="text-xs text-muted-foreground text-center px-2">No portfolio data yet.</p>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={ageData} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                            <XAxis dataKey="name" fontSize={9} tickLine={false} axisLine={false} />
+                            <Tooltip />
+                            <Bar dataKey="open" name="Open" fill="#3b82f6" stackId="a" />
+                            <Bar dataKey="fullyPaid" name="Paid" fill="#10b981" stackId="a" />
+                            <Bar dataKey="defaulted" name="Default" fill="#ef4444" stackId="a" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
                     </div>
                   </div>
                 </Card>
@@ -441,17 +499,21 @@ const StaffDashboard = () => {
                     <CardDescription className="text-[10px]">Open Loans vs All Loans</CardDescription>
                   </CardHeader>
                   <CardContent className="h-[250px] pt-4">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={ageData} margin={{ top: 5, right: 30, left: -20, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="name" fontSize={10} tickLine={false} axisLine={false} />
-                        <YAxis fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
-                        <Tooltip formatter={(value: number) => `${value}%`} />
-                        <Legend wrapperStyle={{ fontSize: '10px' }} iconType="circle" />
-                        <Bar dataKey="openRecovery" name="Open Loans Recovery %" fill="#3b82f6" radius={[2, 2, 0, 0]} />
-                        <Bar dataKey="allRecovery" name="All Loans Recovery %" fill="#10b981" radius={[2, 2, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
+                    {!hasPortfolio ? (
+                      <div className="flex h-full items-center justify-center text-sm text-muted-foreground text-center px-4">No portfolio data yet.</div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={ageData} margin={{ top: 5, right: 30, left: -20, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <XAxis dataKey="name" fontSize={10} tickLine={false} axisLine={false} />
+                          <YAxis fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
+                          <Tooltip formatter={(value: number) => `${value}%`} />
+                          <Legend wrapperStyle={{ fontSize: '10px' }} iconType="circle" />
+                          <Bar dataKey="openRecovery" name="Open Loans Recovery %" fill="#3b82f6" radius={[2, 2, 0, 0]} />
+                          <Bar dataKey="allRecovery" name="All Loans Recovery %" fill="#10b981" radius={[2, 2, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
                   </CardContent>
                 </Card>
               </div>

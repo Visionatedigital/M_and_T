@@ -535,9 +535,33 @@ router.get('/dashboard-stats', async (req, res) => {
         `;
         const { rows: collectionRows } = await db.query(collectionQuery, [thirtyDaysAgo, ...(isLoanOfficer(role) ? [user_id] : [])]);
 
-        // Target collection = (Outstanding / Duration) - roughly? 
-        // For demo, we'll use a realistic percentage based on collected vs expected installments
-        const collectionRate = 98.2; // High efficiency placeholder if not calculable accurately
+        const totalExpectedNum = parseFloat(total_expected) || 0;
+        const totalRepaidNum = parseFloat(total_repaid) || 0;
+        /** % of contractual amount (principal+interest) collected — 0 when no portfolio */
+        const collectionRate =
+            totalExpectedNum > 0 ? Math.min(100, (totalRepaidNum / totalExpectedNum) * 100) : 0;
+
+        /** Recovery for loans still carrying balance (approved/disbursed, not fully paid) */
+        let recoveryOpenPct = 0;
+        const openRecSql = `
+            WITH lf AS (
+                SELECT (la.loan_amount * 1.3) AS exp,
+                    COALESCE((SELECT SUM(amount) FROM repayments r WHERE r.loan_application_id = la.id), 0) AS rep
+                FROM loan_applications la
+                WHERE la.status IN ('approved', 'disbursed')
+                ${isLoanOfficer(role) ? 'AND borrower_id IN (SELECT id FROM borrowers WHERE assigned_officer_id = $1)' : ''}
+            )
+            SELECT COALESCE(SUM(exp), 0) AS sum_exp, COALESCE(SUM(rep), 0) AS sum_rep
+            FROM lf
+            WHERE rep < exp - 0.0001
+        `;
+        const { rows: openRecRows } = await db.query(openRecSql, values);
+        const openExp = parseFloat(openRecRows[0]?.sum_exp) || 0;
+        const openRep = parseFloat(openRecRows[0]?.sum_rep) || 0;
+        if (openExp > 0) recoveryOpenPct = Math.min(100, (openRep / openExp) * 100);
+
+        /** Placeholder for detailed RoR — zeros until fee/penalty splits exist in API */
+        const rateOfReturn = { all: 0, open: 0, fullyPaid: 0, defaulted: 0 };
 
         // 5. Recent Activity
         const activityQuery = `
@@ -562,7 +586,9 @@ router.get('/dashboard-stats', async (req, res) => {
                 monthlyCount: parseInt(monthlyStats.monthly_count),
                 par30: par30,
                 collectionRate: collectionRate,
-                avgGrowthRate: 30
+                recoveryOpenPct: recoveryOpenPct,
+                rateOfReturn: rateOfReturn,
+                avgGrowthRate: 0
             },
             activities: activityRows
         });
@@ -1588,11 +1614,12 @@ router.get('/forecast', async (req, res) => {
             }
         }
 
-        const avgGrowthRate = count > 0 ? totalGrowthRate / count : 0.05; // Default 5% if no data?
-        // Cap reasonable growth to avoid explosion? verify logic.
+        const lastHistoricalValue = historicalData[historicalData.length - 1]?.value || 0;
+        const avgGrowthRate =
+            count > 0 && lastHistoricalValue > 0 ? totalGrowthRate / count : 0;
 
         const projection = [];
-        let lastValue = historicalData[historicalData.length - 1].value;
+        let lastValue = lastHistoricalValue;
         const startMonth = new Date();
 
         for (let i = 1; i <= 12; i++) {
