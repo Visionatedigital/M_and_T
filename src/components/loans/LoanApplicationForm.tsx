@@ -206,6 +206,55 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
         income_statement: null,
     });
 
+    const [groupMembers, setGroupMembers] = useState<any[]>(() => {
+        const raw = initialData?.group_members || [];
+        const leaderId = initialData?.borrower_id;
+        return raw
+            .filter((m: any) => m.borrower_id !== leaderId)
+            .map((m: any) => m.id ? m : {
+                id: m.borrower_id,
+                full_name: m.name,
+                phone_number: m.phone,
+                id_number: m.id_number,
+                email: m.email,
+                date_of_birth: m.date_of_birth,
+                district: m.district,
+                province_state: m.county,
+                county: m.county,
+                address: m.village,
+                village: m.village,
+                parish: m.parish,
+                sub_county: m.sub_county,
+                amount: m.amount ?? 0,
+                ...m,
+            });
+    });
+    const [groupLeaderAmount, setGroupLeaderAmount] = useState<number>(() => {
+        const raw = initialData?.group_members || [];
+        const leaderId = initialData?.borrower_id;
+        const leader = raw.find((m: any) => m.borrower_id === leaderId);
+        return leader?.amount ?? 0;
+    });
+    const [borrowers, setBorrowers] = useState<any[]>([]);
+    const [selectedBorrowerForIndividual, setSelectedBorrowerForIndividual] = useState<any>(null);
+    const [selectedGroupLeader, setSelectedGroupLeader] = useState<any>(null);
+    const [groupLeaderOpen, setGroupLeaderOpen] = useState(false);
+    const [individualBorrowerOpen, setIndividualBorrowerOpen] = useState(false);
+    const [addMemberOpen, setAddMemberOpen] = useState(false);
+    const [availableCollateral, setAvailableCollateral] = useState<any[]>([]);
+    const [selectedCollateral, setSelectedCollateral] = useState<any>(null);
+    const [collateralOpen, setCollateralOpen] = useState(false);
+    const collateralSearchRef = useRef<HTMLInputElement>(null);
+    const [guarantorsDirectory, setGuarantorsDirectory] = useState<any[]>([]);
+    const [addGuarantorOpen, setAddGuarantorOpen] = useState(false);
+
+    const loanDraftRef = useRef<(LoanFormDraftPayload & { _savedAt?: number }) | null>(null);
+    /** Active row in localStorage draft list; null = blank new until first autosave creates an id */
+    const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+    const suppressDraftSaveRef = useRef(false);
+    const [savedDrafts, setSavedDrafts] = useState<LoanApplicationStoredDraft[]>([]);
+    const refreshSavedDrafts = () => setSavedDrafts(loadLoanApplicationDraftList());
+
     const form = useForm<FormValues>({
         resolver: zodResolver(formSchema),
         defaultValues: {
@@ -327,55 +376,6 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
             default: return null;
         }
     };
-
-    const [groupMembers, setGroupMembers] = useState<any[]>(() => {
-        const raw = initialData?.group_members || [];
-        const leaderId = initialData?.borrower_id;
-        return raw
-            .filter((m: any) => m.borrower_id !== leaderId)
-            .map((m: any) => m.id ? m : {
-                id: m.borrower_id,
-                full_name: m.name,
-                phone_number: m.phone,
-                id_number: m.id_number,
-                email: m.email,
-                date_of_birth: m.date_of_birth,
-                district: m.district,
-                province_state: m.county,
-                county: m.county,
-                address: m.village,
-                village: m.village,
-                parish: m.parish,
-                sub_county: m.sub_county,
-                amount: m.amount ?? 0,
-                ...m,
-            });
-    });
-    const [groupLeaderAmount, setGroupLeaderAmount] = useState<number>(() => {
-        const raw = initialData?.group_members || [];
-        const leaderId = initialData?.borrower_id;
-        const leader = raw.find((m: any) => m.borrower_id === leaderId);
-        return leader?.amount ?? 0;
-    });
-    const [borrowers, setBorrowers] = useState<any[]>([]);
-    const [selectedBorrowerForIndividual, setSelectedBorrowerForIndividual] = useState<any>(null);
-    const [selectedGroupLeader, setSelectedGroupLeader] = useState<any>(null);
-    const [groupLeaderOpen, setGroupLeaderOpen] = useState(false);
-    const [individualBorrowerOpen, setIndividualBorrowerOpen] = useState(false);
-    const [addMemberOpen, setAddMemberOpen] = useState(false);
-    const [availableCollateral, setAvailableCollateral] = useState<any[]>([]);
-    const [selectedCollateral, setSelectedCollateral] = useState<any>(null);
-    const [collateralOpen, setCollateralOpen] = useState(false);
-    const collateralSearchRef = useRef<HTMLInputElement>(null);
-    const [guarantorsDirectory, setGuarantorsDirectory] = useState<any[]>([]);
-    const [addGuarantorOpen, setAddGuarantorOpen] = useState(false);
-
-    const loanDraftRef = useRef<(LoanFormDraftPayload & { _savedAt?: number }) | null>(null);
-    /** Active row in localStorage draft list; null = blank new until first autosave creates an id */
-    const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
-    const suppressDraftSaveRef = useRef(false);
-    const [savedDrafts, setSavedDrafts] = useState<LoanApplicationStoredDraft[]>([]);
-    const refreshSavedDrafts = () => setSavedDrafts(loadLoanApplicationDraftList());
 
     useEffect(() => {
         if (form.watch("application_type") === "individual") {

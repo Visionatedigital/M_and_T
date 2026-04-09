@@ -347,16 +347,16 @@ const BorrowerDetails = () => {
                 <StaffSidebar />
                 <div className="flex-1 flex flex-col">
                     <StaffHeader />
-                    <main className="flex-1 p-4 md:p-8 bg-muted/20">
-                        <div className="max-w-5xl mx-auto space-y-6">
-                            <Button variant="ghost" className="mb-4" onClick={() => navigate("/staff-dashboard/borrowers")}>
-                                <ArrowLeft className="mr-2 h-4 w-4" /> Back to Borrowers
+                    <main className="flex-1 overflow-x-hidden p-3 sm:p-4 md:p-8 bg-muted/20">
+                        <div className="max-w-5xl mx-auto min-w-0 space-y-6">
+                            <Button variant="ghost" className="mb-4 max-w-full" onClick={() => navigate("/staff-dashboard/borrowers")}>
+                                <ArrowLeft className="mr-2 h-4 w-4 shrink-0" /> Back to Borrowers
                             </Button>
 
-                            <div className="grid gap-6 md:grid-cols-3">
-                                <Card className="md:col-span-2">
-                                    <CardHeader className="flex flex-row items-start justify-between gap-4">
-                                        <div className="flex flex-row items-start gap-4 min-w-0 flex-1">
+                            <div className="grid gap-6 md:grid-cols-3 min-w-0">
+                                <Card className="md:col-span-2 min-w-0 overflow-hidden">
+                                    <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                                        <div className="flex min-w-0 flex-1 flex-col gap-4 sm:flex-row sm:items-start">
                                             <div className="relative shrink-0">
                                                 <div className="h-20 w-20 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden border border-muted">
                                                     {isEditing && photoPreviewUrl ? (
@@ -380,14 +380,15 @@ const BorrowerDetails = () => {
                                                     </label>
                                                 )}
                                             </div>
-                                            <div className="min-w-0 flex-1">
+                                            <div className="min-w-0 flex-1 w-full">
                                                 {isEditing ? (
                                                     <div className="space-y-3">
-                                                        <div className="flex flex-wrap gap-2">
+                                                        <div className="flex flex-wrap gap-2 w-full">
                                                             <Button
                                                                 type="button"
                                                                 size="sm"
                                                                 variant={clientType === "personal" ? "default" : "outline"}
+                                                                className="touch-manipulation"
                                                                 onClick={() => setClientType("personal")}
                                                             >
                                                                 Personal
@@ -396,6 +397,7 @@ const BorrowerDetails = () => {
                                                                 type="button"
                                                                 size="sm"
                                                                 variant={clientType === "business" ? "default" : "outline"}
+                                                                className="touch-manipulation"
                                                                 onClick={() => setClientType("business")}
                                                             >
                                                                 Business
@@ -442,27 +444,46 @@ const BorrowerDetails = () => {
                                             </div>
                                         </div>
                                         {canEdit && (
-                                            <div className="flex shrink-0 gap-2">
+                                            <div className="flex w-full shrink-0 flex-wrap gap-2 sm:w-auto sm:justify-end">
                                                 {isEditing ? (
                                                     <>
-                                                        <Button type="button" size="sm" variant="outline" onClick={cancelEdit} disabled={saving}>
-                                                            <X className="h-4 w-4 mr-1" /> Cancel
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="outline"
+                                                            className="min-h-9 flex-1 sm:flex-initial touch-manipulation"
+                                                            onClick={cancelEdit}
+                                                            disabled={saving}
+                                                        >
+                                                            <X className="h-4 w-4 mr-1 shrink-0" /> Cancel
                                                         </Button>
-                                                        <Button type="button" size="sm" onClick={saveEdit} disabled={saving}>
-                                                            <Save className="h-4 w-4 mr-1" /> {saving ? "Saving…" : "Save"}
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            className="min-h-9 flex-1 sm:flex-initial touch-manipulation"
+                                                            onClick={saveEdit}
+                                                            disabled={saving}
+                                                        >
+                                                            <Save className="h-4 w-4 mr-1 shrink-0" /> {saving ? "Saving…" : "Save"}
                                                         </Button>
                                                     </>
                                                 ) : (
-                                                    <Button type="button" size="sm" variant="outline" onClick={beginEdit}>
-                                                        <Pencil className="h-4 w-4 mr-1" /> Edit
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="min-h-9 w-full sm:w-auto touch-manipulation"
+                                                        onClick={beginEdit}
+                                                    >
+                                                        <Pencil className="h-4 w-4 mr-1 shrink-0" /> Edit
                                                     </Button>
                                                 )}
                                             </div>
                                         )}
                                     </CardHeader>
-                                    <CardContent className="space-y-4">
+                                    <CardContent className="space-y-4 min-w-0">
                                         {isEditing ? (
-                                            <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-1">
+                                            <div className="space-y-6 max-h-[min(70vh,65dvh)] overflow-y-auto overflow-x-hidden pr-1 sm:max-h-[70vh]">
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                     <div>
                                                         <Label htmlFor="bd-unique">Unique number</Label>

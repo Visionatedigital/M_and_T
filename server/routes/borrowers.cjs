@@ -335,7 +335,12 @@ router.post('/', async (req, res) => {
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
             RETURNING *
         `;
-    const assignedOfficerId = (assigned_officer_id && typeof assigned_officer_id === 'string' && assigned_officer_id.length > 10) ? assigned_officer_id : null;
+    const selfId = req.user?.id || req.user?.user_id;
+    const assignedOfficerId = isLoanOfficer(req.user?.role) && selfId
+      ? String(selfId)
+      : (assigned_officer_id && typeof assigned_officer_id === 'string' && assigned_officer_id.length > 10)
+        ? assigned_officer_id
+        : null;
 
     const values = [
       full_name, email, phone_number, first_name, last_middle_name,

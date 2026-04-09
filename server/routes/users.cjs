@@ -2,12 +2,10 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db.cjs');
 const bcrypt = require('bcryptjs');
-const { requireAdmin } = require('../lib/roles.cjs');
+const { requireAdmin, requireStaff } = require('../lib/roles.cjs');
 
-/** Staff listing and account creation — administrators only */
-router.use(requireAdmin);
-
-router.get('/', async (req, res) => {
+/** List staff (admins + loan officers) — any staff; create accounts — admins only */
+router.get('/', requireStaff, async (req, res) => {
     try {
         const { rows } = await db.query(`
             SELECT p.id, p.email, p.full_name, p.first_name, p.last_name,
@@ -24,7 +22,7 @@ router.get('/', async (req, res) => {
     }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireAdmin, async (req, res) => {
     const { email, password, full_name, role, phone_number } = req.body;
     if (!email || !password || !full_name || !role) {
         return res.status(400).json({ error: 'Missing required fields' });

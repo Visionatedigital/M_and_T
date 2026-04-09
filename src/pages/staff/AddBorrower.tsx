@@ -12,10 +12,12 @@ import { useToast } from "@/hooks/use-toast";
 import { UserPlus, Save, ArrowLeft } from "lucide-react";
 import { clearFormDraft, DRAFT_KEYS, formatDraftAge, loadFormDraft, saveFormDraft } from "@/lib/formDrafts";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useUserRole } from "@/hooks/useUserRole";
 
 const AddBorrower = () => {
     const navigate = useNavigate();
     const { toast } = useToast();
+    const { isAdmin, isLoanOfficer, userId, loading: roleLoading } = useUserRole();
     const generateUniqueId = () => {
         return `MNT-${Math.floor(100000 + Math.random() * 900000)}`;
     };
@@ -85,7 +87,7 @@ const AddBorrower = () => {
     }, [formData, clientType]);
 
     useEffect(() => {
-        // Fetch staff for loan officer assignment
+        if (roleLoading || !isAdmin) return;
         const loadStaff = async () => {
             try {
                 const staff = await api.users.getAll();
@@ -95,7 +97,7 @@ const AddBorrower = () => {
             }
         };
         loadStaff();
-    }, []);
+    }, [isAdmin, roleLoading]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { id, value } = e.target;
@@ -132,6 +134,21 @@ const AddBorrower = () => {
 
         setIsLoading(true);
         try {
+            let resolvedOfficerId = "";
+            if (isLoanOfficer) {
+                const uid = userId || (await api.auth.getMe()).id;
+                if (!uid) {
+                    toast({
+                        title: "Error",
+                        description: "Could not resolve your account. Please refresh and try again.",
+                        variant: "destructive",
+                    });
+                    setIsLoading(false);
+                    return;
+                }
+                resolvedOfficerId = typeof uid === "string" ? uid : String(uid);
+            }
+
             let photoUrl: string | null = null;
             if (files.borrower_photo) {
                 const up = await api.upload(files.borrower_photo);
@@ -151,8 +168,13 @@ const AddBorrower = () => {
                 ? (formData.address || "").trim()
                 : [formData.village, formData.district].filter(Boolean).join(", ");
 
+            const officerId = isLoanOfficer
+                ? resolvedOfficerId
+                : formData.assigned_officer_id || "";
+
             const submissionData = {
                 ...formData,
+                assigned_officer_id: officerId,
                 business_name: isBusiness ? formData.business_name : "",
                 address: addressForDb || (isBusiness ? "" : ""),
                 city: isBusiness ? formData.city : "",
@@ -454,23 +476,27 @@ const AddBorrower = () => {
                                             ></textarea>
                                         </div>
 
-                                        <div className="space-y-2">
-                                            <Label htmlFor="assigned_officer_id">Assign Loan Officer</Label>
-                                            <select
-                                                id="assigned_officer_id"
-                                                value={formData.assigned_officer_id}
-                                                onChange={handleChange}
-                                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                            >
-                                                <option value="">Select a Loan Officer (Optional)</option>
-                                                {staffList.map((staff: any) => (
-                                                    <option key={staff.id} value={staff.id}>
-                                                        {staff.full_name} ({staff.role === 'admin' ? 'Administrator' : 'Loan Officer'})
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            <p className="text-[10px] text-muted-foreground">Assign a loan officer. They will see this borrower in their dashboard.</p>
-                                        </div>
+                                        {isAdmin && (
+                                            <div className="space-y-2">
+                                                <Label htmlFor="assigned_officer_id">Assign Loan Officer</Label>
+                                                <select
+                                                    id="assigned_officer_id"
+                                                    value={formData.assigned_officer_id}
+                                                    onChange={handleChange}
+                                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                                >
+                                                    <option value="">Select a Loan Officer (Optional)</option>
+                                                    {staffList.map((staff: any) => (
+                                                        <option key={staff.id} value={staff.id}>
+                                                            {staff.full_name} ({staff.role === 'admin' ? 'Administrator' : 'Loan Officer'})
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <p className="text-[10px] text-muted-foreground">
+                                                    Assign a loan officer. They will see this borrower in their dashboard.
+                                                </p>
+                                            </div>
+                                        )}
 
                                         <div className="flex justify-end gap-4 border-t pt-6">
                                             <Button type="button" variant="outline" onClick={() => navigate("/staff-dashboard/borrowers")} disabled={isLoading}>
