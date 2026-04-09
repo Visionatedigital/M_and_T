@@ -24,6 +24,12 @@ function normalizeDateOnlyInput(val) {
   return new Date(t).toISOString().slice(0, 10);
 }
 
+/** Today's calendar date in the server's local timezone (aligns with HTML `type="date"`). */
+function todayYyyyMmDdLocal() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 // Get all borrowers with aggregated loan data
 router.get('/', async (req, res) => {
   const isGroup = req.query.isGroup === 'true';
@@ -246,9 +252,13 @@ router.put('/:id', async (req, res) => {
     idx += 1;
   }
   if (Object.prototype.hasOwnProperty.call(body, 'registered_on')) {
-    const rd = normalizeDateOnlyInput(body.registered_on);
-    if (rd) {
-      const today = new Date().toISOString().slice(0, 10);
+    const rawRo = body.registered_on;
+    if (rawRo !== '' && rawRo != null) {
+      const rd = normalizeDateOnlyInput(rawRo);
+      if (!rd) {
+        return res.status(400).json({ error: 'Invalid registration date. Use YYYY-MM-DD.' });
+      }
+      const today = todayYyyyMmDdLocal();
       if (rd > today) {
         return res.status(400).json({ error: 'Registration date cannot be in the future.' });
       }
@@ -338,7 +348,7 @@ router.post('/', async (req, res) => {
 
   const registrationDate = normalizeDateOnlyInput(registered_on);
   if (registrationDate) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayYyyyMmDdLocal();
     if (registrationDate > today) {
       return res.status(400).json({ error: 'Registration date cannot be in the future.' });
     }

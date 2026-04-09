@@ -83,6 +83,12 @@ function splitFullName(full: string) {
     return { first: parts[0], rest: parts.slice(1).join(" ") };
 }
 
+/** Local calendar YYYY-MM-DD — matches `type="date"` and server `todayYyyyMmDdLocal()`. */
+function localTodayYyyyMmDd() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function emptyDraft(): EditDraft {
     return {
         first_name: "",
@@ -232,6 +238,16 @@ const BorrowerDetails = () => {
             return;
         }
 
+        const regTrim = draft.registered_on?.trim();
+        if (regTrim && regTrim > localTodayYyyyMmDd()) {
+            toast({
+                title: "Invalid registration date",
+                description: "Borrower since cannot be in the future. Choose today or an earlier date.",
+                variant: "destructive",
+            });
+            return;
+        }
+
         setSaving(true);
         try {
             let photoUrl: string | undefined = borrower.borrower_photo || undefined;
@@ -290,7 +306,7 @@ const BorrowerDetails = () => {
                 payload.assigned_officer_id = draft.assigned_officer_id || null;
             }
 
-            payload.registered_on = draft.registered_on || undefined;
+            if (regTrim) payload.registered_on = regTrim;
 
             await api.borrowers.update(borrowerId, payload);
             toast({ title: "Saved", description: "Borrower details updated." });
@@ -454,7 +470,7 @@ const BorrowerDetails = () => {
                                                         <Input
                                                             id="bd-borrower-since"
                                                             type="date"
-                                                            max={new Date().toISOString().slice(0, 10)}
+                                                            max={localTodayYyyyMmDd()}
                                                             value={draft.registered_on}
                                                             onChange={(e) => setDraft((d) => ({ ...d, registered_on: e.target.value }))}
                                                             className="h-9"

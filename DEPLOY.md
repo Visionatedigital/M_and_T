@@ -138,6 +138,10 @@ npm run build
 pm2 restart mt-gateway
 ```
 
+**`VITE_REMOTE_API_URL` must be your real public site origin** (the same URL users type in the browser), e.g. `https://mandtmicrofinance.com`. It is **not** an email address; if you set something like `https://...@gmail.com`, the built SPA will call the wrong API host.
+
+If PM2 error logs show `PathError` / `originalPath: '*'` at `server/index.cjs`, the deployed code is outdated: current `server/index.cjs` avoids `app.get('*')` (incompatible with Express 5). Run `git pull` and redeploy so `server/index.cjs` matches the repo.
+
 ## Architecture summary
 
 | Piece | Role |
