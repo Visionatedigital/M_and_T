@@ -135,6 +135,10 @@ if (fs.existsSync(distIndexHtml)) {
     app.use((req, res, next) => {
         if (req.method !== 'GET' && req.method !== 'HEAD') return next();
         if (req.path.startsWith('/api')) return next();
+        // Missing built files must not return index.html (browser expects JS → MIME error)
+        if (req.path.startsWith('/assets')) {
+            return res.status(404).type('text/plain').send('Asset not found — rebuild or hard-refresh');
+        }
         res.sendFile(distIndexHtml);
     });
 } else {
