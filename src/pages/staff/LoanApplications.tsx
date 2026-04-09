@@ -69,6 +69,7 @@ const LoanApplications = () => {
   const [isDisbursementDialogOpen, setIsDisbursementDialogOpen] = useState(false);
   const [pendingApprovalId, setPendingApprovalId] = useState<string | null>(null);
   const [disbursementMethod, setDisbursementMethod] = useState("cash");
+  const [approvalEffectiveDate, setApprovalEffectiveDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [userRole, setUserRole] = useState<string>("");
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -198,6 +199,7 @@ const LoanApplications = () => {
   const openDisbursementDialog = (applicationId: string) => {
     setPendingApprovalId(applicationId);
     setDisbursementMethod("cash");
+    setApprovalEffectiveDate(new Date().toISOString().slice(0, 10));
     setIsDisbursementDialogOpen(true);
   };
 
@@ -207,7 +209,11 @@ const LoanApplications = () => {
       pendingApprovalId,
       "approved",
       undefined,
-      { disbursement_method: disbursementMethod }
+      {
+        disbursement_method: disbursementMethod,
+        approved_at: approvalEffectiveDate,
+        disbursement_entry_date: approvalEffectiveDate,
+      }
     );
     setIsDisbursementDialogOpen(false);
     setPendingApprovalId(null);
@@ -839,6 +845,19 @@ const LoanApplications = () => {
                     <DialogDescription>How was this loan disbursed?</DialogDescription>
                   </DialogHeader>
                   <div className="space-y-3 py-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="list-approval-effective-date">Approval / disbursement date</Label>
+                      <Input
+                        id="list-approval-effective-date"
+                        type="date"
+                        max={new Date().toISOString().slice(0, 10)}
+                        value={approvalEffectiveDate}
+                        onChange={(e) => setApprovalEffectiveDate(e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Sets approval time and accounting entry. Use a past date for historical loans.
+                      </p>
+                    </div>
                     <Label htmlFor="disbursement_method">Method</Label>
                     <Select value={disbursementMethod} onValueChange={setDisbursementMethod}>
                       <SelectTrigger id="disbursement_method">

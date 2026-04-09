@@ -48,6 +48,8 @@ const AddBorrower = () => {
         credit_score: "500",
         description: "",
         assigned_officer_id: "",
+        /** When the client became a borrower (sets DB created_at); defaults to today, can be backdated */
+        registered_on: new Date().toISOString().slice(0, 10),
     });
 
     const [files, setFiles] = useState<{ [key: string]: File | null }>({
@@ -66,7 +68,10 @@ const AddBorrower = () => {
         const d = loadFormDraft<{ formData: typeof formData; clientType?: "personal" | "business" }>(DRAFT_KEYS.ADD_BORROWER);
         if (!d?.formData) return;
         suppressDraftSaveRef.current = true;
-        setFormData(d.formData);
+        setFormData({
+            ...d.formData,
+            registered_on: d.formData.registered_on || new Date().toISOString().slice(0, 10),
+        });
         if (d.clientType) setClientType(d.clientType);
         toast({
             title: "Draft restored",
@@ -188,6 +193,7 @@ const AddBorrower = () => {
                 unique_number: formData.unique_number || generateUniqueId(),
                 borrower_photo: photoUrl,
                 borrower_files: filesUrl,
+                registered_on: formData.registered_on || undefined,
             };
 
             const result = await api.borrowers.create(submissionData);
@@ -271,6 +277,7 @@ const AddBorrower = () => {
                                                         credit_score: "500",
                                                         description: "",
                                                         assigned_officer_id: "",
+                                                        registered_on: new Date().toISOString().slice(0, 10),
                                                     });
                                                     toast({ title: "Draft discarded" });
                                                 }}
@@ -323,6 +330,20 @@ const AddBorrower = () => {
 
                                         {/* Section: Unique Info & Gender */}
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                            <div className="space-y-2">
+                                                <Label htmlFor="registered_on">Client registration date</Label>
+                                                <Input
+                                                    id="registered_on"
+                                                    type="date"
+                                                    max={new Date().toISOString().slice(0, 10)}
+                                                    value={formData.registered_on}
+                                                    onChange={handleChange}
+                                                    className="max-w-56"
+                                                />
+                                                <p className="text-[10px] text-muted-foreground">
+                                                    Defaults to today. Set a past date when adding historical borrowers (shows as “Borrower since” on the profile).
+                                                </p>
+                                            </div>
                                             <div className="space-y-2">
                                                 <Label htmlFor="unique_number">Unique Number</Label>
                                                 <Input id="unique_number" value={formData.unique_number} onChange={handleChange} placeholder="D001YV0" />

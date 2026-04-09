@@ -73,6 +73,8 @@ type EditDraft = {
     description: string;
     credit_score: string;
     assigned_officer_id: string;
+    /** Maps to borrower.created_at ("Borrower since") */
+    registered_on: string;
 };
 
 function splitFullName(full: string) {
@@ -105,6 +107,7 @@ function emptyDraft(): EditDraft {
         description: "",
         credit_score: "500",
         assigned_officer_id: "",
+        registered_on: "",
     };
 }
 
@@ -202,6 +205,7 @@ const BorrowerDetails = () => {
             description: borrower.description || "",
             credit_score: String(borrower.credit_score ?? 500),
             assigned_officer_id: borrower.assigned_officer_id || "",
+            registered_on: borrower.created_at ? String(borrower.created_at).slice(0, 10) : "",
         });
         setPhotoFile(null);
         setDocsFile(null);
@@ -285,6 +289,8 @@ const BorrowerDetails = () => {
                 payload.credit_score = draft.credit_score ? Number(draft.credit_score) : null;
                 payload.assigned_officer_id = draft.assigned_officer_id || null;
             }
+
+            payload.registered_on = draft.registered_on || undefined;
 
             await api.borrowers.update(borrowerId, payload);
             toast({ title: "Saved", description: "Borrower details updated." });
@@ -440,7 +446,28 @@ const BorrowerDetails = () => {
                                                         ) : null}
                                                     </>
                                                 )}
-                                                <CardDescription>Borrower since {new Date(borrower.created_at).toLocaleDateString()}</CardDescription>
+                                                {isEditing ? (
+                                                    <div className="mt-2 space-y-1.5 max-w-xs">
+                                                        <Label htmlFor="bd-borrower-since" className="text-xs font-normal text-muted-foreground">
+                                                            Borrower since
+                                                        </Label>
+                                                        <Input
+                                                            id="bd-borrower-since"
+                                                            type="date"
+                                                            max={new Date().toISOString().slice(0, 10)}
+                                                            value={draft.registered_on}
+                                                            onChange={(e) => setDraft((d) => ({ ...d, registered_on: e.target.value }))}
+                                                            className="h-9"
+                                                        />
+                                                        <p className="text-[10px] text-muted-foreground leading-snug">
+                                                            When this client became a borrower (saved with Save). Past dates allowed for historical records.
+                                                        </p>
+                                                    </div>
+                                                ) : (
+                                                    <CardDescription>
+                                                        Borrower since {new Date(borrower.created_at).toLocaleDateString()}
+                                                    </CardDescription>
+                                                )}
                                             </div>
                                         </div>
                                         {canEdit && (

@@ -6,6 +6,19 @@ const { analyzeApplication } = require('../services/aiService.cjs');
 const { isAdmin, isLoanOfficer } = require('../lib/roles.cjs');
 
 const ALLOWED_PAYMENT_METHODS = ['cash', 'bank_transfer', 'mobile_money'];
+
+/** YYYY-MM-DD or null — avoids PostgreSQL date errors from bad client input */
+function normalizeDateOnlyInput(val) {
+    if (val == null || val === '') return null;
+    const s = String(val).trim();
+    if (!s) return null;
+    const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const t = Date.parse(s);
+    if (Number.isNaN(t)) return null;
+    return new Date(t).toISOString().slice(0, 10);
+}
+
 const normalizePaymentMethod = (value) => {
     if (!value) return null;
     const v = String(value).toLowerCase().trim();
@@ -295,6 +308,15 @@ router.post('/', async (req, res) => {
         const interestFixedAmount = req.body.interest_fixed_amount != null ? parseFloat(req.body.interest_fixed_amount) : null;
         const durationUnit = req.body.duration_unit || 'months';
 
+        const applicationDate = normalizeDateOnlyInput(req.body.application_date || req.body.created_on);
+        if (applicationDate) {
+            const today = new Date().toISOString().slice(0, 10);
+            if (applicationDate > today) {
+                await db.query('ROLLBACK');
+                return res.status(400).json({ error: 'Application date cannot be in the future.' });
+            }
+        }
+
         const values = [
             user_id, full_name, email, phone_number, id_number, dateOfBirthVal, addressVal,
             loan_product, loan_amount, loan_duration_months, loan_purpose, 'Self-Employed', 'pending',
@@ -317,6 +339,10 @@ router.post('/', async (req, res) => {
             'security_type', 'security_value',
             'repayment_frequency', 'interest_method', 'interest_rate', 'interest_fixed_amount', 'duration_unit'
         ];
+        if (applicationDate) {
+            cols.push('created_at');
+            values.push(applicationDate);
+        }
         const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
         const query = `INSERT INTO loan_applications (${cols.join(', ')}) VALUES (${placeholders}) RETURNING *`;
 
@@ -450,6 +476,17 @@ router.patch('/:id/status', async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
     const actingUser = req.user?.user_id || '00000000-0000-0000-0000-000000000000';
+    const approvedAtOverride = normalizeDateOnlyInput(req.body.approved_at);
+    const disbursementEntryDate =
+        normalizeDateOnlyInput(req.body.disbursement_entry_date) || approvedAtOverride;
+
+    const today = new Date().toISOString().slice(0, 10);
+    if (approvedAtOverride && approvedAtOverride > today) {
+        return res.status(400).json({ error: 'Approval date cannot be in the future.' });
+    }
+    if (disbursementEntryDate && disbursementEntryDate > today) {
+        return res.status(400).json({ error: 'Disbursement / accounting date cannot be in the future.' });
+    }
 
     try {
         const { rows: prevRows } = await db.query(
@@ -467,11 +504,16 @@ router.patch('/:id/status', async (req, res) => {
             `
             UPDATE loan_applications la
             SET status = $1, updated_at = NOW(),
-                approved_at = CASE WHEN $1 IN ('approved', 'disbursed') AND approved_at IS NULL THEN NOW() ELSE approved_at END
+                approved_at = CASE
+                    WHEN $1::text NOT IN ('approved', 'disbursed') THEN la.approved_at
+                    WHEN $3::date IS NOT NULL THEN ($3::date)::timestamptz
+                    WHEN la.approved_at IS NOT NULL THEN la.approved_at
+                    ELSE NOW()
+                END
             WHERE la.id = $2
             RETURNING la.*
             `,
-            [status, id]
+            [status, id, approvedAtOverride || null]
         );
 
         if (rows.length === 0) return res.status(404).json({ error: 'Application not found' });
@@ -489,6 +531,8 @@ router.patch('/:id/status', async (req, res) => {
             }
             
             if (amount > 0) {
+                const entryDate =
+                    disbursementEntryDate || approvedAtOverride || new Date().toISOString().split('T')[0];
                 await db.query(`
                     INSERT INTO accounting_entries
                         (entry_type, category, description, amount, entry_date, payment_method, reference_id, recorded_by)
@@ -496,7 +540,7 @@ router.patch('/:id/status', async (req, res) => {
                 `, [
                     `Loan Disbursement - ${prevLoan.full_name}${disbursementAccount ? ' (' + disbursementAccount + ')' : ''}`, 
                     amount, 
-                    new Date().toISOString().split('T')[0], 
+                    entryDate, 
                     disbursementMethod, 
                     id, 
                     actingUser
@@ -547,6 +591,49 @@ router.put('/:id', async (req, res) => {
             address: g.address
         })).filter(g => g.name || g.phone) : null;
         const guarantorsJson = guarantorsNormalized ? JSON.stringify(guarantorsNormalized) : null;
+
+        let extraSql = '';
+        const values = [
+            body.full_name, body.email, body.phone_number, body.id_number,
+            body.loan_product, body.loan_amount, body.loan_duration_months, body.loan_purpose,
+            body.branch_name, body.loan_type, body.loan_category, body.group_id || null, body.group_name || null,
+            groupMembersJson,
+            guarantorsJson,
+            body.district, body.division, body.county, body.village, body.parish,
+            body.business_location, body.security_type || null, body.security_value ? parseFloat(body.security_value) : null,
+            body.repayment_frequency || null, body.interest_method || null, body.interest_rate != null ? parseFloat(body.interest_rate) : null, body.interest_fixed_amount != null ? parseFloat(body.interest_fixed_amount) : null, body.duration_unit || null,
+            body.attachment_national_id ?? null,
+            body.attachment_lc1_letter ?? null,
+            body.attachment_recommendation_letter ?? null,
+            body.attachment_passport_photo ?? null,
+            body.attachment_income_statement ?? null,
+            body.attachment_uploaded_at ?? null,
+        ];
+        let p = values.length + 1;
+        const todayPut = new Date().toISOString().slice(0, 10);
+        if (isAdmin(req.user?.role)) {
+            const c = normalizeDateOnlyInput(body.application_date || body.created_at);
+            if (c) {
+                if (c > todayPut) {
+                    return res.status(400).json({ error: 'Application date cannot be in the future.' });
+                }
+                extraSql += `, created_at = $${p}::date::timestamptz`;
+                values.push(c);
+                p += 1;
+            }
+            const ap = normalizeDateOnlyInput(body.approved_at);
+            if (body.approved_at !== undefined && ap) {
+                if (ap > todayPut) {
+                    return res.status(400).json({ error: 'Approval date cannot be in the future.' });
+                }
+                extraSql += `, approved_at = $${p}::date::timestamptz`;
+                values.push(ap);
+                p += 1;
+            }
+        }
+        values.push(id);
+        const idParam = p;
+
         const query = `
             UPDATE loan_applications
             SET 
@@ -569,26 +656,10 @@ router.put('/:id', async (req, res) => {
                 attachment_income_statement = $33,
                 attachment_uploaded_at = $34,
                 updated_at = NOW()
-            WHERE id = $35
+                ${extraSql}
+            WHERE id = $${idParam}
             RETURNING *
         `;
-        const values = [
-            body.full_name, body.email, body.phone_number, body.id_number,
-            body.loan_product, body.loan_amount, body.loan_duration_months, body.loan_purpose,
-            body.branch_name, body.loan_type, body.loan_category, body.group_id || null, body.group_name || null,
-            groupMembersJson,
-            guarantorsJson,
-            body.district, body.division, body.county, body.village, body.parish,
-            body.business_location, body.security_type || null, body.security_value ? parseFloat(body.security_value) : null,
-            body.repayment_frequency || null, body.interest_method || null, body.interest_rate != null ? parseFloat(body.interest_rate) : null, body.interest_fixed_amount != null ? parseFloat(body.interest_fixed_amount) : null, body.duration_unit || null,
-            body.attachment_national_id ?? null,
-            body.attachment_lc1_letter ?? null,
-            body.attachment_recommendation_letter ?? null,
-            body.attachment_passport_photo ?? null,
-            body.attachment_income_statement ?? null,
-            body.attachment_uploaded_at ?? null,
-            id
-        ];
         const { rows } = await db.query(query, values);
         if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
         res.json(rows[0]);

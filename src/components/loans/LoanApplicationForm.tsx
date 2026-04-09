@@ -24,6 +24,7 @@ import { Separator } from "@/components/ui/separator";
 import { Trash2, UserPlus, Plus, User, Users, ChevronsUpDown, Crown, Search, Shield, Save, Check } from "lucide-react";
 import { api } from "@/services/api";
 import { useToast } from "@/hooks/use-toast";
+import { useUserRole } from "@/hooks/useUserRole";
 import {
     deleteLoanApplicationDraft,
     formatDraftAge,
@@ -108,6 +109,11 @@ const formSchema = z.object({
         parish: z.string().optional(),
         village: z.string().optional(),
     })).optional(),
+
+    /** YYYY-MM-DD — application filed / created in DB (backdating for migration) */
+    application_date: z.string().optional(),
+    /** When editing as admin — historical approval date */
+    approved_at: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -171,6 +177,8 @@ function getEmptyLoanFormDefaults(): FormValues {
         guarantors: [],
         group_name: "",
         group_members: [],
+        application_date: new Date().toISOString().slice(0, 10),
+        approved_at: "",
     };
 }
 
@@ -191,6 +199,7 @@ interface LoanApplicationFormProps {
 
 export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanApplicationFormProps) {
     const { toast } = useToast();
+    const { isAdmin } = useUserRole();
     const navigate = useNavigate();
     const [loanProducts, setLoanProducts] = useState<any[]>([]);
     // Use a simplified local state for guarantors since useFieldArray can be complex with shadcn form sometimes
@@ -293,6 +302,10 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
             guarantors: initialData?.guarantors || [],
             group_name: initialData?.group_name || "",
             group_members: initialData?.group_members || [],
+            application_date: initialData?.created_at
+                ? String(initialData.created_at).slice(0, 10)
+                : new Date().toISOString().slice(0, 10),
+            approved_at: initialData?.approved_at ? String(initialData.approved_at).slice(0, 10) : "",
         },
     });
 
@@ -763,6 +776,13 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                 status: initialData ? initialData.status : "pending"
             };
 
+            if (values.application_date) {
+                applicationData.application_date = values.application_date;
+            }
+            if (initialData && isAdmin && values.approved_at) {
+                applicationData.approved_at = values.approved_at;
+            }
+
             if (initialData) {
                 // Update existing application
                 await api.applications.update(initialData.id, applicationData);
@@ -1150,6 +1170,53 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                         <FormLabel>Interest Rate (%)</FormLabel>
                                         <FormControl>
                                             <Input type="number" step="0.1" className="h-8 min-h-8 w-full px-2 text-xs" {...field} placeholder="e.g. 30" />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                        )}
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-4">
+                        <FormField
+                            control={form.control}
+                            name="application_date"
+                            render={({ field }) => (
+                                <FormItem className="min-w-0">
+                                    <FormLabel>Application date</FormLabel>
+                                    <FormDescription className="text-xs">
+                                        When the application was filed (defaults to today). Use a past date for historical data.
+                                    </FormDescription>
+                                    <FormControl>
+                                        <Input
+                                            type="date"
+                                            className="h-8 min-h-8 w-full px-2 text-xs"
+                                            max={new Date().toISOString().slice(0, 10)}
+                                            {...field}
+                                        />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        {initialData && isAdmin && (
+                            <FormField
+                                control={form.control}
+                                name="approved_at"
+                                render={({ field }) => (
+                                    <FormItem className="min-w-0">
+                                        <FormLabel>Approval date</FormLabel>
+                                        <FormDescription className="text-xs">
+                                            Admin only — set when correcting approval/disbursement history.
+                                        </FormDescription>
+                                        <FormControl>
+                                            <Input
+                                                type="date"
+                                                className="h-8 min-h-8 w-full px-2 text-xs"
+                                                max={new Date().toISOString().slice(0, 10)}
+                                                {...field}
+                                            />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>

@@ -22,6 +22,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { LoanApplicationForm } from "@/components/loans/LoanApplicationForm";
 import {
@@ -86,6 +87,8 @@ const LoanApplicationDetails = () => {
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
     const [isDisbursementDialogOpen, setIsDisbursementDialogOpen] = useState(false);
     const [disbursementMethod, setDisbursementMethod] = useState("cash");
+    /** Backdated approval / accounting date when approving or disbursing (migration) */
+    const [approvalEffectiveDate, setApprovalEffectiveDate] = useState(() => new Date().toISOString().slice(0, 10));
     const [rejectionReason, setRejectionReason] = useState("");
     const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -210,7 +213,11 @@ const LoanApplicationDetails = () => {
     };
 
     const confirmApproveWithMethod = async () => {
-        await handleStatusChange("approved", { disbursement_method: disbursementMethod });
+        await handleStatusChange("approved", {
+            disbursement_method: disbursementMethod,
+            approved_at: approvalEffectiveDate,
+            disbursement_entry_date: approvalEffectiveDate,
+        });
         setIsDisbursementDialogOpen(false);
     };
 
@@ -720,6 +727,19 @@ const LoanApplicationDetails = () => {
                         <DialogDescription>How was this loan disbursed?</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-3 py-2">
+                        <div className="space-y-2">
+                            <Label htmlFor="approval-effective-date">Approval / disbursement date</Label>
+                            <Input
+                                id="approval-effective-date"
+                                type="date"
+                                max={new Date().toISOString().slice(0, 10)}
+                                value={approvalEffectiveDate}
+                                onChange={(e) => setApprovalEffectiveDate(e.target.value)}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Sets the loan approval time and the accounting entry date. Use a past date when entering historical loans.
+                            </p>
+                        </div>
                         <Label htmlFor="detail_disbursement_method">Method</Label>
                         <Select value={disbursementMethod} onValueChange={setDisbursementMethod}>
                             <SelectTrigger id="detail_disbursement_method">

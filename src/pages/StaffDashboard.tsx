@@ -63,25 +63,18 @@ const StaffDashboard = () => {
     loadDashboardData();
   }, [navigate]);
 
-  if (isLoading || roleLoading || !stats) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('en-UG', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount || 0);
 
-  const totalOutstanding = stats.outstandingPortfolio || 0;
+  const totalOutstanding = stats?.outstandingPortfolio || 0;
   const outstandingPrincipal = totalOutstanding * 0.85;
   const outstandingInterest = totalOutstanding * 0.13;
 
-  const hasPortfolio =
+  const hasPortfolio = !!stats && (
     (stats.totalApplications ?? 0) > 0 ||
     (stats.totalDisbursed ?? 0) > 0 ||
-    (stats.totalPaid ?? 0) > 0;
+    (stats.totalPaid ?? 0) > 0
+  );
 
   const monthlyFinancials = useMemo(() => {
     let cumCol = 0;
@@ -165,6 +158,14 @@ const StaffDashboard = () => {
         : [],
     [hasPortfolio]
   );
+
+  if (isLoading || roleLoading || !stats) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   const getFilteredData = (dataArray: any[]) => {
     let limit = dataArray.length;

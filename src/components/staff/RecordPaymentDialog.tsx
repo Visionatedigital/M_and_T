@@ -135,6 +135,7 @@ export function RecordPaymentDialog({
                         <Input
                             id="pay-date"
                             type="date"
+                            max={new Date().toISOString().slice(0, 10)}
                             value={date}
                             onChange={(e) => setDate(e.target.value)}
                             required

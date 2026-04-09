@@ -245,6 +245,18 @@ router.put('/:id', async (req, res) => {
     values.push(normalizeDateOnlyInput(d));
     idx += 1;
   }
+  if (Object.prototype.hasOwnProperty.call(body, 'registered_on')) {
+    const rd = normalizeDateOnlyInput(body.registered_on);
+    if (rd) {
+      const today = new Date().toISOString().slice(0, 10);
+      if (rd > today) {
+        return res.status(400).json({ error: 'Registration date cannot be in the future.' });
+      }
+      updates.push(`created_at = $${idx}::date::timestamptz`);
+      values.push(rd);
+      idx += 1;
+    }
+  }
   if (updates.length === 0) {
     return res.status(400).json({ error: 'No fields to update' });
   }
@@ -320,8 +332,17 @@ router.post('/', async (req, res) => {
     province_state, zipcode, gender, title, working_status, credit_score,
     dob, landline_phone, description,
     borrower_photo, borrower_files, assigned_officer_id,
-    district, village
+    district, village,
+    registered_on,
   } = req.body;
+
+  const registrationDate = normalizeDateOnlyInput(registered_on);
+  if (registrationDate) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (registrationDate > today) {
+      return res.status(400).json({ error: 'Registration date cannot be in the future.' });
+    }
+  }
 
   try {
     const query = `
@@ -331,8 +352,8 @@ router.post('/', async (req, res) => {
                 province_state, zipcode, gender, title, working_status, credit_score,
                 date_of_birth, landline_phone, description,
                 borrower_photo, borrower_files, assigned_officer_id,
-                district, village
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+                district, village, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, COALESCE($25::date::timestamptz, NOW()))
             RETURNING *
         `;
     const selfId = req.user?.id || req.user?.user_id;
@@ -348,7 +369,8 @@ router.post('/', async (req, res) => {
       province_state, zipcode, gender, title, working_status, credit_score || 300,
       dob || null, landline_phone, description,
       borrower_photo, borrower_files ? [borrower_files] : null, assignedOfficerId,
-      district || null, village || null
+      district || null, village || null,
+      registrationDate || null,
     ];
 
     const { rows } = await db.query(query, values);

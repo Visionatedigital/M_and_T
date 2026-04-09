@@ -392,7 +392,11 @@ export const api = {
                 headers: getHeaders(),
                 body: JSON.stringify({ status, ...extraData }),
             });
-            if (!response.ok) throw new Error('Failed to update status');
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                const msg = (err as { error?: string }).error;
+                throw new Error(msg || 'Failed to update status');
+            }
             return response.json();
         },
         update: async (id: string, data: any) => {
