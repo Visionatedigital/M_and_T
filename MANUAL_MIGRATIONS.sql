@@ -173,6 +173,21 @@ ADD COLUMN IF NOT EXISTS restructuring_fee_high NUMERIC DEFAULT 60000,
 ADD COLUMN IF NOT EXISTS restructuring_threshold NUMERIC DEFAULT 600000;
 
 -- -----------------------------------------------------------------------------
+-- 13b. LOAN PRODUCTS custom_fees JSON (20260319120000) — fixes PUT/POST when column missing
+-- -----------------------------------------------------------------------------
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'loan_products' AND column_name = 'custom_fees'
+    ) THEN
+        ALTER TABLE public.loan_products
+            ADD COLUMN custom_fees jsonb NOT NULL DEFAULT '[]'::jsonb;
+        COMMENT ON COLUMN public.loan_products.custom_fees IS 'Extra fixed fees (UGX): [{id, label, amount}, ...]';
+    END IF;
+END $$;
+
+-- -----------------------------------------------------------------------------
 -- 14. LOAN OFFICER POLICY (20260209151500)
 -- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS "Loan Officers can create applications" ON public.loan_applications;

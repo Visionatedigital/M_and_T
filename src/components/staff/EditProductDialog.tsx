@@ -289,24 +289,26 @@ export function EditProductDialog({ open, onOpenChange, product, mode = "edit", 
             <DialogContent className="sm:max-w-[540px] max-h-[90vh] flex flex-col p-0 gap-0">
                 <DialogHeader className="px-6 pt-6 pb-2">
                     <DialogTitle>{mode === "create" ? "Add loan product" : "Edit loan product"}</DialogTitle>
-                    <DialogDescription className="space-y-2">
-                        <p>
-                            Use the <strong className="text-foreground">Terms</strong> tab to change the{" "}
-                            <strong className="text-foreground">name</strong>, <strong className="text-foreground">code</strong>
-                            , description, loan amounts, interest, and status. Use{" "}
-                            <strong className="text-foreground">Fees</strong>, <strong className="text-foreground">Rates %</strong>
-                            , and <strong className="text-foreground">Restructure</strong> for all charges specific to this
-                            product.
-                        </p>
-                        {mode === "edit" ? (
+                    <DialogDescription asChild>
+                        <div className="space-y-2 text-sm text-muted-foreground">
                             <p>
-                                Editing{" "}
-                                <span className="font-medium text-foreground">{formData.name || "this product"}</span>
-                                {" "}({formData.code || "—"}).
+                                Use the <strong className="text-foreground">Terms</strong> tab to change the{" "}
+                                <strong className="text-foreground">name</strong>, <strong className="text-foreground">code</strong>
+                                , description, loan amounts, interest, and status. Use{" "}
+                                <strong className="text-foreground">Fees</strong>, <strong className="text-foreground">Rates %</strong>
+                                , and <strong className="text-foreground">Restructure</strong> for all charges specific to this
+                                product.
                             </p>
-                        ) : (
-                            <p>Choose a unique code (e.g. GRP-01) so reports and forms stay clear.</p>
-                        )}
+                            {mode === "edit" ? (
+                                <p>
+                                    Editing{" "}
+                                    <span className="font-medium text-foreground">{formData.name || "this product"}</span>
+                                    {" "}({formData.code || "—"}).
+                                </p>
+                            ) : (
+                                <p>Choose a unique code (e.g. GRP-01) so reports and forms stay clear.</p>
+                            )}
+                        </div>
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
