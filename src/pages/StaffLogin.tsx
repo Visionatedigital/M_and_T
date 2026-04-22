@@ -89,7 +89,7 @@ const StaffLogin = () => {
               <Input
                 id="email"
                 type="email"
-                placeholder="liz.keza@mtgrowth.local"
+                placeholder="liz.keza@mtgrowth.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required

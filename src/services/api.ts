@@ -90,7 +90,31 @@ export const api = {
                 throw new Error(msg);
             }
             return r.json();
-        })
+        }),
+        getHistory: async (loanApplicationId: string) => {
+            const r = await fetch(`${API_URL}/repayments/history/${loanApplicationId}`, {
+                headers: getHeaders(),
+            });
+            if (!r.ok) {
+                let msg = 'Failed to load repayment history';
+                try { const err = await r.json(); msg = err.error || msg; } catch { /* ignore */ }
+                throw new Error(msg);
+            }
+            return r.json();
+        },
+        update: async (id: string, data: any) => {
+            const r = await fetch(`${API_URL}/repayments/${id}`, {
+                method: 'PUT',
+                headers: getHeaders(),
+                body: JSON.stringify(data),
+            });
+            if (!r.ok) {
+                let msg = 'Failed to update repayment';
+                try { const err = await r.json(); msg = err.error || msg; } catch { /* ignore */ }
+                throw new Error(msg);
+            }
+            return r.json();
+        }
     },
     branches: {
         getAll: () => fetch(`${API_URL}/branches`, { headers: getHeaders() }).then(r => {

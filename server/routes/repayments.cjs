@@ -587,6 +587,278 @@ router.post('/reallocate-history', async (req, res) => {
     }
 });
 
+// List all repayment transactions for a loan (individual or group loan_application)
+router.get('/history/:loan_application_id', async (req, res) => {
+    const { loan_application_id } = req.params;
+    try {
+        const accessScope = getOfficerScope(req, 'la', 2);
+        if (accessScope.whereSql) {
+            const { rows: accessRows } = await db.query(
+                `
+                SELECT la.id
+                FROM loan_applications la
+                ${accessScope.joinSql}
+                WHERE la.id = $1 AND ${accessScope.whereSql}
+                LIMIT 1
+                `,
+                [loan_application_id, ...accessScope.values]
+            );
+            if (accessRows.length === 0) {
+                return res.status(404).json({ error: 'Loan not found' });
+            }
+        }
+
+        const { rows: columnRows } = await db.query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'repayments' AND column_name = ANY($1::text[])
+        `, [['notes', 'member_breakdown', 'penalty_amount', 'penalty_covered_by_security_deposit']]);
+        const cols = new Set(columnRows.map(c => c.column_name));
+
+        const selectExtras = [
+            cols.has('notes') ? 'notes' : `NULL::text as notes`,
+            cols.has('member_breakdown') ? 'member_breakdown' : `'[]'::jsonb as member_breakdown`,
+            cols.has('penalty_amount') ? 'penalty_amount' : `0::numeric as penalty_amount`,
+            cols.has('penalty_covered_by_security_deposit')
+                ? 'penalty_covered_by_security_deposit'
+                : `0::numeric as penalty_covered_by_security_deposit`,
+        ].join(', ');
+
+        const { rows } = await db.query(
+            `SELECT id, loan_application_id, amount, payment_date, payment_method,
+                    recorded_by, created_at, updated_at, ${selectExtras}
+             FROM repayments
+             WHERE loan_application_id = $1
+             ORDER BY payment_date DESC, created_at DESC, id DESC`,
+            [loan_application_id]
+        );
+
+        res.json(rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to load repayment history' });
+    }
+});
+
+/**
+ * Reverse accounting entries previously booked for a repayment.
+ * Matches by reference_id (loan_id), exact entry_date, category, and exact amount.
+ * This is a best-effort cleanup; ambiguous rows are NOT deleted.
+ */
+async function reverseRepaymentAccounting(oldRepayment, loanInfo) {
+    const oldAmount = parseFloat(oldRepayment.amount) || 0;
+    const oldInterest = Math.round(oldAmount * (0.30 / 1.30));
+    const oldPrincipal = oldAmount - oldInterest;
+    const oldPenalty = parseFloat(oldRepayment.penalty_amount || 0);
+    const oldPenaltyCovered = parseFloat(oldRepayment.penalty_covered_by_security_deposit || 0);
+    const loanId = oldRepayment.loan_application_id;
+    const oldDate = oldRepayment.payment_date;
+    const fullName = loanInfo.full_name || '';
+    const loanProduct = loanInfo.loan_product || '';
+
+    const targets = [
+        { category: 'Interest Income', amount: oldInterest, description: `Loan Repayment - Interest (${fullName} - ${loanProduct})` },
+        { category: 'Principal Recovery', amount: oldPrincipal, description: `Loan Repayment - Principal (${fullName} - ${loanProduct})` },
+    ];
+    if (oldPenalty > 0) {
+        targets.push({ category: 'Late Payment Penalties', amount: oldPenalty, description: `Late Payment Penalty (cash) - ${fullName} (${loanProduct})` });
+    }
+    if (oldPenaltyCovered > 0) {
+        targets.push({ category: 'Late Payment Penalties', amount: oldPenaltyCovered, description: `Late Payment Penalty (security deposit applied) - ${fullName} (${loanProduct})` });
+    }
+
+    for (const t of targets) {
+        if (!(t.amount > 0)) continue;
+        // Only delete a single matching row to avoid removing unrelated entries
+        await db.query(
+            `DELETE FROM accounting_entries
+             WHERE id = (
+                SELECT id FROM accounting_entries
+                WHERE reference_id = $1
+                  AND entry_date = $2
+                  AND category = $3
+                  AND description = $4
+                  AND ABS(amount - $5::numeric) < 0.01
+                ORDER BY created_at ASC
+                LIMIT 1
+             )`,
+            [loanId, oldDate, t.category, t.description, t.amount]
+        );
+    }
+}
+
+// Edit an existing repayment (amount, date, method, notes, member_breakdown)
+router.put('/:id', async (req, res) => {
+    const { id } = req.params;
+    const { amount, payment_date, payment_method, notes, member_breakdown } = req.body || {};
+
+    const newAmount = parseFloat(amount);
+    if (!Number.isFinite(newAmount) || newAmount <= 0) {
+        return res.status(400).json({ error: 'Valid amount (> 0) is required' });
+    }
+
+    const payMethod = payment_method ? normalizePaymentMethod(payment_method) : null;
+    if (payMethod && !ALLOWED_PAYMENT_METHODS.includes(payMethod)) {
+        return res.status(400).json({ error: 'Invalid payment_method' });
+    }
+
+    try {
+        await db.query('BEGIN');
+
+        const { rows: existing } = await db.query(
+            `SELECT r.*, la.full_name, la.loan_product, la.borrower_id
+             FROM repayments r
+             JOIN loan_applications la ON la.id = r.loan_application_id
+             WHERE r.id = $1
+             FOR UPDATE`,
+            [id]
+        );
+
+        if (existing.length === 0) {
+            await db.query('ROLLBACK');
+            return res.status(404).json({ error: 'Repayment not found' });
+        }
+
+        const old = existing[0];
+
+        const accessScope = getOfficerScope(req, 'la', 2);
+        if (accessScope.whereSql) {
+            const { rows: accessRows } = await db.query(
+                `
+                SELECT la.id
+                FROM loan_applications la
+                ${accessScope.joinSql}
+                WHERE la.id = $1 AND ${accessScope.whereSql}
+                LIMIT 1
+                `,
+                [old.loan_application_id, ...accessScope.values]
+            );
+            if (accessRows.length === 0) {
+                await db.query('ROLLBACK');
+                return res.status(403).json({ error: 'Not authorized to edit this repayment' });
+            }
+        }
+
+        const hasNotesColumn = await db.query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'repayments' AND column_name = 'notes'
+        `).then(r => r.rows.length > 0).catch(() => false);
+
+        const hasMemberBreakdownColumn = await db.query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'repayments' AND column_name = 'member_breakdown'
+        `).then(r => r.rows.length > 0).catch(() => false);
+
+        // Reverse prior accounting entries before we apply the new amount
+        await reverseRepaymentAccounting(old, { full_name: old.full_name, loan_product: old.loan_product });
+
+        const effectiveDate = payment_date || old.payment_date;
+        const effectiveMethod = payMethod || old.payment_method || 'cash';
+
+        const setClauses = [
+            'amount = $1',
+            'payment_date = $2',
+            'payment_method = $3',
+            'updated_at = NOW()'
+        ];
+        const values = [newAmount, effectiveDate, effectiveMethod];
+        let idx = 4;
+
+        if (hasNotesColumn && notes !== undefined) {
+            setClauses.push(`notes = $${idx++}`);
+            values.push(notes || null);
+        }
+
+        if (hasMemberBreakdownColumn && Array.isArray(member_breakdown)) {
+            const normalized = member_breakdown
+                .map((m) => ({
+                    name: (m?.name || '').toString().trim(),
+                    amount: parseFloat(m?.amount || 0)
+                }))
+                .filter((m) => m.name && m.amount > 0);
+            setClauses.push(`member_breakdown = $${idx++}::jsonb`);
+            values.push(JSON.stringify(normalized));
+        }
+
+        values.push(id);
+        await db.query(
+            `UPDATE repayments SET ${setClauses.join(', ')} WHERE id = $${idx}`,
+            values
+        );
+
+        // Re-insert accounting entries for the new amount (interest + principal split)
+        const recorded_by = old.recorded_by || req.user?.user_id || '00000000-0000-0000-0000-000000000000';
+        const interestPortion = Math.round(newAmount * (0.30 / 1.30));
+        const principalPortion = newAmount - interestPortion;
+
+        if (interestPortion > 0) {
+            await db.query(`
+                INSERT INTO accounting_entries
+                    (entry_type, category, description, amount, entry_date, payment_method, reference_id, recorded_by)
+                VALUES ('revenue', 'Interest Income', $1, $2, $3, $4, $5, $6)
+            `, [
+                `Loan Repayment - Interest (${old.full_name} - ${old.loan_product})`,
+                interestPortion,
+                effectiveDate,
+                effectiveMethod,
+                old.loan_application_id,
+                recorded_by
+            ]);
+        }
+
+        if (principalPortion > 0) {
+            await db.query(`
+                INSERT INTO accounting_entries
+                    (entry_type, category, description, amount, entry_date, payment_method, reference_id, recorded_by)
+                VALUES ('revenue', 'Principal Recovery', $1, $2, $3, $4, $5, $6)
+            `, [
+                `Loan Repayment - Principal (${old.full_name} - ${old.loan_product})`,
+                principalPortion,
+                effectiveDate,
+                effectiveMethod,
+                old.loan_application_id,
+                recorded_by
+            ]);
+        }
+
+        // Re-book penalty entries using their original amounts (edit doesn't change penalties)
+        const oldPenalty = parseFloat(old.penalty_amount || 0);
+        const oldPenaltyCovered = parseFloat(old.penalty_covered_by_security_deposit || 0);
+        if (oldPenalty > 0) {
+            await db.query(`
+                INSERT INTO accounting_entries
+                    (entry_type, category, description, amount, entry_date, payment_method, reference_id, recorded_by)
+                VALUES ('revenue', 'Late Payment Penalties', $1, $2, $3, $4, $5, $6)
+            `, [
+                `Late Payment Penalty (cash) - ${old.full_name} (${old.loan_product})`,
+                oldPenalty, effectiveDate, effectiveMethod, old.loan_application_id, recorded_by
+            ]);
+        }
+        if (oldPenaltyCovered > 0) {
+            await db.query(`
+                INSERT INTO accounting_entries
+                    (entry_type, category, description, amount, entry_date, payment_method, reference_id, recorded_by)
+                VALUES ('revenue', 'Late Payment Penalties', $1, $2, $3, $4, $5, $6)
+            `, [
+                `Late Payment Penalty (security deposit applied) - ${old.full_name} (${old.loan_product})`,
+                oldPenaltyCovered, effectiveDate, effectiveMethod, old.loan_application_id, recorded_by
+            ]);
+        }
+
+        await db.query('COMMIT');
+
+        const { rows: updated } = await db.query(
+            `SELECT * FROM repayments WHERE id = $1`,
+            [id]
+        );
+
+        res.json({ message: 'Repayment updated successfully', repayment: updated[0] });
+    } catch (err) {
+        await db.query('ROLLBACK');
+        console.error(err);
+        res.status(500).json({ error: 'Failed to update repayment' });
+    }
+});
+
 // Check for overdue repayments (manual trigger or called by cron)
 router.post('/check-overdue', async (req, res) => {
     try {

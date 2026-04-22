@@ -84,7 +84,6 @@ const formSchema = z.object({
     // Security & Collateral (for secured loans)
     security_type: z.string().optional(),
     security_value: z.string().optional(),
-    insurance_status: z.string().optional(), // Added insurance status
 
     // Document Attachments (optional but recommended)
     attachment_national_id: z.any().optional(),
@@ -168,7 +167,6 @@ function getEmptyLoanFormDefaults(): FormValues {
         business_location: "",
         security_type: "",
         security_value: "",
-        insurance_status: "",
         attachment_national_id: null,
         attachment_lc1_letter: null,
         attachment_recommendation_letter: null,
@@ -293,7 +291,6 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
             business_location: initialData?.business_location || "",
             security_type: initialData?.security_type || "",
             security_value: initialData?.security_value?.toString() || "",
-            insurance_status: initialData?.insurance_status || "",
             attachment_national_id: initialData?.attachment_national_id || null,
             attachment_lc1_letter: initialData?.attachment_lc1_letter || null,
             attachment_recommendation_letter: initialData?.attachment_recommendation_letter || null,
@@ -714,7 +711,6 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                 // Security & Collateral
                 security_type: values.security_type || null,
                 security_value: values.security_value ? Number(values.security_value) : null,
-                insurance_status: values.insurance_status || "Not Insured",
 
                 // Document Attachments - new upload, borrower's from previous loan, or existing
                 attachment_national_id: uploadedUrls.national_id || borrowerAttachments?.attachment_national_id || initialData?.attachment_national_id || null,
@@ -1367,8 +1363,10 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                             <span className="font-semibold">5,000 UGX</span>
                                         </div>
                                         <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between">
-                                            <span>Processing Fee:</span>
-                                            <span className="font-semibold">5,000 UGX</span>
+                                            <span>Processing Fee (15,000 per person):</span>
+                                            <span className="font-semibold">
+                                                {(15000 * (form.watch("application_type") === "group" ? (groupMembers.length + 1) : 1)).toLocaleString()} UGX
+                                            </span>
                                         </div>
                                     </div>
                                 </div>
@@ -1386,9 +1384,9 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                             <span className="font-semibold">5,000 UGX</span>
                                         </div>
                                         <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                                            <span className="min-w-0 pr-2">Insurance (1% of principal):</span>
+                                            <span className="min-w-0 pr-2">Monitoring Fee (3% of disbursed loan):</span>
                                             <span className="shrink-0 font-semibold">
-                                                {(Number(form.watch("loan_amount")) * 0.01).toLocaleString()} UGX
+                                                {(Number(form.watch("loan_amount")) * 0.03).toLocaleString()} UGX
                                             </span>
                                         </div>
                                         <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
@@ -1406,8 +1404,8 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                         <span>Total Upfront Fees:</span>
                                         <span className="break-all sm:break-normal">
                                             {(
-                                                5000 + 5000 + 5000 + 5000 + 5000 +
-                                                (Number(form.watch("loan_amount")) * 0.01) +
+                                                5000 + (15000 * (form.watch("application_type") === "group" ? (groupMembers.length + 1) : 1)) + 5000 + 5000 +
+                                                (Number(form.watch("loan_amount")) * 0.03) +
                                                 (Number(form.watch("loan_amount")) * 0.10)
                                             ).toLocaleString()} UGX
                                         </span>
@@ -1417,8 +1415,8 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                             <span className="min-w-0">Per Member (Total Members: {groupMembers.length + 1}):</span>
                                             <span className="shrink-0">
                                                 {(
-                                                    (5000 + 5000 + 5000 + 5000 + 5000 +
-                                                        (Number(form.watch("loan_amount")) * 0.01) +
+                                                    (5000 + (15000 * (groupMembers.length + 1)) + 5000 + 5000 +
+                                                        (Number(form.watch("loan_amount")) * 0.03) +
                                                         (Number(form.watch("loan_amount")) * 0.10)) / (groupMembers.length + 1)
                                                 ).toLocaleString(undefined, { maximumFractionDigits: 0 })} UGX
                                             </span>
@@ -1427,7 +1425,8 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                     <p className="text-xs text-muted-foreground mt-1">
                                         Net disbursement: {(
                                             Number(form.watch("loan_amount")) -
-                                            (5000 + 5000 + 5000 + 5000 + 5000 + (Number(form.watch("loan_amount")) * 0.01))
+                                            (5000 + (15000 * (form.watch("application_type") === "group" ? (groupMembers.length + 1) : 1)) + 5000 + 5000 +
+                                                (Number(form.watch("loan_amount")) * 0.03))
                                         ).toLocaleString()} UGX (excl. refundable security deposit)
                                     </p>
                                 </div>

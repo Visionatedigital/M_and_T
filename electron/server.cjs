@@ -65,9 +65,8 @@ async function startServer(userDataPath) {
 
         let user = null;
         const adminId = '00000000-0000-0000-0000-000000000001';
-        const isAdminEmail = email === 'liz.keza@mtgrowth.local' || email === 'admin@example.com';
-        const adminPasswordOk =
-            password === 'MtGrowth2025!' || password === 'admin123' || password === 'password';
+        const isAdminEmail = email === 'liz.keza@mtgrowth.com' || email === 'admin@example.com';
+        const adminPasswordOk = password === 'MtGrowth2025!';
         if (isAdminEmail && adminPasswordOk) {
             user = {
                 id: adminId,

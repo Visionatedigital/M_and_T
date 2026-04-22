@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Receipt, Search, Plus, DollarSign, Calendar, FileSpreadsheet } from "lucide-react";
+import { Receipt, Search, Plus, DollarSign, Calendar, FileSpreadsheet, History, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const Repayments = () => {
@@ -117,6 +117,19 @@ const Repayments = () => {
   const [reallocateAmount, setReallocateAmount] = useState("");
   const [reallocateTarget, setReallocateTarget] = useState<{ loanId: string; memberName: string } | null>(null);
   const [selectedMemberOutstanding, setSelectedMemberOutstanding] = useState<number | null>(null);
+
+  // Payment history viewer + editor
+  const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
+  const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string; isGroup: boolean } | null>(null);
+  const [historyItems, setHistoryItems] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [isEditPaymentOpen, setIsEditPaymentOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<any | null>(null);
+  const [editAmount, setEditAmount] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [editMethod, setEditMethod] = useState("cash");
+  const [editNotes, setEditNotes] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   const groupedRepayments = Object.values(
     repayments
@@ -288,6 +301,63 @@ const Repayments = () => {
     setReallocateTarget({ loanId, memberName });
     setReallocateAmount("");
     setIsReallocateDialogOpen(true);
+  };
+
+  const openHistoryDialog = async (record: { id: string; name: string; isGroup: boolean }) => {
+    setHistoryTarget(record);
+    setIsHistoryDialogOpen(true);
+    await refreshHistory(record.id);
+  };
+
+  const refreshHistory = async (loanId?: string) => {
+    const id = loanId || historyTarget?.id;
+    if (!id) return;
+    setHistoryLoading(true);
+    try {
+      const items = await api.repayments.getHistory(id);
+      setHistoryItems(Array.isArray(items) ? items : []);
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      setHistoryItems([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const openEditPayment = (payment: any) => {
+    setEditTarget(payment);
+    setEditAmount(String(parseFloat(payment.amount || 0)));
+    setEditDate((payment.payment_date || "").toString().slice(0, 10));
+    setEditMethod(payment.payment_method || "cash");
+    setEditNotes(payment.notes || "");
+    setIsEditPaymentOpen(true);
+  };
+
+  const saveEditPayment = async () => {
+    if (!editTarget) return;
+    const amt = parseFloat(editAmount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      toast({ title: "Invalid amount", description: "Enter an amount greater than 0.", variant: "destructive" });
+      return;
+    }
+    setEditSaving(true);
+    try {
+      const result = await api.repayments.update(editTarget.id, {
+        amount: amt,
+        payment_date: editDate || undefined,
+        payment_method: editMethod || undefined,
+        notes: editNotes || undefined,
+      });
+      toast({ title: "Updated", description: result?.message || "Repayment updated." });
+      setIsEditPaymentOpen(false);
+      setEditTarget(null);
+      await refreshHistory();
+      await loadRepayments();
+    } catch (error: any) {
+      toast({ title: "Update failed", description: error.message, variant: "destructive" });
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   const handleReallocateHistory = async () => {
@@ -557,6 +627,18 @@ const Repayments = () => {
                                     Record
                                   </Button>
                                 )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="min-h-10 touch-manipulation gap-1"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openHistoryDialog({ id: record.id, name: record.name, isGroup: record.isGroup });
+                                  }}
+                                >
+                                  <History className="h-4 w-4" />
+                                  Payments
+                                </Button>
                               </div>
                             </CardContent>
                           </Card>
@@ -610,34 +692,48 @@ const Repayments = () => {
                                     </span>
                                   </TableCell>
                                   <TableCell>
-                                    {record.isGroup ? (
+                                    <div className="flex flex-wrap gap-2">
+                                      {record.isGroup ? (
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setSelectedGroup(record);
+                                            setIsGroupDialogOpen(true);
+                                          }}
+                                        >
+                                          View
+                                        </Button>
+                                      ) : (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setSelectedLoanId(record.id);
+                                            setSelectedMemberName("");
+                                            setSelectedMemberOutstanding(null);
+                                            setAmount(record.installmentAmount.toString());
+                                            setIsDialogOpen(true);
+                                          }}
+                                        >
+                                          Record
+                                        </Button>
+                                      )}
                                       <Button
                                         variant="ghost"
                                         size="sm"
+                                        className="gap-1"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          setSelectedGroup(record);
-                                          setIsGroupDialogOpen(true);
+                                          openHistoryDialog({ id: record.id, name: record.name, isGroup: record.isGroup });
                                         }}
                                       >
-                                        View
+                                        <History className="h-4 w-4" />
+                                        Payments
                                       </Button>
-                                    ) : (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setSelectedLoanId(record.id);
-                                          setSelectedMemberName("");
-                                          setSelectedMemberOutstanding(null);
-                                          setAmount(record.installmentAmount.toString());
-                                          setIsDialogOpen(true);
-                                        }}
-                                      >
-                                        Record
-                                      </Button>
-                                    )}
+                                    </div>
                                   </TableCell>
                                 </TableRow>
                               ))}
@@ -657,6 +753,22 @@ const Repayments = () => {
                     <DialogTitle>{selectedGroup?.name} Members</DialogTitle>
                     <DialogDescription>Individual breakdown for group loans</DialogDescription>
                   </DialogHeader>
+                  {selectedGroup && (
+                    <div className="flex justify-end pb-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1"
+                        onClick={() => {
+                          setIsGroupDialogOpen(false);
+                          openHistoryDialog({ id: selectedGroup.id, name: selectedGroup.name, isGroup: true });
+                        }}
+                      >
+                        <History className="h-4 w-4" />
+                        View all payments
+                      </Button>
+                    </div>
+                  )}
                   <div className="overflow-auto pr-1">
                     <Table className="min-w-[760px]">
                       <TableHeader>
@@ -718,6 +830,165 @@ const Repayments = () => {
                   <DialogFooter>
                     <Button variant="outline" onClick={() => setIsReallocateDialogOpen(false)}>Cancel</Button>
                     <Button onClick={handleReallocateHistory}>Reallocate</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* Payment History Dialog */}
+              <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
+                <DialogContent className="w-[96vw] max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+                  <DialogHeader>
+                    <DialogTitle>
+                      Payments — {historyTarget?.name}
+                      {historyTarget?.isGroup ? " (Group)" : ""}
+                    </DialogTitle>
+                    <DialogDescription>
+                      All recorded repayments for this {historyTarget?.isGroup ? "group" : "client"}. You can edit any amount if it was entered incorrectly.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="flex items-center justify-between pb-2 text-sm text-muted-foreground">
+                    <span>
+                      {historyItems.length} payment{historyItems.length === 1 ? "" : "s"}
+                      {historyItems.length > 0 && (
+                        <>
+                          {" "}
+                          · Total UGX {historyItems
+                            .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+                            .toLocaleString()}
+                        </>
+                      )}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => refreshHistory()}
+                      disabled={historyLoading}
+                    >
+                      Refresh
+                    </Button>
+                  </div>
+                  <div className="overflow-auto pr-1">
+                    {historyLoading ? (
+                      <div className="flex justify-center py-10">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                      </div>
+                    ) : historyItems.length === 0 ? (
+                      <p className="py-10 text-center text-sm text-muted-foreground">No payments recorded yet.</p>
+                    ) : (
+                      <Table className="min-w-[720px]">
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Amount (UGX)</TableHead>
+                            <TableHead>Method</TableHead>
+                            <TableHead>Member(s)</TableHead>
+                            <TableHead>Notes</TableHead>
+                            <TableHead>Action</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {historyItems.map((p: any) => {
+                            const breakdown = Array.isArray(p.member_breakdown) ? p.member_breakdown : [];
+                            const membersLabel = breakdown.length
+                              ? breakdown.map((m: any) => `${m.name} (${Number(m.amount || 0).toLocaleString()})`).join(", ")
+                              : "—";
+                            return (
+                              <TableRow key={p.id}>
+                                <TableCell className="whitespace-nowrap">
+                                  {p.payment_date ? new Date(p.payment_date).toLocaleDateString() : "-"}
+                                </TableCell>
+                                <TableCell className="font-medium">
+                                  {Number(p.amount || 0).toLocaleString()}
+                                </TableCell>
+                                <TableCell className="capitalize">
+                                  {(p.payment_method || "cash").replace(/_/g, " ")}
+                                </TableCell>
+                                <TableCell className="max-w-[220px] truncate" title={membersLabel}>
+                                  {membersLabel}
+                                </TableCell>
+                                <TableCell className="max-w-[200px] truncate" title={p.notes || ""}>
+                                  {p.notes || "—"}
+                                </TableCell>
+                                <TableCell>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="gap-1"
+                                    onClick={() => openEditPayment(p)}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                    Edit
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
+                </DialogContent>
+              </Dialog>
+
+              {/* Edit Payment Dialog */}
+              <Dialog open={isEditPaymentOpen} onOpenChange={setIsEditPaymentOpen}>
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Edit Repayment</DialogTitle>
+                    <DialogDescription>
+                      Update the recorded amount or details for this payment.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3 py-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="edit_amount">Amount (UGX)</Label>
+                      <Input
+                        id="edit_amount"
+                        type="number"
+                        min="1"
+                        value={editAmount}
+                        onChange={(e) => setEditAmount(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="edit_date">Payment Date</Label>
+                      <Input
+                        id="edit_date"
+                        type="date"
+                        value={editDate}
+                        onChange={(e) => setEditDate(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Payment Method</Label>
+                      <Select value={editMethod} onValueChange={setEditMethod}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select method" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="cash">Cash</SelectItem>
+                          <SelectItem value="bank_transfer">Bank</SelectItem>
+                          <SelectItem value="mobile_money">Mobile Money</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="edit_notes">Notes</Label>
+                      <Input
+                        id="edit_notes"
+                        value={editNotes}
+                        onChange={(e) => setEditNotes(e.target.value)}
+                        placeholder="Reason for edit (optional)"
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsEditPaymentOpen(false)} disabled={editSaving}>
+                      Cancel
+                    </Button>
+                    <Button onClick={saveEditPayment} disabled={editSaving}>
+                      {editSaving ? "Saving..." : "Save changes"}
+                    </Button>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>

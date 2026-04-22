@@ -10,7 +10,7 @@ const supabase = createClient(process.env.VITE_SUPABASE_URL!, process.env.VITE_S
 async function createAdmin() {
     console.log("Creating admin user (Liz Keza)...");
 
-    const email = 'liz.keza@mtgrowth.local';
+    const email = 'liz.keza@mtgrowth.com';
     const password = 'MtGrowth2025!';
     const name = 'Liz Keza';
     const phone = '256700000001';

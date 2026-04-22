@@ -382,7 +382,7 @@ function seedDefaultData() {
     const officerId = '00000000-0000-0000-0000-000000000002';
 
     // Admin user — Liz Keza (desktop default)
-    db.prepare('INSERT INTO auth_users (id, email) VALUES (?, ?)').run(adminId, 'liz.keza@mtgrowth.local');
+    db.prepare('INSERT INTO auth_users (id, email) VALUES (?, ?)').run(adminId, 'liz.keza@mtgrowth.com');
     db.prepare('INSERT INTO profiles (id, full_name, first_name, last_name) VALUES (?, ?, ?, ?)').run(adminId, 'Liz Keza', 'Liz', 'Keza');
     db.prepare('INSERT INTO user_roles (user_id, role) VALUES (?, ?)').run(adminId, 'admin');
 
@@ -421,7 +421,7 @@ function seedDefaultData() {
 
     console.log('✅ Default data seeded');
     console.log('🔑 Test credentials:');
-    console.log('   Admin (Liz Keza):    liz.keza@mtgrowth.local  /  MtGrowth2025!');
+    console.log('   Admin (Liz Keza):    liz.keza@mtgrowth.com  /  MtGrowth2025!');
     console.log('   Loan officer:        officer@example.com / officer123');
 }
 
