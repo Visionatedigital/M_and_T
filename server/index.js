@@ -13,11 +13,12 @@ const groupRoutes = require('./routes/groups');
 const uploadRoutes = require('./routes/uploads');
 const collateralRoutes = require('./routes/collateral');
 const authRoutes = require('./routes/auth');
-const repaymentRoutes = require('./routes/repayments');
+/** Use .cjs router — repayments.js is legacy and lacks newer endpoints (collector-summary, history-group). */
+const repaymentRoutes = require('./routes/repayments.cjs');
 const branchRoutes = require('./routes/branches');
 const territoryRoutes = require('./routes/territories');
 const productRoutes = require('./routes/products');
-const aiRoutes = require('./routes/ai');
+const aiRoutes = require('./routes/ai.cjs');
 const reportRoutes = require('./routes/reports');
 const path = require('path');
 
@@ -39,7 +40,7 @@ app.use('/api/branches', authenticateToken, branchRoutes);
 app.use('/api/territories', authenticateToken, territoryRoutes);
 app.use('/api/products', authenticateToken, productRoutes);
 app.use('/api/reports', authenticateToken, reportRoutes);
-app.use('/api/ai', aiRoutes);
+app.use('/api/ai', authenticateToken, aiRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/users', authenticateToken, require('./routes/users'));
 app.use('/api/notifications', authenticateToken, require('./routes/notifications'));

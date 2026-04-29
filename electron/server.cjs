@@ -533,8 +533,10 @@ async function startServer(userDataPath) {
     app.post('/api/ai/chat', authMiddleware, async (req, res) => {
         try {
             const { messages } = req.body;
+            if (!Array.isArray(messages) || messages.length === 0) {
+                return res.status(400).json({ error: 'messages[] required' });
+            }
 
-            // ── Read OpenAI API key from .env ──
             const fs = require('fs');
             let apiKey = process.env.OPENAI_API_KEY;
             if (!apiKey || apiKey === 'your-openai-api-key-here') {
@@ -545,75 +547,130 @@ async function startServer(userDataPath) {
                     if (match) apiKey = match[1].trim();
                 } catch (e) { /* no .env */ }
             }
-
-            if (!apiKey || apiKey === 'your-openai-api-key-here') {
-                return res.json({
-                    response: "⚠️ OpenAI API key not configured. Please add your key to the .env file:\n\n`OPENAI_API_KEY=sk-your-key-here`\n\nThen restart the application."
-                });
+            if (apiKey && apiKey !== 'your-openai-api-key-here') {
+                process.env.OPENAI_API_KEY = apiKey;
             }
 
-            // ── Pull live database context ──
+            const { buildStaffSystemPrompt } = require(path.join(__dirname, '..', 'server', 'services', 'staffAssistantPrompt.cjs'));
+            const { staffAssistantChat } = require(path.join(__dirname, '..', 'server', 'services', 'aiService.cjs'));
+
             const db = getDb();
-            let dbContext = '';
+            let snapshot;
             try {
-                const totalApps = db.prepare('SELECT COUNT(*) as count FROM loan_applications').get();
-                const statusBreakdown = db.prepare("SELECT status, COUNT(*) as count FROM loan_applications GROUP BY status").all();
-                const totalClients = db.prepare('SELECT COUNT(*) as count FROM profiles').get();
-                const totalDisbursed = db.prepare("SELECT COALESCE(SUM(loan_amount), 0) as total FROM loan_applications WHERE status IN ('approved', 'disbursed')").get();
-                const totalRepayments = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM repayments').get();
-                const products = db.prepare('SELECT name, base_interest_rate FROM loan_products').all();
-                const branches = db.prepare('SELECT name FROM branches').all();
-                const recentApps = db.prepare('SELECT full_name, loan_product, loan_amount, status, created_at FROM loan_applications ORDER BY created_at DESC LIMIT 5').all();
+                const lr = db.prepare(`
+                    SELECT COUNT(*) AS total_applications,
+                        SUM(CASE WHEN status IN ('approved','disbursed') THEN 1 ELSE 0 END) AS approved_loans,
+                        SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected_loans,
+                        SUM(CASE WHEN status IN ('pending','under_review') THEN 1 ELSE 0 END) AS pending_loans,
+                        SUM(CASE WHEN status IN ('approved','disbursed','completed') THEN loan_amount ELSE 0 END) AS total_disbursed
+                    FROM loan_applications
+                `).get();
+                const totalPaid = Number(db.prepare('SELECT COALESCE(SUM(amount),0) AS v FROM repayments').get()?.v || 0);
+                const td = Number(lr.total_disbursed || 0);
+                const ti = td * 0.3;
+                const prodRows = db.prepare(`
+                    SELECT loan_product AS product, COUNT(*) AS applications,
+                      SUM(CASE WHEN status IN ('approved','disbursed') THEN 1 ELSE 0 END) AS approved,
+                      SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
+                      SUM(CASE WHEN status IN ('approved','disbursed') THEN loan_amount ELSE 0 END) AS total_amount
+                    FROM loan_applications GROUP BY loan_product
+                `).all();
+                const outRow = db.prepare(`
+                    WITH per_loan AS (
+                        SELECT la.id, (la.loan_amount * 1.3) AS expected_total,
+                            COALESCE((SELECT SUM(amount) FROM repayments r WHERE r.loan_application_id = la.id), 0) AS repaid
+                        FROM loan_applications la WHERE la.status IN ('approved','disbursed','completed','settled')
+                    )
+                    SELECT COALESCE(SUM(CASE WHEN (expected_total - repaid) > 0 THEN expected_total - repaid ELSE 0 END), 0) AS outstanding_estimate FROM per_loan
+                `).get();
+                const groupStruct = db.prepare(`
+                    SELECT SUM(CASE WHEN group_name IS NOT NULL AND TRIM(group_name) != '' THEN 1 ELSE 0 END) AS gl,
+                           SUM(CASE WHEN group_name IS NULL OR TRIM(group_name) = '' THEN 1 ELSE 0 END) AS il
+                    FROM loan_applications
+                `).get();
+                const methods = db.prepare(`
+                    SELECT COALESCE(TRIM(payment_method), 'unknown') AS method, COUNT(*) AS cnt, COALESCE(SUM(amount),0) AS total_ugx
+                    FROM repayments GROUP BY COALESCE(TRIM(payment_method), 'unknown')
+                `).all();
+                const repCount = db.prepare('SELECT COUNT(*) AS c FROM repayments').get();
+                const recentApps = db.prepare(`
+                    SELECT full_name, loan_product, status, loan_amount, updated_at FROM loan_applications ORDER BY datetime(updated_at) DESC LIMIT 8
+                `).all();
 
-                dbContext = `
-LIVE DATABASE STATISTICS:
-- Total loan applications: ${totalApps.count}
-- Status breakdown: ${statusBreakdown.map(s => `${s.status}: ${s.count}`).join(', ')}
-- Total clients: ${totalClients.count}
-- Total disbursed: UGX ${Number(totalDisbursed.total).toLocaleString()}
-- Total repayments collected: UGX ${Number(totalRepayments.total).toLocaleString()}
-- Loan products: ${products.map(p => `${p.name} (${(p.base_interest_rate * 100).toFixed(1)}% interest)`).join(', ')}
-- Branches: ${branches.map(b => b.name).join(', ')}
-- Recent applications: ${recentApps.map(a => `${a.full_name} - ${a.loan_product} - UGX ${Number(a.loan_amount).toLocaleString()} (${a.status})`).join('; ')}
-`;
+                snapshot = {
+                    snapshot_generated_at: new Date().toISOString(),
+                    viewer_role: 'desktop_sqlite',
+                    source: 'Electron desktop SQLite (some fields differ from PostgreSQL)',
+                    reportStats: {
+                        loanStats: {
+                            totalApplications: Number(lr.total_applications || 0),
+                            approvedLoans: Number(lr.approved_loans || 0),
+                            rejectedLoans: Number(lr.rejected_loans || 0),
+                            pendingLoans: Number(lr.pending_loans || 0),
+                            totalDisbursed: td,
+                            totalPaid,
+                            totalInterest: ti,
+                            rejectionRate: lr.total_applications ? (lr.rejected_loans / lr.total_applications) * 100 : 0,
+                            approvalRate: lr.total_applications ? (lr.approved_loans / lr.total_applications) * 100 : 0,
+                            outstandingEstimate: Number(outRow?.outstanding_estimate || 0),
+                            repaymentsLast30Days: null,
+                            collectionEfficiencyPct: td > 0 ? Math.min(100, (totalPaid / (td * 1.3)) * 100) : 0,
+                        },
+                        productStats: prodRows.map((r) => ({
+                            product: r.product,
+                            applications: r.applications,
+                            approved: r.approved,
+                            rejected: r.rejected,
+                            totalAmount: r.total_amount || 0,
+                        })),
+                        clientStats: {
+                            totalClients: db.prepare('SELECT COUNT(*) AS c FROM profiles').get().c,
+                            activeClients: db.prepare(`
+                                SELECT COUNT(DISTINCT user_id) AS c FROM loan_applications WHERE status IN ('approved','disbursed')
+                            `).get().c,
+                            newClientsThisMonth: null,
+                        },
+                        branchStats: [],
+                        categoryStats: [],
+                    },
+                    extensions: {
+                        groups_registered: null,
+                        applications_by_structure: { group_loans: groupStruct?.gl || 0, individual_loans: groupStruct?.il || 0 },
+                        borrower_credit_scores: { note: 'Not tracked in desktop schema' },
+                        repayments: {
+                            repayment_records_total: repCount?.c || 0,
+                            repayment_cash_total_ugx: totalPaid,
+                        },
+                        repayment_methods_breakdown: methods.map((m) => ({
+                            method: m.method,
+                            count: m.cnt,
+                            total_ugx: Number(m.total_ugx || 0),
+                        })),
+                        officer_collections_last_90_days: {
+                            rows: [],
+                            note: 'Desktop SQLite repayments omit recorded-by officer linkage; use PostgreSQL server for collector analytics.',
+                        },
+                        recent_application_activity: recentApps.map((a) => ({
+                            full_name: a.full_name,
+                            loan_product: a.loan_product,
+                            status: a.status,
+                            loan_amount_ugx: a.loan_amount,
+                            updated_at: a.updated_at,
+                        })),
+                    },
+                };
             } catch (e) {
-                dbContext = 'Database stats unavailable.';
+                console.error('desktop AI snapshot:', e);
+                snapshot = {
+                    snapshot_generated_at: new Date().toISOString(),
+                    viewer_role: 'desktop_sqlite',
+                    error_building_snapshot: String(e.message),
+                };
             }
 
-            // ── System prompt ──
-            const systemPrompt = `You are the AI Financial Assistant for M&T Microfinance (U) LTD, a microfinance institution based in Uganda.
-
-Your role:
-- Help staff understand loan portfolios, client data, and financial performance
-- Provide insights on microfinance operations and best practices
-- Answer questions about loan products, repayments, and client management
-- Give actionable recommendations based on the data
-
-${dbContext}
-
-Guidelines:
-- Be professional, concise, and data-driven
-- When referencing numbers, use UGX currency and format them clearly
-- If asked about data you don't have, say so honestly
-- Provide actionable insights when presenting data
-- Keep responses focused and structured with bullet points when appropriate`;
-
-            // ── Call OpenAI ──
-            const OpenAI = require('openai');
-            const openai = new OpenAI({ apiKey });
-
-            const completion = await openai.chat.completions.create({
-                model: 'gpt-4o-mini',
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    ...messages.map(m => ({ role: m.role, content: m.content }))
-                ],
-                max_tokens: 1024,
-                temperature: 0.7,
-            });
-
-            const response = completion.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
-            res.json({ response });
+            const systemContent = buildStaffSystemPrompt(snapshot);
+            const answer = await staffAssistantChat(messages, systemContent, snapshot);
+            res.json({ response: answer });
         } catch (err) {
             console.error('API Error (ai chat):', err.message || err);
 

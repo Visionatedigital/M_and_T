@@ -1,6 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db.cjs');
+const { requireAdmin } = require('../lib/roles.cjs');
+const { buildAssistantSnapshot } = require('../services/assistantSnapshot.cjs');
+const { buildStaffSystemPrompt } = require('../services/staffAssistantPrompt.cjs');
+const { staffAssistantChat } = require('../services/aiService.cjs');
+
+/** AI assistant and DB-backed tools — administrators only */
+router.use(requireAdmin);
 
 router.get('/conversations', async (req, res) => {
     try {
@@ -61,9 +68,13 @@ router.post('/conversations/:id/messages', async (req, res) => {
     try {
         const { id } = req.params;
         const { role, content } = req.body;
+        if (typeof content !== 'string' || !content.trim()) {
+            return res.status(400).json({ error: 'Message content is required' });
+        }
+        const safeRole = role === 'assistant' || role === 'user' ? role : 'user';
         const { rows } = await db.query(
             'INSERT INTO chat_messages (conversation_id, role, content) VALUES ($1, $2, $3) RETURNING *',
-            [id, role, content]
+            [id, safeRole, content.trim()]
         );
         await db.query('UPDATE conversations SET updated_at = NOW() WHERE id = $1', [id]);
         res.json(rows[0]);
@@ -76,19 +87,19 @@ router.post('/conversations/:id/messages', async (req, res) => {
 router.post('/chat', async (req, res) => {
     try {
         const { messages } = req.body;
-        const lastMessage = messages[messages.length - 1].content.toLowerCase();
-
-        let response = "I am your M&T Growth Gateway AI assistant. I can help you with loan statistics, client information, and general microfinance inquiries.";
-
-        if (lastMessage.includes('loan') || lastMessage.includes('stats')) {
-            response = "Currently, we have several loan applications in the system. The majority are Personal Loans. Our average interest rate is 20%. Would you like to see a more detailed report?";
-        } else if (lastMessage.includes('hi') || lastMessage.includes('hello')) {
-            response = "Hello! I'm here to help you manage M&T operations. What information do you need?";
+        if (!Array.isArray(messages) || messages.length === 0) {
+            return res.status(400).json({ error: 'messages[] required' });
         }
 
-        setTimeout(() => {
-            res.json({ response });
-        }, 500);
+        const snapshot = await buildAssistantSnapshot(req);
+        const systemContent = buildStaffSystemPrompt(snapshot);
+        let response = await staffAssistantChat(messages, systemContent, snapshot);
+        if (typeof response !== 'string') response = String(response ?? '');
+        if (!response.trim()) {
+            response =
+                'The model returned an empty reply. Check OPENAI_API_KEY, credits, and server logs. Your portfolio snapshot was built successfully — please try again.';
+        }
+        res.json({ response });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Internal server error' });

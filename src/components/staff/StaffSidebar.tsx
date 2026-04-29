@@ -157,8 +157,22 @@ export function StaffSidebar() {
 
   const normalizedRole = (role || "").toString().toLowerCase().trim().replace(/[\s-]+/g, "_");
 
+  /** Admins-only: Ask AI assistant (after Dashboard). */
+  const menuWithAskAI =
+    normalizedRole === "admin"
+      ? [
+          menuItems[0],
+          {
+            title: "Ask AI",
+            icon: Sparkles,
+            url: "/staff-dashboard/ask-ai",
+          },
+          ...menuItems.slice(1),
+        ]
+      : menuItems;
+
   // Filter menu items based on role
-  const filteredMenuItems = menuItems.map(item => {
+  const filteredMenuItems = menuWithAskAI.map(item => {
     // If it's a loan officer, we might need to filter internal items
     if (normalizedRole === 'loan_officer') {
       const restrictedTitles = ['Branch Management', 'Product Management', 'Settings', 'Reports', 'Staff Management', 'Accounting & Reports', 'Creditors', 'Asset Management'];

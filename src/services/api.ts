@@ -102,6 +102,48 @@ export const api = {
             }
             return r.json();
         },
+        /** All repayments for every loan in a borrowing group (merged list, sorted by date) */
+        getHistoryByGroup: async (groupId: string) => {
+            const r = await fetch(`${API_URL}/repayments/history-group/${groupId}`, {
+                headers: getHeaders(),
+            });
+            if (!r.ok) {
+                let msg = 'Failed to load group repayment history';
+                try {
+                    const err = await r.json();
+                    msg = err.error || msg;
+                } catch {
+                    /* ignore */
+                }
+                throw new Error(msg);
+            }
+            return r.json();
+        },
+        /** Admin-only: totals by loan officer (`recorded_by`), for performance review */
+        collectorSummary: async (params?: { date_from?: string; date_to?: string }) => {
+            const qs = new URLSearchParams();
+            if (params?.date_from) qs.set('date_from', params.date_from);
+            if (params?.date_to) qs.set('date_to', params.date_to);
+            const q = qs.toString();
+            const r = await fetch(`${API_URL}/repayments/collector-summary${q ? `?${q}` : ''}`, {
+                headers: getHeaders(),
+            });
+            if (!r.ok) {
+                let msg = 'Failed to load collector summary';
+                try {
+                    const err = await r.json();
+                    msg = err.error || msg;
+                } catch {
+                    /* ignore */
+                }
+                throw new Error(msg);
+            }
+            return r.json() as Promise<{
+                date_from: string;
+                date_to: string;
+                rows: { officer_label: string; repayment_count: number; total_amount_ugx: number | string }[];
+            }>;
+        },
         update: async (id: string, data: any) => {
             const r = await fetch(`${API_URL}/repayments/${id}`, {
                 method: 'PUT',
@@ -610,11 +652,18 @@ export const api = {
             method: 'DELETE',
             headers: getHeaders(),
         }).then(r => r.json()),
-        chat: (messages: any[]) => fetch(`${API_URL}/ai/chat`, {
-            method: 'POST',
-            headers: getHeaders(),
-            body: JSON.stringify({ messages }),
-        }).then(r => r.json()),
+        chat: async (messages: any[]) => {
+            const response = await fetch(`${API_URL}/ai/chat`, {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify({ messages }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(typeof data.error === 'string' ? data.error : 'AI chat failed');
+            }
+            return data;
+        },
     },
     upload: async (file: File) => {
         const formData = new FormData();

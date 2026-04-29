@@ -11,8 +11,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Receipt, Search, Plus, DollarSign, Calendar, FileSpreadsheet, History, Pencil } from "lucide-react";
+import { Receipt, Search, Plus, DollarSign, Calendar, FileSpreadsheet, History, Pencil, Loader2, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useUserRole } from "@/hooks/useUserRole";
 
 const Repayments = () => {
   const location = useLocation();
@@ -22,6 +23,7 @@ const Repayments = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { isAdmin, loading: roleLoading } = useUserRole();
   const [loans, setLoans] = useState<any[]>([]);
   const [selectedLoanId, setSelectedLoanId] = useState<string>("");
   const [amount, setAmount] = useState("");
@@ -33,6 +35,55 @@ const Repayments = () => {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [recordTypeFilter, setRecordTypeFilter] = useState<string>("all");
+
+  const [selectedGroup, setSelectedGroup] = useState<any>(null);
+  const [isGroupDialogOpen, setIsGroupDialogOpen] = useState(false);
+  const [isReallocateDialogOpen, setIsReallocateDialogOpen] = useState(false);
+  const [reallocateAmount, setReallocateAmount] = useState("");
+  const [reallocateTarget, setReallocateTarget] = useState<{ loanId: string; memberName: string } | null>(null);
+  const [selectedMemberOutstanding, setSelectedMemberOutstanding] = useState<number | null>(null);
+
+  const [bulkRepaymentRows, setBulkRepaymentRows] = useState<{ loanId: string; name: string; amount: string }[]>([]);
+  const [bulkRepaymentDate, setBulkRepaymentDate] = useState("");
+  const [bulkRepaymentMethod, setBulkRepaymentMethod] = useState("cash");
+  const [bulkSaving, setBulkSaving] = useState(false);
+
+  const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
+  const [historyTarget, setHistoryTarget] = useState<{
+    name: string;
+    isGroup: boolean;
+    groupId?: string;
+    loanApplicationId?: string;
+  } | null>(null);
+  const [historyItems, setHistoryItems] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [isEditPaymentOpen, setIsEditPaymentOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<any | null>(null);
+  const [editAmount, setEditAmount] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [editMethod, setEditMethod] = useState("cash");
+  const [editNotes, setEditNotes] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  const [editMemberBreakdown, setEditMemberBreakdown] = useState<{ name: string; amount: string }[]>([]);
+
+  const [collectorSummary, setCollectorSummary] = useState<{
+    date_from: string;
+    date_to: string;
+    rows: { officer_label: string; repayment_count: number; total_amount_ugx: number | string }[];
+  } | null>(null);
+  const [collectorSummaryLoading, setCollectorSummaryLoading] = useState(false);
+  const defaultSummaryRange = () => {
+    const d = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - 90);
+    return {
+      from: from.toISOString().slice(0, 10),
+      to: d.toISOString().slice(0, 10),
+    };
+  };
+  const [summaryDateFrom, setSummaryDateFrom] = useState(() => defaultSummaryRange().from);
+  const [summaryDateTo, setSummaryDateTo] = useState(() => defaultSummaryRange().to);
+  const [collectorSummaryDialogOpen, setCollectorSummaryDialogOpen] = useState(false);
 
   useEffect(() => {
     if (selectedMemberName) return;
@@ -111,25 +162,51 @@ const Repayments = () => {
     setExpandedGroups(newExpanded);
   };
 
-  const [selectedGroup, setSelectedGroup] = useState<any>(null);
-  const [isGroupDialogOpen, setIsGroupDialogOpen] = useState(false);
-  const [isReallocateDialogOpen, setIsReallocateDialogOpen] = useState(false);
-  const [reallocateAmount, setReallocateAmount] = useState("");
-  const [reallocateTarget, setReallocateTarget] = useState<{ loanId: string; memberName: string } | null>(null);
-  const [selectedMemberOutstanding, setSelectedMemberOutstanding] = useState<number | null>(null);
+  useEffect(() => {
+    if (roleLoading) return;
+    if (!isAdmin) {
+      setCollectorSummary(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setCollectorSummaryLoading(true);
+      try {
+        const data = await api.repayments.collectorSummary({
+          date_from: summaryDateFrom,
+          date_to: summaryDateTo,
+        });
+        if (!cancelled) setCollectorSummary(data);
+      } catch (err: unknown) {
+        if (!cancelled) {
+          toast({
+            title: "Could not load collector summary",
+            description: err instanceof Error ? err.message : "Try again.",
+            variant: "destructive",
+          });
+          setCollectorSummary(null);
+        }
+      } finally {
+        if (!cancelled) setCollectorSummaryLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [roleLoading, isAdmin, summaryDateFrom, summaryDateTo, toast]);
 
-  // Payment history viewer + editor
-  const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
-  const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string; isGroup: boolean } | null>(null);
-  const [historyItems, setHistoryItems] = useState<any[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [isEditPaymentOpen, setIsEditPaymentOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<any | null>(null);
-  const [editAmount, setEditAmount] = useState("");
-  const [editDate, setEditDate] = useState("");
-  const [editMethod, setEditMethod] = useState("cash");
-  const [editNotes, setEditNotes] = useState("");
-  const [editSaving, setEditSaving] = useState(false);
+  useEffect(() => {
+    if (!isGroupDialogOpen || !selectedGroup?.members?.length) return;
+    setBulkRepaymentRows(
+      selectedGroup.members.map((m: any) => ({
+        loanId: m.id,
+        name: m.name || "Member",
+        amount: "",
+      }))
+    );
+    setBulkRepaymentDate(new Date().toISOString().slice(0, 10));
+    setBulkRepaymentMethod("cash");
+  }, [isGroupDialogOpen, selectedGroup?.id]);
 
   const groupedRepayments = Object.values(
     repayments
@@ -161,8 +238,17 @@ const Repayments = () => {
             totalBalance: 0,
             installmentAmount: 0,
             date: curr.nextDueDate,
+            lastPaymentDate: null as string | null,
             status: "Fully Paid"
           };
+        }
+
+        if (curr.last_payment_date) {
+          const cand = curr.last_payment_date;
+          const existing = acc[key].lastPaymentDate;
+          const candMs = new Date(cand).getTime();
+          const existingMs = existing ? new Date(existing).getTime() : -Infinity;
+          if (candMs > existingMs) acc[key].lastPaymentDate = cand;
         }
 
         // If this loan has member_schedules (group_members JSONB) with multiple members, add each
@@ -232,18 +318,6 @@ const Repayments = () => {
       }, {})
   );
 
-  // ... (rest of the component state and handlers)
-
-  // Update groupedRepayments to the final table rendering section
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
   const handleRecordPayment = async () => {
     if (!selectedLoanId) {
       toast({
@@ -303,33 +377,66 @@ const Repayments = () => {
     setIsReallocateDialogOpen(true);
   };
 
-  const openHistoryDialog = async (record: { id: string; name: string; isGroup: boolean }) => {
-    setHistoryTarget(record);
-    setIsHistoryDialogOpen(true);
-    await refreshHistory(record.id);
-  };
-
-  const refreshHistory = async (loanId?: string) => {
-    const id = loanId || historyTarget?.id;
-    if (!id) return;
+  const loadHistoryFor = async (target: {
+    name: string;
+    isGroup: boolean;
+    groupId?: string;
+    loanApplicationId?: string;
+  }) => {
     setHistoryLoading(true);
     try {
-      const items = await api.repayments.getHistory(id);
+      let items: unknown;
+      if (target.isGroup && target.groupId) {
+        items = await api.repayments.getHistoryByGroup(target.groupId);
+      } else if (!target.isGroup && target.loanApplicationId) {
+        items = await api.repayments.getHistory(target.loanApplicationId);
+      } else {
+        items = [];
+      }
       setHistoryItems(Array.isArray(items) ? items : []);
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } catch (error: unknown) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to load payments",
+        variant: "destructive",
+      });
       setHistoryItems([]);
     } finally {
       setHistoryLoading(false);
     }
   };
 
+  const openHistoryDialog = async (record: { id: string; name: string; isGroup: boolean }) => {
+    const target = {
+      name: record.name,
+      isGroup: record.isGroup,
+      groupId: record.isGroup ? record.id : undefined,
+      loanApplicationId: record.isGroup ? undefined : record.id,
+    };
+    setHistoryTarget(target);
+    setIsHistoryDialogOpen(true);
+    await loadHistoryFor(target);
+  };
+
+  const refreshHistory = async () => {
+    if (!historyTarget) return;
+    await loadHistoryFor(historyTarget);
+  };
+
   const openEditPayment = (payment: any) => {
     setEditTarget(payment);
-    setEditAmount(String(parseFloat(payment.amount || 0)));
+    const total = parseFloat(payment.amount || 0);
+    setEditAmount(String(total));
     setEditDate((payment.payment_date || "").toString().slice(0, 10));
     setEditMethod(payment.payment_method || "cash");
     setEditNotes(payment.notes || "");
+    const rawBd = Array.isArray(payment.member_breakdown) ? payment.member_breakdown : [];
+    setEditMemberBreakdown(
+      rawBd.map((m: any) => ({
+        name: String(m?.name ?? "").trim(),
+        amount: String(Number(m?.amount) || ""),
+      })).filter((row: { name: string }) => row.name)
+    );
     setIsEditPaymentOpen(true);
   };
 
@@ -342,21 +449,120 @@ const Repayments = () => {
     }
     setEditSaving(true);
     try {
-      const result = await api.repayments.update(editTarget.id, {
+      const hasBreakdownRows = editMemberBreakdown.length > 0;
+      let payload: {
+        amount: number;
+        payment_date?: string;
+        payment_method?: string;
+        notes?: string;
+        member_breakdown?: { name: string; amount: number }[];
+      } = {
         amount: amt,
         payment_date: editDate || undefined,
         payment_method: editMethod || undefined,
         notes: editNotes || undefined,
-      });
+      };
+
+      if (hasBreakdownRows) {
+        const normalized = editMemberBreakdown
+          .map((m) => ({
+            name: m.name.trim(),
+            amount: parseFloat(String(m.amount).replace(/,/g, "")) || 0,
+          }))
+          .filter((m) => m.name && m.amount > 0);
+        if (normalized.length === 0) {
+          toast({
+            title: "Invalid member split",
+            description: "Enter at least one member name with an amount greater than 0.",
+            variant: "destructive",
+          });
+          setEditSaving(false);
+          return;
+        }
+        const sum = normalized.reduce((s, m) => s + m.amount, 0);
+        if (Math.abs(sum - amt) > 0.02) {
+          toast({
+            title: "Amount mismatch",
+            description: "Total payment must equal the sum of member amounts.",
+            variant: "destructive",
+          });
+          setEditSaving(false);
+          return;
+        }
+        payload = {
+          ...payload,
+          amount: sum,
+          member_breakdown: normalized,
+        };
+      }
+
+      const result = await api.repayments.update(editTarget.id, payload);
       toast({ title: "Updated", description: result?.message || "Repayment updated." });
       setIsEditPaymentOpen(false);
       setEditTarget(null);
+      setEditMemberBreakdown([]);
       await refreshHistory();
       await loadRepayments();
     } catch (error: any) {
       toast({ title: "Update failed", description: error.message, variant: "destructive" });
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  const bulkRepaymentTotal = bulkRepaymentRows.reduce((s, r) => {
+    const n = parseFloat(String(r.amount).replace(/,/g, "")) || 0;
+    return s + n;
+  }, 0);
+
+  const submitBulkRepayment = async () => {
+    if (!selectedGroup?.name) return;
+    const byLoan = new Map<string, { name: string; amount: number }[]>();
+    for (const row of bulkRepaymentRows) {
+      const amt = parseFloat(String(row.amount).replace(/,/g, "")) || 0;
+      if (!(amt > 0)) continue;
+      if (!byLoan.has(row.loanId)) byLoan.set(row.loanId, []);
+      byLoan.get(row.loanId)!.push({ name: row.name, amount: amt });
+    }
+    if (byLoan.size === 0) {
+      toast({
+        title: "No amounts entered",
+        description: "Enter at least one amount greater than 0.",
+        variant: "destructive",
+      });
+      return;
+    }
+    let grandTotal = 0;
+    for (const [, br] of byLoan) grandTotal += br.reduce((s, b) => s + b.amount, 0);
+
+    setBulkSaving(true);
+    try {
+      const note = `Bulk group repayment (${selectedGroup.name})`;
+      for (const [loanId, breakdown] of byLoan) {
+        const total = breakdown.reduce((s, b) => s + b.amount, 0);
+        await api.repayments.create({
+          loan_application_id: loanId,
+          amount: total,
+          payment_date: bulkRepaymentDate,
+          payment_method: bulkRepaymentMethod,
+          member_breakdown: breakdown,
+          notes: note,
+        });
+      }
+      toast({
+        title: "Bulk repayment saved",
+        description: `${byLoan.size} transaction(s). Total UGX ${grandTotal.toLocaleString()}.`,
+      });
+      setIsGroupDialogOpen(false);
+      await loadRepayments();
+    } catch (error: any) {
+      toast({
+        title: "Could not save bulk repayment",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setBulkSaving(false);
     }
   };
 
@@ -428,23 +634,36 @@ const Repayments = () => {
           <main className="min-w-0 flex-1 overflow-x-clip bg-gradient-to-b from-background to-muted/20 p-3 sm:p-4 md:p-8">
             <div className="mx-auto w-full min-w-0 max-w-7xl space-y-4 sm:space-y-6">
               <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
-                <div className="min-w-0 max-w-full">
+                <div className="min-w-0 flex-1 max-w-full">
                   <h1 className="text-xl font-bold tracking-tight sm:text-2xl md:text-3xl">Repayments</h1>
                   <p className="mt-1 break-words text-sm text-muted-foreground sm:text-base">
                     Monitor and record loan repayments
                   </p>
                 </div>
-                <Button
-                  onClick={() => {
-                    setSelectedMemberName("");
-                    setSelectedMemberOutstanding(null);
-                    setIsDialogOpen(true);
-                  }}
-                  className="h-10 w-full gap-2 touch-manipulation lg:w-auto"
-                >
-                  <Plus className="h-4 w-4 shrink-0" />
-                  Record Payment
-                </Button>
+                <div className="flex w-full shrink-0 flex-col gap-2 sm:flex-row sm:justify-end lg:w-auto">
+                  {isAdmin && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 w-full gap-2 touch-manipulation sm:w-auto"
+                      onClick={() => setCollectorSummaryDialogOpen(true)}
+                    >
+                      <Users className="h-4 w-4 shrink-0" />
+                      Officer collections
+                    </Button>
+                  )}
+                  <Button
+                    onClick={() => {
+                      setSelectedMemberName("");
+                      setSelectedMemberOutstanding(null);
+                      setIsDialogOpen(true);
+                    }}
+                    className="h-10 w-full gap-2 touch-manipulation sm:w-auto"
+                  >
+                    <Plus className="h-4 w-4 shrink-0" />
+                    Record Payment
+                  </Button>
+                </div>
               </div>
 
               {/* Statistics */}
@@ -486,6 +705,101 @@ const Repayments = () => {
                   </CardContent>
                 </Card>
               </div>
+
+              {isAdmin && (
+                <Dialog open={collectorSummaryDialogOpen} onOpenChange={setCollectorSummaryDialogOpen}>
+                  <DialogContent className="flex max-h-[90vh] max-w-[min(100vw-1rem,44rem)] flex-col gap-0 overflow-hidden p-0 sm:rounded-lg">
+                    <DialogHeader className="shrink-0 space-y-1 border-b px-4 py-4 text-left sm:px-6">
+                      <DialogTitle className="flex items-center gap-2 text-lg font-semibold tracking-tight">
+                        <Users className="h-5 w-5 shrink-0 text-muted-foreground" />
+                        Collections by loan officer
+                      </DialogTitle>
+                      <DialogDescription className="text-xs sm:text-sm">
+                        Payments are attributed to whoever was logged in when the repayment was recorded. Change the period to compare performance.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex shrink-0 flex-wrap items-end gap-3 border-b bg-muted/20 px-4 py-3 sm:px-6">
+                      <div className="grid min-w-[9rem] flex-1 gap-1">
+                        <Label className="text-xs">From</Label>
+                        <Input
+                          type="date"
+                          className="h-9"
+                          max={summaryDateTo}
+                          value={summaryDateFrom}
+                          onChange={(e) => setSummaryDateFrom(e.target.value)}
+                          disabled={collectorSummaryLoading}
+                        />
+                      </div>
+                      <div className="grid min-w-[9rem] flex-1 gap-1">
+                        <Label className="text-xs">To</Label>
+                        <Input
+                          type="date"
+                          className="h-9"
+                          min={summaryDateFrom}
+                          value={summaryDateTo}
+                          onChange={(e) => setSummaryDateTo(e.target.value)}
+                          disabled={collectorSummaryLoading}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="h-9 shrink-0"
+                        disabled={collectorSummaryLoading}
+                        onClick={() => {
+                          const x = defaultSummaryRange();
+                          setSummaryDateFrom(x.from);
+                          setSummaryDateTo(x.to);
+                        }}
+                      >
+                        Last 90 days
+                      </Button>
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-6">
+                      {collectorSummaryLoading ? (
+                        <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                          Loading…
+                        </div>
+                      ) : !collectorSummary?.rows?.length ? (
+                        <p className="py-10 text-center text-sm text-muted-foreground">
+                          No repayments in this period.
+                        </p>
+                      ) : (
+                        <div className="overflow-x-auto rounded-md border">
+                          <Table className="min-w-[20rem] text-sm">
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="w-[44%]">Officer</TableHead>
+                                <TableHead className="text-right">Repayments logged</TableHead>
+                                <TableHead className="text-right">Total collected (UGX)</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {collectorSummary.rows.map((row, idx) => (
+                                <TableRow key={`${row.officer_label}-${idx}`}>
+                                  <TableCell className="font-medium">{row.officer_label}</TableCell>
+                                  <TableCell className="tabular-nums text-right">
+                                    {Number(row.repayment_count).toLocaleString()}
+                                  </TableCell>
+                                  <TableCell className="tabular-nums text-right font-medium">
+                                    {Number(row.total_amount_ugx || 0).toLocaleString()}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
+                    </div>
+                    <DialogFooter className="shrink-0 border-t px-4 py-3 sm:px-6">
+                      <Button type="button" variant="outline" onClick={() => setCollectorSummaryDialogOpen(false)}>
+                        Close
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              )}
 
               {/* Filters */}
               <Card className="min-w-0 max-w-full">
@@ -585,6 +899,14 @@ const Repayments = () => {
                                   <span className="block text-xs text-muted-foreground">Next due</span>
                                   <span className="text-xs">{new Date(record.date).toLocaleDateString()}</span>
                                 </div>
+                                <div>
+                                  <span className="block text-xs text-muted-foreground">Last payment</span>
+                                  <span className="text-xs">
+                                    {record.lastPaymentDate
+                                      ? new Date(record.lastPaymentDate).toLocaleDateString()
+                                      : "—"}
+                                  </span>
+                                </div>
                               </div>
                               <div>
                                 <span
@@ -654,6 +976,7 @@ const Repayments = () => {
                                 <TableHead>Collected</TableHead>
                                 <TableHead>Balance</TableHead>
                                 <TableHead>Next Due</TableHead>
+                                <TableHead>Last payment</TableHead>
                                 <TableHead>Status</TableHead>
                                 <TableHead>Actions</TableHead>
                               </TableRow>
@@ -684,6 +1007,11 @@ const Repayments = () => {
                                   <TableCell>UGX {record.totalCollection.toLocaleString()}</TableCell>
                                   <TableCell>UGX {record.totalBalance.toLocaleString()}</TableCell>
                                   <TableCell>{new Date(record.date).toLocaleDateString()}</TableCell>
+                                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                                    {record.lastPaymentDate
+                                      ? new Date(record.lastPaymentDate).toLocaleDateString()
+                                      : "—"}
+                                  </TableCell>
                                   <TableCell>
                                     <span
                                       className={`whitespace-nowrap rounded px-2 py-1 text-xs ${record.status === "Fully Paid" ? "bg-green-100 text-green-800" : record.status === "Past Maturity" ? "bg-red-100 text-red-800" : record.status === "Missed Repayment" ? "bg-orange-100 text-orange-800" : record.status === "Due Today" ? "bg-yellow-100 text-yellow-800" : "bg-blue-100 text-blue-800"}`}
@@ -751,10 +1079,18 @@ const Repayments = () => {
                 <DialogContent className="w-[96vw] max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
                   <DialogHeader>
                     <DialogTitle>{selectedGroup?.name} Members</DialogTitle>
-                    <DialogDescription>Individual breakdown for group loans</DialogDescription>
+                    <DialogDescription>
+                      Last recorded payment for this group:{" "}
+                      <span className="font-medium text-foreground">
+                        {selectedGroup?.lastPaymentDate
+                          ? new Date(selectedGroup.lastPaymentDate).toLocaleDateString()
+                          : "—"}
+                      </span>
+                      . Use bulk repayment to record several members for the same date.
+                    </DialogDescription>
                   </DialogHeader>
                   {selectedGroup && (
-                    <div className="flex justify-end pb-2">
+                    <div className="flex flex-wrap justify-end gap-2 pb-2">
                       <Button
                         variant="outline"
                         size="sm"
@@ -769,7 +1105,99 @@ const Repayments = () => {
                       </Button>
                     </div>
                   )}
-                  <div className="overflow-auto pr-1">
+
+                  {selectedGroup?.members?.length ? (
+                    <div className="shrink-0 space-y-3 rounded-lg border bg-muted/20 p-3 sm:p-4">
+                      <div>
+                        <h3 className="text-sm font-semibold leading-none tracking-tight">Bulk repayment</h3>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Enter amounts for each member paying on this visit. Totals combine per loan application;
+                          one repayment date applies to everyone.
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                        <div className="grid gap-1.5">
+                          <Label htmlFor="bulk-pay-date">Repayment date</Label>
+                          <Input
+                            id="bulk-pay-date"
+                            type="date"
+                            className="w-full sm:w-[11rem]"
+                            max={new Date().toISOString().slice(0, 10)}
+                            value={bulkRepaymentDate}
+                            onChange={(e) => setBulkRepaymentDate(e.target.value)}
+                          />
+                        </div>
+                        <div className="grid gap-1.5">
+                          <Label>Payment method</Label>
+                          <Select value={bulkRepaymentMethod} onValueChange={setBulkRepaymentMethod}>
+                            <SelectTrigger className="w-full sm:w-[11rem]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="cash">Cash</SelectItem>
+                              <SelectItem value="bank_transfer">Bank transfer</SelectItem>
+                              <SelectItem value="mobile_money">Mobile money</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <Table className="min-w-[min(100%,560px)] text-sm">
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Member</TableHead>
+                            <TableHead className="w-[140px] sm:w-[180px]">Amount (UGX)</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {bulkRepaymentRows.map((row, idx) => (
+                            <TableRow key={`${row.loanId}-${row.name}-${idx}`}>
+                              <TableCell className="font-medium">{row.name}</TableCell>
+                              <TableCell>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step={1000}
+                                  placeholder="0"
+                                  className="h-9 min-w-0"
+                                  value={row.amount}
+                                  onChange={(e) =>
+                                    setBulkRepaymentRows((prev) =>
+                                      prev.map((r, i) =>
+                                        i === idx ? { ...r, amount: e.target.value } : r
+                                      )
+                                    )
+                                  }
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                      <div className="flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-sm">
+                          Bulk total:{" "}
+                          <span className="font-semibold tabular-nums">UGX {bulkRepaymentTotal.toLocaleString()}</span>
+                        </p>
+                        <Button
+                          type="button"
+                          className="w-full sm:w-auto"
+                          disabled={bulkSaving || bulkRepaymentTotal <= 0}
+                          onClick={submitBulkRepayment}
+                        >
+                          {bulkSaving ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Saving…
+                            </>
+                          ) : (
+                            "Record bulk repayment"
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="min-h-0 flex-1 overflow-auto pr-1 pt-2">
                     <Table className="min-w-[760px]">
                       <TableHeader>
                         <TableRow>
@@ -843,7 +1271,9 @@ const Repayments = () => {
                       {historyTarget?.isGroup ? " (Group)" : ""}
                     </DialogTitle>
                     <DialogDescription>
-                      All recorded repayments for this {historyTarget?.isGroup ? "group" : "client"}. You can edit any amount if it was entered incorrectly.
+                      {historyTarget?.isGroup
+                        ? "All repayments for every loan linked to this group, newest first. Edit still updates a single payment record."
+                        : "All recorded repayments for this loan. You can edit an amount if it was entered incorrectly."}
                     </DialogDescription>
                   </DialogHeader>
                   <div className="flex items-center justify-between pb-2 text-sm text-muted-foreground">
@@ -875,12 +1305,16 @@ const Repayments = () => {
                     ) : historyItems.length === 0 ? (
                       <p className="py-10 text-center text-sm text-muted-foreground">No payments recorded yet.</p>
                     ) : (
-                      <Table className="min-w-[720px]">
+                      <Table className={historyTarget?.isGroup ? "min-w-[960px]" : "min-w-[860px]"}>
                         <TableHeader>
                           <TableRow>
                             <TableHead>Date</TableHead>
+                            {historyTarget?.isGroup ? (
+                              <TableHead className="min-w-[120px]">Loan / borrower</TableHead>
+                            ) : null}
                             <TableHead>Amount (UGX)</TableHead>
                             <TableHead>Method</TableHead>
+                            <TableHead>Collected by</TableHead>
                             <TableHead>Member(s)</TableHead>
                             <TableHead>Notes</TableHead>
                             <TableHead>Action</TableHead>
@@ -892,21 +1326,37 @@ const Repayments = () => {
                             const membersLabel = breakdown.length
                               ? breakdown.map((m: any) => `${m.name} (${Number(m.amount || 0).toLocaleString()})`).join(", ")
                               : "—";
+                            const collector =
+                              typeof p.recorded_by_name === "string" && p.recorded_by_name.trim()
+                                ? p.recorded_by_name.trim()
+                                : "—";
+                            const loanLabel =
+                              typeof p.loan_borrower_name === "string" && p.loan_borrower_name.trim()
+                                ? p.loan_borrower_name.trim()
+                                : "—";
                             return (
                               <TableRow key={p.id}>
                                 <TableCell className="whitespace-nowrap">
                                   {p.payment_date ? new Date(p.payment_date).toLocaleDateString() : "-"}
                                 </TableCell>
+                                {historyTarget?.isGroup ? (
+                                  <TableCell className="max-w-[160px] truncate text-muted-foreground" title={loanLabel}>
+                                    {loanLabel}
+                                  </TableCell>
+                                ) : null}
                                 <TableCell className="font-medium">
                                   {Number(p.amount || 0).toLocaleString()}
                                 </TableCell>
                                 <TableCell className="capitalize">
                                   {(p.payment_method || "cash").replace(/_/g, " ")}
                                 </TableCell>
-                                <TableCell className="max-w-[220px] truncate" title={membersLabel}>
+                                <TableCell className="max-w-[140px] truncate text-muted-foreground" title={collector}>
+                                  {collector}
+                                </TableCell>
+                                <TableCell className="max-w-[180px] truncate" title={membersLabel}>
                                   {membersLabel}
                                 </TableCell>
-                                <TableCell className="max-w-[200px] truncate" title={p.notes || ""}>
+                                <TableCell className="max-w-[180px] truncate" title={p.notes || ""}>
                                   {p.notes || "—"}
                                 </TableCell>
                                 <TableCell>
@@ -931,25 +1381,84 @@ const Repayments = () => {
               </Dialog>
 
               {/* Edit Payment Dialog */}
-              <Dialog open={isEditPaymentOpen} onOpenChange={setIsEditPaymentOpen}>
-                <DialogContent className="max-w-md">
+              <Dialog
+                open={isEditPaymentOpen}
+                onOpenChange={(open) => {
+                  setIsEditPaymentOpen(open);
+                  if (!open) setEditMemberBreakdown([]);
+                }}
+              >
+                <DialogContent className={editMemberBreakdown.length > 0 ? "max-h-[90vh] max-w-lg overflow-y-auto" : "max-w-md"}>
                   <DialogHeader>
-                    <DialogTitle>Edit Repayment</DialogTitle>
+                    <DialogTitle>
+                      Edit repayment
+                      {editMemberBreakdown.length > 0 ? " (group split)" : ""}
+                    </DialogTitle>
                     <DialogDescription>
-                      Update the recorded amount or details for this payment.
+                      {editMemberBreakdown.length > 0
+                        ? "Adjust per-member amounts; the total must match the sum of member rows."
+                        : "Update the recorded amount or details for this payment."}
                     </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-3 py-2">
-                    <div className="space-y-1">
-                      <Label htmlFor="edit_amount">Amount (UGX)</Label>
-                      <Input
-                        id="edit_amount"
-                        type="number"
-                        min="1"
-                        value={editAmount}
-                        onChange={(e) => setEditAmount(e.target.value)}
-                      />
-                    </div>
+                    {editTarget &&
+                      (typeof editTarget.recorded_by_name === "string" && editTarget.recorded_by_name.trim() ? (
+                        <p className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                          Collected by:{" "}
+                          <span className="font-medium text-foreground">{editTarget.recorded_by_name.trim()}</span>
+                        </p>
+                      ) : null)}
+                    {editMemberBreakdown.length > 0 ? (
+                      <div className="space-y-2">
+                        <Label>Member amounts (UGX)</Label>
+                        <div className="max-h-[40vh] space-y-2 overflow-y-auto rounded-md border p-2">
+                          {editMemberBreakdown.map((row, idx) => (
+                            <div key={`${row.name}-${idx}`} className="grid grid-cols-[1fr_minmax(6rem,8rem)] gap-2 text-sm">
+                              <Input
+                                className="h-9"
+                                value={row.name}
+                                readOnly
+                                title="Member name from original payment"
+                              />
+                              <Input
+                                className="h-9 tabular-nums"
+                                type="number"
+                                min={0}
+                                step={1000}
+                                value={row.amount}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setEditMemberBreakdown((prev) => {
+                                    const next = prev.map((r, i) => (i === idx ? { ...r, amount: v } : r));
+                                    const sum = next.reduce((s, m) => s + (parseFloat(String(m.amount).replace(/,/g, "")) || 0), 0);
+                                    setEditAmount(Number.isFinite(sum) && sum > 0 ? String(Math.round(sum)) : "");
+                                    return next;
+                                  });
+                                }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Total payment (UGX):{" "}
+                          <span className="font-semibold text-foreground">
+                            {(parseFloat(editAmount) || 0).toLocaleString()}
+                          </span>
+                          — must equal the combined member amounts.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <Label htmlFor="edit_amount">Amount (UGX)</Label>
+                        <Input
+                          id="edit_amount"
+                          type="number"
+                          min="1"
+                          value={editAmount}
+                          onChange={(e) => setEditAmount(e.target.value)}
+                        />
+                      </div>
+                    )}
                     <div className="space-y-1">
                       <Label htmlFor="edit_date">Payment Date</Label>
                       <Input

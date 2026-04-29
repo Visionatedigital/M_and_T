@@ -53,9 +53,12 @@ const AskAI = () => {
           return;
         }
 
-        if (user.role !== "admin" && user.role !== "loan_officer") {
-          api.auth.logout();
-          navigate("/staff-login");
+        const normalized = String(user.role || "")
+          .toLowerCase()
+          .trim()
+          .replace(/[\s-]+/g, "_");
+        if (normalized !== "admin") {
+          navigate("/staff-dashboard", { replace: true });
           return;
         }
 
@@ -187,10 +190,14 @@ const AskAI = () => {
 
     try {
       const data = await api.ai.chat([...messages, userMessage]);
+      const text = typeof data?.response === 'string' ? data.response.trim() : '';
+      if (!text) {
+        throw new Error('Empty response from assistant');
+      }
 
       const assistantMessage: Message = {
         role: "assistant",
-        content: data.response,
+        content: text,
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -202,7 +209,7 @@ const AskAI = () => {
       console.error('Error:', error);
       toast({
         title: "Error",
-        description: "Failed to get response from AI assistant.",
+        description: error instanceof Error ? error.message : "Failed to get response from AI assistant.",
         variant: "destructive",
       });
     } finally {
@@ -239,7 +246,8 @@ const AskAI = () => {
                     Ask AI
                   </h1>
                   <p className="text-muted-foreground">
-                    Your financial assistant - ask about loans, clients, repayments, and more
+                    Admin-only assistant. Each reply is grounded in a fresh live snapshot (portfolio, products, branches,
+                    collections, methods) — answers as if staffed on the system.
                   </p>
                 </div>
 

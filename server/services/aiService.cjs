@@ -208,4 +208,62 @@ No titles. No markdown. No numbered lists except the bullets with "• ".`;
     }
 };
 
-module.exports = { generateFinancialSummary, analyzeApplication, generateFinancialRiskAnalysis };
+const MOCK_KEY = (k) => !k || k === 'mock' || String(k).includes('sk-proj-placeholder');
+
+/**
+ * Admin Ask AI — OpenAI chat with a large system payload (portal guide + LIVE JSON snapshot).
+ * @param {Array<{role:string,content:string}>} messages
+ * @param {string} systemContent — from buildStaffSystemPrompt(snapshot)
+ * @param {object} snapshot — for offline summary fallback
+ */
+const staffAssistantChat = async (messages, systemContent, snapshot) => {
+    const trimmed = (messages || []).filter(
+        (m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string'
+    );
+    const lastFew = trimmed.slice(-36);
+    const apiKey = process.env.OPENAI_API_KEY;
+
+    if (MOCK_KEY(apiKey)) {
+        const ls = snapshot?.reportStats?.loanStats || {};
+        const ext = snapshot?.extensions || {};
+        const oc = ext.officer_collections_last_90_days;
+        const top =
+            oc?.rows?.length > 0
+                ? oc.rows
+                      .slice(0, 4)
+                      .map(
+                          (r) =>
+                              `${r.officer_label}: UGX ${Number(r.total_amount_ugx || 0).toLocaleString()} (${r.repayment_count} receipts)`
+                      )
+                      .join(' · ')
+                : null;
+        return [
+            '**OpenAI not configured or using a placeholder key** — add a valid `OPENAI_API_KEY` on the server for full answers.',
+            '',
+            `**Automatic metrics** (from snapshot at ${snapshot?.snapshot_generated_at || 'unknown'}):`,
+            `- Applications: ${ls.totalApplications ?? '—'} total · approved ${ls.approvedLoans ?? '—'} · pending ${ls.pendingLoans ?? '—'}`,
+            `- Principal tracked (completed/approved pathway): UGX ${Number(ls.totalDisbursed || 0).toLocaleString()}`,
+            `- Cash recorded on repayments: UGX ${Number(ls.totalPaid || 0).toLocaleString()} · est. outstanding UGX ${Number(ls.outstandingEstimate || 0).toLocaleString()}`,
+            `- Collection efficiency (vs principal+interest benchmark in reports): ${(ls.collectionEfficiencyPct ?? 0).toFixed(1)}%`,
+            top ? `- Officer collections (${oc.date_from} → ${oc.date_to}) top lines: ${top}` : '',
+        ]
+            .filter(Boolean)
+            .join('\n');
+    }
+
+    const openai = new OpenAI({ apiKey });
+    try {
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'system', content: systemContent }, ...lastFew.map((m) => ({ role: m.role, content: m.content }))],
+            max_tokens: 2800,
+            temperature: 0.42,
+        });
+        return response.choices[0]?.message?.content || 'No response body returned.';
+    } catch (error) {
+        console.error('staffAssistantChat:', error);
+        return `Could not reach OpenAI (${error.message || 'error'}). Check the API key, billing, and network. Metrics were still computed server-side if you retry.`;
+    }
+};
+
+module.exports = { generateFinancialSummary, analyzeApplication, generateFinancialRiskAnalysis, staffAssistantChat };

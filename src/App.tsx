@@ -78,7 +78,7 @@ function AppRoutes() {
           <Route path="/contact" element={<Contact />} />
           <Route path="/staff-login" element={<StaffLogin />} />
           <Route path="/staff-dashboard" element={<StaffDashboard />} />
-          <Route path="/staff-dashboard/ask-ai" element={<AskAI />} />
+          <Route path="/staff-dashboard/ask-ai" element={<RequireAdmin><AskAI /></RequireAdmin>} />
           <Route path="/staff-dashboard/applications" element={<LoanApplications />} />
           <Route path="/staff-dashboard/applications/pending" element={<LoanApplications />} />
           <Route path="/staff-dashboard/applications/approved" element={<LoanApplications />} />

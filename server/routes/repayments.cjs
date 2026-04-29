@@ -3,6 +3,9 @@ const router = express.Router();
 const db = require('../db.cjs');
 const notificationService = require('../services/notificationService');
 const { runOverdueCheck } = require('../services/overdueCheck.cjs');
+const { requireAdmin } = require('../lib/roles.cjs');
+
+const SYSTEM_USER_UUID = '00000000-0000-0000-0000-000000000000';
 
 const ALLOWED_PAYMENT_METHODS = ['cash', 'bank_transfer', 'mobile_money'];
 const normalizePaymentMethod = (value) => {
@@ -61,6 +64,24 @@ router.get('/', async (req, res) => {
         const { rows: payments } = loanIds.length
             ? await db.query(`${paymentSelect} WHERE loan_application_id = ANY($1::uuid[])`, [loanIds])
             : { rows: [] };
+
+        let lastPaidByLoan = {};
+        if (loanIds.length > 0) {
+            try {
+                const { rows: lastPaidRows } = await db.query(
+                    `SELECT loan_application_id::text AS id, MAX(payment_date)::text AS last_payment_date
+                     FROM repayments
+                     WHERE loan_application_id = ANY($1::uuid[])
+                     GROUP BY loan_application_id`,
+                    [loanIds]
+                );
+                lastPaidByLoan = Object.fromEntries(
+                    lastPaidRows.map((r) => [r.id, r.last_payment_date])
+                );
+            } catch (_) {
+                lastPaidByLoan = {};
+            }
+        }
 
         const paymentMap = {};
         const memberPaymentMap = {};
@@ -134,6 +155,13 @@ router.get('/', async (req, res) => {
             else if (isMissedRepayment) status = "Missed Repayment";
 
             const groupName = loan.groups_group_name || loan.group_name || null;
+            const lastPaymentRaw = lastPaidByLoan[String(loan.id)] || lastPaidByLoan[loan.id] || null;
+            const lastPaymentDate =
+                lastPaymentRaw && String(lastPaymentRaw).slice(0, 10).length >= 10
+                    ? String(lastPaymentRaw).slice(0, 10)
+                    : lastPaymentRaw
+                        ? String(lastPaymentRaw).split('T')[0]
+                        : null;
             const { groups_group_name, ...loanRest } = loan;
             return {
                 ...loanRest,
@@ -144,6 +172,7 @@ router.get('/', async (req, res) => {
                 paidAmount,
                 balance,
                 nextDueDate: nextDueDate.toISOString(),
+                last_payment_date: lastPaymentDate,
                 status,
                 member_schedules: memberSchedules,
                 member_paid_map: paidByMember
@@ -154,6 +183,55 @@ router.get('/', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to fetch repayments' });
+    }
+});
+
+/**
+ * Admin: aggregates repayment amounts by the staff member who recorded them (`recorded_by` → profiles).
+ * Optional query: date_from, date_to (defaults: last 90 days → today, ISO date strings).
+ */
+router.get('/collector-summary', requireAdmin, async (req, res) => {
+    try {
+        const today = new Date().toISOString().slice(0, 10);
+        const defaultFrom = new Date();
+        defaultFrom.setDate(defaultFrom.getDate() - 90);
+        const dateTo = typeof req.query.date_to === 'string' && req.query.date_to ? req.query.date_to : today;
+        const dateFrom =
+            typeof req.query.date_from === 'string' && req.query.date_from
+                ? req.query.date_from
+                : defaultFrom.toISOString().slice(0, 10);
+
+        const { rows } = await db.query(
+            `
+            SELECT
+                (
+                    CASE
+                        WHEN r.recorded_by IS NULL OR r.recorded_by = $3::uuid
+                            THEN 'Legacy / unspecified'
+                        WHEN COALESCE(NULLIF(TRIM(officer.full_name), ''), NULL) IS NOT NULL
+                            THEN TRIM(officer.full_name)
+                        ELSE 'Unknown profile'
+                    END
+                ) AS officer_label,
+                COUNT(*)::int AS repayment_count,
+                COALESCE(SUM(r.amount), 0)::numeric AS total_amount_ugx
+            FROM repayments r
+            LEFT JOIN profiles officer ON officer.id = r.recorded_by
+            WHERE r.payment_date >= $1::date AND r.payment_date <= $2::date
+            GROUP BY 1
+            ORDER BY total_amount_ugx DESC NULLS LAST, officer_label ASC
+            `,
+            [dateFrom, dateTo, SYSTEM_USER_UUID]
+        );
+
+        res.json({
+            date_from: dateFrom,
+            date_to: dateTo,
+            rows,
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to load collector summary' });
     }
 });
 
@@ -587,6 +665,79 @@ router.post('/reallocate-history', async (req, res) => {
     }
 });
 
+/**
+ * All repayments for every loan application in a borrowing group (used by staff Repayments UI).
+ * Honors loan_officer scope: only repayments tied to loans the officer may access.
+ */
+router.get('/history-group/:group_id', async (req, res) => {
+    const { group_id } = req.params;
+
+    try {
+        const scope = getOfficerScope(req, 'la', 2);
+        let loanSql = `
+            SELECT la.id FROM loan_applications la
+            ${scope.joinSql}
+            WHERE la.group_id = $1::uuid`;
+        const loanParams = [group_id];
+        if (scope.whereSql) {
+            loanSql += ` AND ${scope.whereSql}`;
+            loanParams.push(...scope.values);
+        }
+
+        const { rows: loanRows } = await db.query(loanSql, loanParams);
+        const loanIds = loanRows.map((r) => r.id).filter(Boolean);
+        if (loanIds.length === 0) {
+            return res.json([]);
+        }
+
+        const { rows: columnRows } = await db.query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'repayments' AND column_name = ANY($1::text[])
+        `, [['notes', 'member_breakdown', 'penalty_amount', 'penalty_covered_by_security_deposit']]);
+        const cols = new Set(columnRows.map((c) => c.column_name));
+
+        const selectExtras = [
+            cols.has('notes') ? 'r.notes' : `NULL::text AS notes`,
+            cols.has('member_breakdown') ? 'r.member_breakdown' : `'[]'::jsonb AS member_breakdown`,
+            cols.has('penalty_amount') ? 'r.penalty_amount' : `0::numeric AS penalty_amount`,
+            cols.has('penalty_covered_by_security_deposit')
+                ? 'r.penalty_covered_by_security_deposit'
+                : `0::numeric AS penalty_covered_by_security_deposit`,
+        ].join(', ');
+
+        const { rows } = await db.query(
+            `SELECT
+                r.id,
+                r.loan_application_id,
+                r.amount,
+                r.payment_date,
+                r.payment_method,
+                r.recorded_by,
+                CASE
+                    WHEN r.recorded_by IS NULL OR r.recorded_by = $2::uuid THEN NULL
+                    WHEN COALESCE(NULLIF(TRIM(officer.full_name), ''), NULL) IS NOT NULL
+                        THEN TRIM(officer.full_name)
+                    ELSE 'Unknown officer'
+                END AS recorded_by_name,
+                r.created_at,
+                r.updated_at,
+                COALESCE(NULLIF(TRIM(la.full_name), ''), 'Group loan') AS loan_borrower_name,
+                ${selectExtras}
+             FROM repayments r
+             INNER JOIN loan_applications la ON la.id = r.loan_application_id
+             LEFT JOIN profiles officer ON officer.id = r.recorded_by
+             WHERE r.loan_application_id = ANY($1::uuid[])
+             ORDER BY r.payment_date DESC, r.created_at DESC, r.id DESC`,
+            [loanIds, SYSTEM_USER_UUID]
+        );
+
+        res.json(rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to load group repayment history' });
+    }
+});
+
 // List all repayment transactions for a loan (individual or group loan_application)
 router.get('/history/:loan_application_id', async (req, res) => {
     const { loan_application_id } = req.params;
@@ -615,21 +766,36 @@ router.get('/history/:loan_application_id', async (req, res) => {
         const cols = new Set(columnRows.map(c => c.column_name));
 
         const selectExtras = [
-            cols.has('notes') ? 'notes' : `NULL::text as notes`,
-            cols.has('member_breakdown') ? 'member_breakdown' : `'[]'::jsonb as member_breakdown`,
-            cols.has('penalty_amount') ? 'penalty_amount' : `0::numeric as penalty_amount`,
+            cols.has('notes') ? 'r.notes' : `NULL::text AS notes`,
+            cols.has('member_breakdown') ? 'r.member_breakdown' : `'[]'::jsonb AS member_breakdown`,
+            cols.has('penalty_amount') ? 'r.penalty_amount' : `0::numeric AS penalty_amount`,
             cols.has('penalty_covered_by_security_deposit')
-                ? 'penalty_covered_by_security_deposit'
-                : `0::numeric as penalty_covered_by_security_deposit`,
+                ? 'r.penalty_covered_by_security_deposit'
+                : `0::numeric AS penalty_covered_by_security_deposit`,
         ].join(', ');
 
         const { rows } = await db.query(
-            `SELECT id, loan_application_id, amount, payment_date, payment_method,
-                    recorded_by, created_at, updated_at, ${selectExtras}
-             FROM repayments
-             WHERE loan_application_id = $1
-             ORDER BY payment_date DESC, created_at DESC, id DESC`,
-            [loan_application_id]
+            `SELECT
+                r.id,
+                r.loan_application_id,
+                r.amount,
+                r.payment_date,
+                r.payment_method,
+                r.recorded_by,
+                CASE
+                    WHEN r.recorded_by IS NULL OR r.recorded_by = $2::uuid THEN NULL
+                    WHEN COALESCE(NULLIF(TRIM(officer.full_name), ''), NULL) IS NOT NULL
+                        THEN TRIM(officer.full_name)
+                    ELSE 'Unknown officer'
+                END AS recorded_by_name,
+                r.created_at,
+                r.updated_at,
+                ${selectExtras}
+             FROM repayments r
+             LEFT JOIN profiles officer ON officer.id = r.recorded_by
+             WHERE r.loan_application_id = $1
+             ORDER BY r.payment_date DESC, r.created_at DESC, r.id DESC`,
+            [loan_application_id, SYSTEM_USER_UUID]
         );
 
         res.json(rows);
@@ -775,6 +941,15 @@ router.put('/:id', async (req, res) => {
                     amount: parseFloat(m?.amount || 0)
                 }))
                 .filter((m) => m.name && m.amount > 0);
+            if (normalized.length > 0) {
+                const breakdownSum = normalized.reduce((s, m) => s + m.amount, 0);
+                if (Math.abs(breakdownSum - newAmount) > 0.02) {
+                    await db.query('ROLLBACK');
+                    return res.status(400).json({
+                        error: 'Member breakdown amounts must add up to the payment total.'
+                    });
+                }
+            }
             setClauses.push(`member_breakdown = $${idx++}::jsonb`);
             values.push(JSON.stringify(normalized));
         }
