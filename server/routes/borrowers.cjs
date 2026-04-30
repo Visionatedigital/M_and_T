@@ -36,6 +36,21 @@ router.get('/', async (req, res) => {
 
   try {
     if (isGroup) {
+      const userId = req.user?.user_id || req.user?.id;
+      const officerScoped = isLoanOfficer(req.user?.role) && userId;
+      const groupFilter = officerScoped
+        ? `WHERE EXISTS (
+                SELECT 1 FROM loan_applications la_o
+                JOIN borrowers b_o ON b_o.id = la_o.borrower_id
+                WHERE la_o.group_id = g.id
+                  AND la_o.status != 'rejected'
+                  AND b_o.assigned_officer_id = $1
+            )`
+        : '';
+      const groupParams = officerScoped ? [userId] : [];
+      const officerJoin = officerScoped
+        ? ` AND la.borrower_id IN (SELECT id FROM borrowers WHERE assigned_officer_id = $1) `
+        : '';
       const { rows } = await db.query(`
                 SELECT 
                     g.id,
@@ -51,13 +66,15 @@ router.get('/', async (req, res) => {
                         SELECT SUM(amount) FROM repayments r 
                         JOIN loan_applications la2 ON r.loan_application_id = la2.id 
                         WHERE la2.group_id = g.id
+                          ${officerScoped ? 'AND la2.borrower_id IN (SELECT id FROM borrowers WHERE assigned_officer_id = $1)' : ''}
                     ), 0) as total_paid,
                     true as is_group
                 FROM groups g
-                LEFT JOIN loan_applications la ON g.id = la.group_id AND la.status != 'rejected'
+                LEFT JOIN loan_applications la ON g.id = la.group_id AND la.status != 'rejected' ${officerJoin}
+                ${groupFilter}
                 GROUP BY g.id
                 ORDER BY g.group_name
-            `);
+            `, groupParams);
 
       const processed = rows.map(r => ({
         ...r,
@@ -68,9 +85,7 @@ router.get('/', async (req, res) => {
       return res.json(processed);
     }
 
-    const role = req.user?.role;
     const userId = req.user?.user_id || req.user?.id;
-    const isLoanOfficer = role === 'loan_officer';
 
     let borrowerWhere = `b.full_name NOT IN (
                 SELECT p.full_name FROM profiles p
@@ -78,7 +93,7 @@ router.get('/', async (req, res) => {
                 WHERE ur.role::text IN ('admin', 'loan_officer')
             )`;
     const borrowerValues = [];
-    if (isLoanOfficer && userId) {
+    if (isLoanOfficer(req.user?.role) && userId) {
       borrowerWhere = `b.assigned_officer_id = $1`;
       borrowerValues.push(userId);
     }
@@ -125,6 +140,16 @@ router.get('/', async (req, res) => {
 // Update borrower location
 router.put('/:id/location', async (req, res) => {
   const { id } = req.params;
+  const userId = req.user?.user_id || req.user?.id;
+  if (isLoanOfficer(req.user?.role) && userId) {
+    const { rows: access } = await db.query(
+      'SELECT id FROM borrowers WHERE id = $1 AND assigned_officer_id = $2',
+      [id, userId]
+    );
+    if (access.length === 0) {
+      return res.status(403).json({ error: 'You can only update borrowers assigned to you.' });
+    }
+  }
   const { district, county, sub_county, parish, village, latitude, longitude } = req.body;
 
   try {
@@ -152,6 +177,17 @@ router.put('/:id/location', async (req, res) => {
 // Get borrower's attachments from their most recent loan application
 router.get('/:id/attachments', async (req, res) => {
   try {
+    const userId = req.user?.user_id || req.user?.id;
+    if (isLoanOfficer(req.user?.role) && userId) {
+      const { rows: access } = await db.query(
+        'SELECT id FROM borrowers WHERE id = $1 AND assigned_officer_id = $2',
+        [req.params.id, userId]
+      );
+      if (access.length === 0) {
+        return res.status(403).json({ error: 'You can only view borrowers assigned to you.' });
+      }
+    }
+
     const { rows } = await db.query(`
       SELECT attachment_national_id, attachment_lc1_letter, attachment_recommendation_letter,
              attachment_passport_photo, attachment_income_statement
@@ -295,6 +331,17 @@ router.put('/:id', async (req, res) => {
 // Get borrower by ID
 router.get('/:id', async (req, res) => {
   try {
+    const userId = req.user?.user_id || req.user?.id;
+    if (isLoanOfficer(req.user?.role) && userId) {
+      const { rows: access } = await db.query(
+        'SELECT id FROM borrowers WHERE id = $1 AND assigned_officer_id = $2',
+        [req.params.id, userId]
+      );
+      if (access.length === 0) {
+        return res.status(403).json({ error: 'You can only view borrowers assigned to you.' });
+      }
+    }
+
     const { rows } = await db.query(`
       SELECT 
         b.*,
