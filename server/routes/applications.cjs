@@ -30,12 +30,14 @@ const normalizePaymentMethod = (value) => {
 const getOfficerScope = (req, alias = 'la', paramIndex = 1) => {
     const role = String(req.user?.role || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
     const userId = req.user?.user_id || req.user?.id;
+    /** Match dashboard/reports: borrower book OR app assigned to officer while borrower not linked */
     if (role !== 'loan_officer' || !userId) {
         return { joinSql: '', whereSql: '', values: [] };
     }
+    const p = `$${paramIndex}`;
     return {
         joinSql: ` LEFT JOIN borrowers b_scope ON b_scope.id = ${alias}.borrower_id `,
-        whereSql: ` b_scope.assigned_officer_id = $${paramIndex} `,
+        whereSql: ` (b_scope.assigned_officer_id = ${p} OR (${alias}.borrower_id IS NULL AND ${alias}.assigned_officer_id = ${p})) `,
         values: [userId]
     };
 };

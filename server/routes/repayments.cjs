@@ -22,9 +22,10 @@ const getOfficerScope = (req, alias = 'la', paramIndex = 1) => {
     if (role !== 'loan_officer' || !userId) {
         return { joinSql: '', whereSql: '', values: [] };
     }
+    const p = `$${paramIndex}`;
     return {
         joinSql: ` LEFT JOIN borrowers b_scope ON b_scope.id = ${alias}.borrower_id `,
-        whereSql: ` b_scope.assigned_officer_id = $${paramIndex} `,
+        whereSql: ` (b_scope.assigned_officer_id = ${p} OR (${alias}.borrower_id IS NULL AND ${alias}.assigned_officer_id = ${p})) `,
         values: [userId]
     };
 };

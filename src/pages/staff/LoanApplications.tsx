@@ -149,9 +149,9 @@ const LoanApplications = () => {
 
     if (statusFilter !== "all") {
       if (statusFilter === "approved") {
-        // Include both approved and disbursed loans
+        // Align with /applications/active API — include closed book statuses
         filtered = filtered.filter((app) =>
-          app.status === "approved" || app.status === "disbursed"
+          ["approved", "disbursed", "completed", "settled"].includes(app.status)
         );
       } else {
         filtered = filtered.filter((app) => app.status === statusFilter);

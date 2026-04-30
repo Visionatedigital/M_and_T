@@ -4,6 +4,7 @@
 const db = require('../db.cjs');
 const { fetchReportStats } = require('../lib/reportStats.cjs');
 const { isLoanOfficer } = require('../lib/roles.cjs');
+const { officerUserId, sqlOfficerVisibleLoanApps } = require('../lib/officerLoanScope.cjs');
 
 const SYSTEM_USER_UUID = '00000000-0000-0000-0000-000000000000';
 
@@ -21,18 +22,19 @@ async function safe(label, fn) {
  */
 async function buildAssistantSnapshot(req) {
     const user = req.user || {};
-    const { role, user_id } = user;
+    const role = user.role;
+    const user_id = officerUserId(req);
     const values = [];
     let loanScoped = '';
     if (isLoanOfficer(role)) {
-        loanScoped = 'borrower_id IN (SELECT id FROM borrowers WHERE assigned_officer_id = $1)';
+        loanScoped = sqlOfficerVisibleLoanApps('', '$1');
         values.push(user_id);
     }
 
     const reportBlock = await fetchReportStats(req);
 
     const repayScope = isLoanOfficer(role)
-        ? 'AND r.loan_application_id IN (SELECT id FROM loan_applications WHERE borrower_id IN (SELECT id FROM borrowers WHERE assigned_officer_id = $1))'
+        ? `AND r.loan_application_id IN (SELECT id FROM loan_applications la WHERE ${sqlOfficerVisibleLoanApps('la', '$1')})`
         : '';
 
     const extensions = await Promise.all([
@@ -103,9 +105,7 @@ async function buildAssistantSnapshot(req) {
                     FROM repayments r
                     WHERE payment_date >= $1::date
                       AND r.loan_application_id IN (
-                          SELECT id FROM loan_applications WHERE borrower_id IN (
-                              SELECT id FROM borrowers WHERE assigned_officer_id = $2
-                          )
+                          SELECT id FROM loan_applications la WHERE ${sqlOfficerVisibleLoanApps('la', '$2')}
                       )
                     `,
                     [from, user_id]
@@ -140,9 +140,7 @@ async function buildAssistantSnapshot(req) {
                     LEFT JOIN profiles officer ON officer.id = r.recorded_by
                     WHERE r.payment_date >= $1::date AND r.payment_date <= $2::date
                       AND r.loan_application_id IN (
-                          SELECT id FROM loan_applications WHERE borrower_id IN (
-                              SELECT id FROM borrowers WHERE assigned_officer_id = $3
-                          )
+                          SELECT id FROM loan_applications la WHERE ${sqlOfficerVisibleLoanApps('la', '$3')}
                       )
                     GROUP BY 1
                     ORDER BY total_amount_ugx DESC NULLS LAST
@@ -191,7 +189,7 @@ async function buildAssistantSnapshot(req) {
                 FROM loan_applications la
             `;
             if (isLoanOfficer(role)) {
-                q += ' WHERE borrower_id IN (SELECT id FROM borrowers WHERE assigned_officer_id = $1)';
+                q += ` WHERE ${sqlOfficerVisibleLoanApps('la', '$1')}`;
             }
             q += ' ORDER BY updated_at DESC NULLS LAST LIMIT 8';
             const { rows } = await db.query(q, values);
