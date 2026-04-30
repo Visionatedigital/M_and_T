@@ -11,18 +11,52 @@ function officerUserId(ctx) {
     return u.user_id || u.id || null;
 }
 
+/** UG-style phone compare: strip non-digits, +256 → 0 */
+function sqlNormPhonePg(columnRef) {
+    return `regexp_replace(regexp_replace(trim(${columnRef}), '^\\+256', '0'), '\\D', '', 'g')`;
+}
+
 /**
- * Predicate on loan_applications (optionally aliased).
- * Officers see: linked borrower in their book, OR no borrower link yet but the app is assigned to them.
- * @param {string} alias Table alias without dot, or '' for no prefix
- * @param {string} param Placeholder e.g. '$1'
+ * Predicate on loan_applications only (subqueries / dashboards). Same visibility as list + join scope.
+ * Also matches legacy rows: borrower_id NULL, assigned_officer_id NULL, but application phone = a borrower in this officer's book.
  */
 function sqlOfficerVisibleLoanApps(alias, param) {
     const a = alias ? `${alias}.` : '';
+    const appPhone = sqlNormPhonePg(`${a}phone_number`);
     return `(
         ${a}borrower_id IN (SELECT id FROM borrowers WHERE assigned_officer_id = ${param})
         OR (${a}borrower_id IS NULL AND ${a}assigned_officer_id = ${param})
+        OR (
+            ${a}borrower_id IS NULL
+            AND COALESCE(NULLIF(${appPhone}, ''), '') <> ''
+            AND EXISTS (
+                SELECT 1 FROM borrowers b_match
+                WHERE b_match.assigned_officer_id = ${param}::uuid
+                AND ${sqlNormPhonePg('b_match.phone_number')} = ${appPhone}
+            )
+        )
     )`;
 }
 
-module.exports = { officerUserId, sqlOfficerVisibleLoanApps };
+/**
+ * For `FROM loan_applications la LEFT JOIN borrowers b_scope ON b_scope.id = la.borrower_id`.
+ */
+function sqlOfficerLoanListScope(loanAlias, param) {
+    const a = `${loanAlias}.`;
+    const appPhone = sqlNormPhonePg(`${a}phone_number`);
+    return `(
+        b_scope.assigned_officer_id = ${param}
+        OR (${a}borrower_id IS NULL AND ${a}assigned_officer_id = ${param})
+        OR (
+            ${a}borrower_id IS NULL
+            AND COALESCE(NULLIF(${appPhone}, ''), '') <> ''
+            AND EXISTS (
+                SELECT 1 FROM borrowers b_match
+                WHERE b_match.assigned_officer_id = ${param}::uuid
+                AND ${sqlNormPhonePg('b_match.phone_number')} = ${appPhone}
+            )
+        )
+    )`;
+}
+
+module.exports = { officerUserId, sqlOfficerVisibleLoanApps, sqlOfficerLoanListScope };

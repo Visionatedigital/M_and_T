@@ -4,6 +4,7 @@ const db = require('../db.cjs');
 const notificationService = require('../services/notificationService');
 const { runOverdueCheck } = require('../services/overdueCheck.cjs');
 const { requireAdmin } = require('../lib/roles.cjs');
+const { sqlOfficerLoanListScope } = require('../lib/officerLoanScope.cjs');
 
 const SYSTEM_USER_UUID = '00000000-0000-0000-0000-000000000000';
 
@@ -25,7 +26,7 @@ const getOfficerScope = (req, alias = 'la', paramIndex = 1) => {
     const p = `$${paramIndex}`;
     return {
         joinSql: ` LEFT JOIN borrowers b_scope ON b_scope.id = ${alias}.borrower_id `,
-        whereSql: ` (b_scope.assigned_officer_id = ${p} OR (${alias}.borrower_id IS NULL AND ${alias}.assigned_officer_id = ${p})) `,
+        whereSql: sqlOfficerLoanListScope(alias, p),
         values: [userId]
     };
 };
