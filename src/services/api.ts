@@ -1,17 +1,36 @@
-// ── Mode Detection ──────────────────────────────────────────
-// VITE_USE_SUPABASE=true  → remote API (default http://localhost:5000 — must match Electron + PORT in .env)
-// VITE_USE_SUPABASE=false → local SQLite in desktop (Port 3000)
+// ── API base URL ───────────────────────────────────────────
+// - Dev (Vite): API on another port — use VITE_USE_SUPABASE + defaults below.
+// - Prod in a real browser (https://yourdomain): use **current origin** so we never bake localhost into
+//   the bundle (fixes ERR_CONNECTION_REFUSED on the live site).
+// - Prod Electron (file://): fall back to localhost servers.
+// - Optional: set VITE_REMOTE_API_URL to force an absolute API host (CDN + separate API, etc.).
 const useSupabase = import.meta.env.VITE_USE_SUPABASE === 'true';
-const REMOTE_URL = import.meta.env.VITE_REMOTE_API_URL || 'http://localhost:5000';
-const LOCAL_URL = 'http://localhost:3000';
+const explicitRemote = (import.meta.env.VITE_REMOTE_API_URL || '').replace(/\/$/, '');
+const LOCAL_DESKTOP_API = 'http://localhost:3000';
+const DEV_REMOTE_DEFAULT = 'http://localhost:5000';
 
-const API_URL = `${useSupabase ? REMOTE_URL : LOCAL_URL}/api`;
+function resolveApiOrigin(): string {
+    if (explicitRemote) return explicitRemote;
+    if (import.meta.env.DEV) {
+        return useSupabase ? DEV_REMOTE_DEFAULT : LOCAL_DESKTOP_API;
+    }
+    if (typeof window !== 'undefined') {
+        const proto = window.location.protocol;
+        if (proto === 'https:' || proto === 'http:') {
+            return window.location.origin;
+        }
+    }
+    return useSupabase ? DEV_REMOTE_DEFAULT : LOCAL_DESKTOP_API;
+}
 
-/** Base URL for uploaded files (e.g. `/uploads/...` or full URLs from POST /upload) */
-export const API_ORIGIN = useSupabase ? REMOTE_URL : LOCAL_URL;
+const _apiOrigin = resolveApiOrigin();
+const API_URL = `${_apiOrigin}/api`;
+
+/** Base URL for API + uploads (same host as `/api` unless VITE_REMOTE_API_URL is set) */
+export const API_ORIGIN = _apiOrigin;
 
 export const isRemoteMode = useSupabase;
-console.log(`🌐 API Mode: ${useSupabase ? 'SUPABASE' : 'LOCAL'} → ${API_URL}`);
+console.log(`🌐 API origin: ${_apiOrigin} (mode ${useSupabase ? 'remote' : 'desktop-dev'}${import.meta.env.DEV ? ', dev' : ', prod'}) → ${API_URL}`);
 
 const getHeaders = () => {
     const token = localStorage.getItem('token');
