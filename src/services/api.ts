@@ -571,13 +571,53 @@ export const api = {
             }
             return response.json();
         },
+        delete: async (id: string) => {
+            const response = await fetch(`${API_URL}/borrowers/${id}`, {
+                method: 'DELETE',
+                headers: getHeaders(),
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                const msg = (err as { error?: string }).error;
+                throw new Error(msg || 'Failed to delete borrower');
+            }
+            return response.json();
+        },
     },
     groups: {
         getAll: async () => {
             const response = await fetch(`${API_URL}/groups`, { headers: getHeaders() });
             if (!response.ok) throw new Error('Failed to fetch groups');
             return response.json();
-        }
+        },
+        get: async (id: string) => {
+            const response = await fetch(`${API_URL}/groups/${id}`, { headers: getHeaders() });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                const msg = (err as { error?: string }).error;
+                throw new Error(msg || 'Failed to fetch group details');
+            }
+            return response.json();
+        },
+        delete: async (id: string, force = false) => {
+            const url = `${API_URL}/groups/${id}${force ? '?force=true' : ''}`;
+            const response = await fetch(url, {
+                method: 'DELETE',
+                headers: getHeaders(),
+            });
+            if (!response.ok) {
+                const err = (await response.json().catch(() => ({}))) as {
+                    error?: string;
+                    requires_force?: boolean;
+                };
+                const e = new Error(err.error || 'Failed to delete group') as Error & {
+                    requires_force?: boolean;
+                };
+                e.requires_force = err.requires_force;
+                throw e;
+            }
+            return response.json();
+        },
     },
     guarantors: {
         getAll: async () => {

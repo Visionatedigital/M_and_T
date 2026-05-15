@@ -11,14 +11,14 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Users, User, Search, Plus, Eye, Phone, Mail, MapPin, UserPlus, FileText, DollarSign, Filter } from "lucide-react";
+import { Users, User, Search, Plus, Eye, Phone, Mail, MapPin, UserPlus, FileText, DollarSign, Filter, Loader2, Trash2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { resolveMediaUrl } from "@/lib/resolveMediaUrl";
 import { useToast } from "@/hooks/use-toast";
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Switch } from "@/components/ui/switch";
 
 // Fix for default marker icon
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -42,6 +42,7 @@ interface Borrower {
     group_id?: string | null;
     /** True when Borrower List is in "group totals" mode (aggregated groups) */
     is_group?: boolean;
+    member_count?: number;
     district?: string;
     latitude?: number;
     longitude?: number;
@@ -75,7 +76,30 @@ const Borrowers = () => {
     /** Separate search for "Find My Borrower" tab */
     const [findSearchTerm, setFindSearchTerm] = useState("");
     const [showAdvanced, setShowAdvanced] = useState(false);
-    const [isGroupView, setIsGroupView] = useState(false);
+    const [listViewMode, setListViewMode] = useState<"individuals" | "groups">("individuals");
+    const [groupDialogOpen, setGroupDialogOpen] = useState(false);
+    const [groupLoading, setGroupLoading] = useState(false);
+    const [selectedGroupDetail, setSelectedGroupDetail] = useState<{
+        id: string;
+        group_name: string;
+        member_count: number;
+        total_loans: number;
+        total_borrowed: number;
+        total_paid: number;
+        open_loans_balance: number;
+        status_label: string;
+        members: Array<{
+            id: string;
+            full_name: string;
+            phone_number?: string;
+            email?: string;
+            unique_number?: string;
+            loan_count: number;
+            total_borrowed: number;
+            total_paid: number;
+            open_loans_balance: number;
+        }>;
+    } | null>(null);
     const [editLocationDialogOpen, setEditLocationDialogOpen] = useState(false);
     const [selectedBorrowerForLocation, setSelectedBorrowerForLocation] = useState<Borrower | null>(null);
     const [locationForm, setLocationForm] = useState({
@@ -102,7 +126,7 @@ const Borrowers = () => {
 
     useEffect(() => {
         loadBorrowers();
-    }, [isGroupView]);
+    }, [listViewMode]);
 
     useEffect(() => {
         filterBorrowers();
@@ -124,7 +148,7 @@ const Borrowers = () => {
 
     const loadBorrowers = async () => {
         try {
-            const data = await api.borrowers.getAll(isGroupView);
+            const data = await api.borrowers.getAll(listViewMode === "groups");
             setBorrowers(data || []);
         } catch (error: any) {
             console.error("Load borrowers error:", error);
@@ -203,6 +227,75 @@ const Borrowers = () => {
                 (b.village?.toLowerCase() || "").includes(q)
         );
     }, [borrowers, findSearchTerm]);
+
+    const openBorrowerProfile = (borrower: Borrower) => {
+        navigate(`/staff-dashboard/borrowers/history?id=${borrower.id}`);
+    };
+
+    const openGroupDetails = async (groupId: string) => {
+        setGroupDialogOpen(true);
+        setGroupLoading(true);
+        setSelectedGroupDetail(null);
+        try {
+            const data = await api.groups.get(groupId);
+            setSelectedGroupDetail(data);
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to load group";
+            toast({ title: "Error", description: message, variant: "destructive" });
+            setGroupDialogOpen(false);
+        } finally {
+            setGroupLoading(false);
+        }
+    };
+
+    const handleViewEntry = (entry: Borrower) => {
+        if (entry.is_group) {
+            openGroupDetails(entry.id);
+            return;
+        }
+        openBorrowerProfile(entry);
+    };
+
+    const handleDeleteEntry = async (entry: Borrower) => {
+        const label = entry.is_group ? `group "${entry.full_name}"` : `client "${entry.full_name}"`;
+        if (!confirm(`Delete ${label}? This cannot be undone.`)) return;
+
+        try {
+            if (entry.is_group) {
+                try {
+                    await api.groups.delete(entry.id);
+                } catch (error: unknown) {
+                    const err = error as Error & { requires_force?: boolean };
+                    if (err.requires_force) {
+                        if (
+                            !confirm(
+                                `${err.message}\n\nDelete the group anyway? Loans will remain but will no longer be linked to this group.`
+                            )
+                        ) {
+                            return;
+                        }
+                        await api.groups.delete(entry.id, true);
+                    } else {
+                        throw error;
+                    }
+                }
+                if (selectedGroupDetail?.id === entry.id) {
+                    setGroupDialogOpen(false);
+                    setSelectedGroupDetail(null);
+                }
+            } else {
+                await api.borrowers.delete(entry.id);
+            }
+            toast({
+                title: "Deleted",
+                description: entry.is_group ? "Group has been removed." : "Client has been removed.",
+            });
+            loadBorrowers();
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Delete failed";
+            toast({ title: "Error", description: message, variant: "destructive" });
+        }
+    };
 
     const handleEditLocation = async (borrower: Borrower) => {
         setSelectedBorrowerForLocation(borrower);
@@ -283,19 +376,29 @@ const Borrowers = () => {
                                         <CardHeader className="min-w-0 space-y-4">
                                             <div className="min-w-0">
                                                 <CardTitle className="text-base sm:text-lg">Borrower List</CardTitle>
-                                                <CardDescription>View and manage all borrowers</CardDescription>
+                                                <CardDescription>
+                                                    {listViewMode === "groups"
+                                                        ? "View borrower groups and member loan totals"
+                                                        : "View and manage individual borrowers"}
+                                                </CardDescription>
                                             </div>
                                             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
-                                                <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/40 px-3 py-2.5 sm:bg-transparent sm:p-0 lg:min-w-[220px] lg:rounded-none lg:border-0">
-                                                    <Label htmlFor="view-mode" className="cursor-pointer text-sm">
-                                                        Show Group Totals
-                                                    </Label>
-                                                    <Switch
-                                                        id="view-mode"
-                                                        checked={isGroupView}
-                                                        onCheckedChange={setIsGroupView}
-                                                    />
-                                                </div>
+                                                <Tabs
+                                                    value={listViewMode}
+                                                    onValueChange={(v) => setListViewMode(v as "individuals" | "groups")}
+                                                    className="w-full lg:w-auto"
+                                                >
+                                                    <TabsList className="grid w-full grid-cols-2 lg:w-[280px]">
+                                                        <TabsTrigger value="individuals" className="gap-1.5">
+                                                            <User className="h-4 w-4" />
+                                                            Individuals
+                                                        </TabsTrigger>
+                                                        <TabsTrigger value="groups" className="gap-1.5">
+                                                            <Users className="h-4 w-4" />
+                                                            Groups
+                                                        </TabsTrigger>
+                                                    </TabsList>
+                                                </Tabs>
                                                 <div className="flex min-w-0 w-full flex-col gap-2 lg:max-w-xl lg:flex-row lg:items-stretch lg:gap-2">
                                                     <div className="relative min-w-0 flex-1">
                                                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -360,7 +463,7 @@ const Borrowers = () => {
                                         <CardContent className="min-w-0 px-4 pb-4 pt-0 sm:px-6 sm:pb-6">
                                             {filteredBorrowers.length === 0 ? (
                                                 <p className="min-w-0 break-words px-1 py-10 text-center text-sm text-muted-foreground">
-                                                    No borrowers found
+                                                    {listViewMode === "groups" ? "No borrower groups found" : "No borrowers found"}
                                                 </p>
                                             ) : (
                                                 <>
@@ -376,6 +479,8 @@ const Borrowers = () => {
                                                                                     alt=""
                                                                                     className="h-full w-full object-cover"
                                                                                 />
+                                                                            ) : borrower.is_group ? (
+                                                                                <Users className="h-5 w-5 text-muted-foreground" />
                                                                             ) : (
                                                                                 <User className="h-5 w-5 text-muted-foreground" />
                                                                             )}
@@ -383,7 +488,9 @@ const Borrowers = () => {
                                                                         <div className="min-w-0 flex-1">
                                                                             <div className="font-medium leading-snug">{borrower.full_name}</div>
                                                                             <p className="mt-0.5 text-xs text-muted-foreground">
-                                                                                {borrower.business_name || "—"}
+                                                                                {borrower.is_group
+                                                                                    ? `${borrower.member_count ?? 0} members · Group account`
+                                                                                    : borrower.business_name || "—"}
                                                                             </p>
                                                                         </div>
                                                                     </div>
@@ -438,22 +545,31 @@ const Borrowers = () => {
                                                                             variant="secondary"
                                                                             size="sm"
                                                                             className="min-h-10 touch-manipulation"
-                                                                            onClick={() =>
-                                                                                navigate(`/staff-dashboard/borrowers/history?id=${borrower.id}`)
-                                                                            }
+                                                                            onClick={() => handleViewEntry(borrower)}
                                                                         >
                                                                             <Eye className="mr-2 h-4 w-4" />
                                                                             View
                                                                         </Button>
+                                                                        {!borrower.is_group && (
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                className="min-h-10 touch-manipulation"
+                                                                                onClick={() =>
+                                                                                    navigate(`/staff-dashboard/loans/add?borrower=${borrower.id}`)
+                                                                                }
+                                                                            >
+                                                                                Loans
+                                                                            </Button>
+                                                                        )}
                                                                         <Button
                                                                             variant="outline"
                                                                             size="sm"
-                                                                            className="min-h-10 touch-manipulation"
-                                                                            onClick={() =>
-                                                                                navigate(`/staff-dashboard/loans/add?borrower=${borrower.id}`)
-                                                                            }
+                                                                            className="min-h-10 touch-manipulation text-destructive border-destructive/30 hover:bg-destructive/10"
+                                                                            onClick={() => handleDeleteEntry(borrower)}
                                                                         >
-                                                                            Loans
+                                                                            <Trash2 className="mr-2 h-4 w-4" />
+                                                                            Delete
                                                                         </Button>
                                                                     </div>
                                                                 </CardContent>
@@ -485,9 +601,7 @@ const Borrowers = () => {
                                                                                     size="icon"
                                                                                     variant="ghost"
                                                                                     className="h-8 w-8 shrink-0"
-                                                                                    onClick={() =>
-                                                                                        navigate(`/staff-dashboard/borrowers/history?id=${borrower.id}`)
-                                                                                    }
+                                                                                    onClick={() => handleViewEntry(borrower)}
                                                                                 >
                                                                                     <Eye className="h-4 w-4" />
                                                                                 </Button>
@@ -501,6 +615,8 @@ const Borrowers = () => {
                                                                                                 alt=""
                                                                                                 className="h-full w-full object-cover"
                                                                                             />
+                                                                                        ) : borrower.is_group ? (
+                                                                                            <Users className="h-4 w-4 text-muted-foreground" />
                                                                                         ) : (
                                                                                             <User className="h-4 w-4 text-muted-foreground" />
                                                                                         )}
@@ -515,7 +631,9 @@ const Borrowers = () => {
                                                                                     className="block max-w-[100px] truncate"
                                                                                     title={borrower.business_name || undefined}
                                                                                 >
-                                                                                    {borrower.business_name || "-"}
+                                                                                    {borrower.is_group
+                                                                                        ? `${borrower.member_count ?? 0} members`
+                                                                                        : borrower.business_name || "-"}
                                                                                 </span>
                                                                             </TableCell>
                                                                             <TableCell className="py-2">{borrower.unique_number || "-"}</TableCell>
@@ -562,16 +680,29 @@ const Borrowers = () => {
                                                                                 </span>
                                                                             </TableCell>
                                                                             <TableCell className="shrink-0 py-2 text-right">
-                                                                                <Button
-                                                                                    size="sm"
-                                                                                    variant="outline"
-                                                                                    className="h-8 text-xs"
-                                                                                    onClick={() =>
-                                                                                        navigate(`/staff-dashboard/loans/add?borrower=${borrower.id}`)
-                                                                                    }
-                                                                                >
-                                                                                    Loans
-                                                                                </Button>
+                                                                                <div className="inline-flex items-center justify-end gap-1">
+                                                                                    {!borrower.is_group && (
+                                                                                        <Button
+                                                                                            size="sm"
+                                                                                            variant="outline"
+                                                                                            className="h-8 text-xs"
+                                                                                            onClick={() =>
+                                                                                                navigate(`/staff-dashboard/loans/add?borrower=${borrower.id}`)
+                                                                                            }
+                                                                                        >
+                                                                                            Loans
+                                                                                        </Button>
+                                                                                    )}
+                                                                                    <Button
+                                                                                        size="icon"
+                                                                                        variant="ghost"
+                                                                                        className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                                                                        title={borrower.is_group ? "Delete group" : "Delete client"}
+                                                                                        onClick={() => handleDeleteEntry(borrower)}
+                                                                                    >
+                                                                                        <Trash2 className="h-4 w-4" />
+                                                                                    </Button>
+                                                                                </div>
                                                                             </TableCell>
                                                                         </TableRow>
                                                                     ))}
@@ -671,7 +802,7 @@ const Borrowers = () => {
                                                                 <Button
                                                                     size="sm"
                                                                     variant="default"
-                                                                    onClick={() => navigate(`/staff-dashboard/borrowers/history?id=${b.id}`)}
+                                                                    onClick={() => handleViewEntry(b)}
                                                                 >
                                                                     <Eye className="h-4 w-4 mr-1" />
                                                                     View
@@ -731,7 +862,7 @@ const Borrowers = () => {
                                                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                                                 />
                                                 {borrowers
-                                                    .filter((b) => b.latitude != null && b.longitude != null)
+                                                    .filter((b) => !b.is_group && b.latitude != null && b.longitude != null)
                                                     .map((b) => (
                                                         <Marker key={b.id} position={[Number(b.latitude), Number(b.longitude)]}>
                                                             <Popup>
@@ -742,7 +873,7 @@ const Borrowers = () => {
                                                                     <Button
                                                                         size="sm"
                                                                         className="mt-2"
-                                                                        onClick={() => navigate(`/staff-dashboard/borrowers/history?id=${b.id}`)}
+                                                                        onClick={() => handleViewEntry(b)}
                                                                     >
                                                                         View Profile
                                                                     </Button>
@@ -759,6 +890,117 @@ const Borrowers = () => {
                     </main>
                 </div>
             </div>
+
+            {/* Group details */}
+            <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
+                <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl">
+                            {selectedGroupDetail?.group_name || "Borrower group"}
+                        </DialogTitle>
+                        <DialogDescription>
+                            Members and combined loan performance for this group
+                        </DialogDescription>
+                    </DialogHeader>
+                    {groupLoading ? (
+                        <div className="flex items-center justify-center py-12 text-muted-foreground">
+                            <Loader2 className="h-8 w-8 animate-spin" />
+                        </div>
+                    ) : selectedGroupDetail ? (
+                        <div className="space-y-6">
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                                <div className="rounded-lg border p-3">
+                                    <p className="text-xs text-muted-foreground">Members</p>
+                                    <p className="text-lg font-semibold">{selectedGroupDetail.member_count}</p>
+                                </div>
+                                <div className="rounded-lg border p-3">
+                                    <p className="text-xs text-muted-foreground">Total borrowed</p>
+                                    <p className="text-lg font-semibold">
+                                        {(selectedGroupDetail.total_borrowed || 0).toLocaleString()} UGX
+                                    </p>
+                                </div>
+                                <div className="rounded-lg border p-3">
+                                    <p className="text-xs text-muted-foreground">Total paid</p>
+                                    <p className="text-lg font-semibold text-green-700">
+                                        {(selectedGroupDetail.total_paid || 0).toLocaleString()} UGX
+                                    </p>
+                                </div>
+                                <div className="rounded-lg border p-3">
+                                    <p className="text-xs text-muted-foreground">Balance</p>
+                                    <p className="text-lg font-semibold">
+                                        {(selectedGroupDetail.open_loans_balance || 0).toLocaleString()} UGX
+                                    </p>
+                                </div>
+                            </div>
+                            {selectedGroupDetail.members.length === 0 ? (
+                                <p className="text-sm text-muted-foreground text-center py-6">
+                                    No members linked to active group loans yet.
+                                </p>
+                            ) : (
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Member</TableHead>
+                                            <TableHead>Phone</TableHead>
+                                            <TableHead className="text-right">Loans</TableHead>
+                                            <TableHead className="text-right">Paid</TableHead>
+                                            <TableHead className="text-right">Balance</TableHead>
+                                            <TableHead />
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {selectedGroupDetail.members.map((m) => (
+                                            <TableRow key={m.id}>
+                                                <TableCell className="font-medium">{m.full_name}</TableCell>
+                                                <TableCell>{m.phone_number || "—"}</TableCell>
+                                                <TableCell className="text-right">{m.loan_count}</TableCell>
+                                                <TableCell className="text-right">
+                                                    {(m.total_paid || 0).toLocaleString()}
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    {(m.open_loans_balance || 0).toLocaleString()}
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        onClick={() => {
+                                                            setGroupDialogOpen(false);
+                                                            openBorrowerProfile({
+                                                                id: m.id,
+                                                                full_name: m.full_name,
+                                                            } as Borrower);
+                                                        }}
+                                                    >
+                                                        Profile
+                                                    </Button>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            )}
+                            {selectedGroupDetail && (
+                                <div className="flex justify-end border-t pt-4">
+                                    <Button
+                                        variant="destructive"
+                                        onClick={() =>
+                                            handleDeleteEntry({
+                                                id: selectedGroupDetail.id,
+                                                full_name: selectedGroupDetail.group_name,
+                                                is_group: true,
+                                            } as Borrower)
+                                        }
+                                    >
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        Delete group
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
+                    ) : null}
+                </DialogContent>
+            </Dialog>
 
             {/* Edit Location Dialog */}
             <Dialog open={editLocationDialogOpen} onOpenChange={setEditLocationDialogOpen}>

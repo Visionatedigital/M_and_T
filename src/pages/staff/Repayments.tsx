@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Receipt, Search, Plus, DollarSign, Calendar, FileSpreadsheet, History, Pencil, Loader2, Users } from "lucide-react";
@@ -206,7 +207,7 @@ const Repayments = () => {
     );
     setBulkRepaymentDate(new Date().toISOString().slice(0, 10));
     setBulkRepaymentMethod("cash");
-  }, [isGroupDialogOpen, selectedGroup?.id]);
+  }, [isGroupDialogOpen, selectedGroup?.id, selectedGroup?.members?.length]);
 
   const groupedRepayments = Object.values(
     repayments
@@ -253,7 +254,7 @@ const Repayments = () => {
 
         // If this loan has member_schedules (group_members JSONB) with multiple members, add each
         const schedules = curr.member_schedules;
-        if (schedules && Array.isArray(schedules) && schedules.length > 1) {
+        if (schedules && Array.isArray(schedules) && schedules.length > 0) {
           const numInst = curr.group_id ? Math.ceil((curr.loan_duration_months || 4) * 4.33) : (curr.loan_duration_months || 4);
           const memberPaidMap = curr.member_paid_map || {};
           const hasMemberPaidMap = Object.keys(memberPaidMap).length > 0;
@@ -1076,8 +1077,8 @@ const Repayments = () => {
 
               {/* Group Dialog */}
               <Dialog open={isGroupDialogOpen} onOpenChange={setIsGroupDialogOpen}>
-                <DialogContent className="w-[96vw] max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
-                  <DialogHeader>
+                <DialogContent className="flex h-[min(92vh,900px)] w-[96vw] max-w-5xl flex-col gap-0 overflow-hidden p-4 sm:p-6">
+                  <DialogHeader className="shrink-0 pb-2">
                     <DialogTitle>{selectedGroup?.name} Members</DialogTitle>
                     <DialogDescription>
                       Last recorded payment for this group:{" "}
@@ -1086,7 +1087,7 @@ const Repayments = () => {
                           ? new Date(selectedGroup.lastPaymentDate).toLocaleDateString()
                           : "—"}
                       </span>
-                      . Use bulk repayment to record several members for the same date.
+                      . Enter payment amounts for every member — scroll the list if the group is large.
                     </DialogDescription>
                   </DialogHeader>
                   {selectedGroup && (
@@ -1107,12 +1108,12 @@ const Repayments = () => {
                   )}
 
                   {selectedGroup?.members?.length ? (
-                    <div className="shrink-0 space-y-3 rounded-lg border bg-muted/20 p-3 sm:p-4">
+                    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+                      <div className="shrink-0 space-y-3 rounded-lg border bg-muted/20 p-3 sm:p-4">
                       <div>
                         <h3 className="text-sm font-semibold leading-none tracking-tight">Bulk repayment</h3>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          Enter amounts for each member paying on this visit. Totals combine per loan application;
-                          one repayment date applies to everyone.
+                          {bulkRepaymentRows.length} member{bulkRepaymentRows.length === 1 ? "" : "s"} — scroll the list below to enter amounts for the whole group.
                         </p>
                       </div>
                       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
@@ -1141,16 +1142,20 @@ const Repayments = () => {
                           </Select>
                         </div>
                       </div>
+                      </div>
+                      <div className="min-h-0 flex-1 overflow-y-auto rounded-md border bg-background">
                       <Table className="min-w-[min(100%,560px)] text-sm">
-                        <TableHeader>
+                        <TableHeader className="sticky top-0 z-10 bg-background shadow-sm">
                           <TableRow>
-                            <TableHead>Member</TableHead>
-                            <TableHead className="w-[140px] sm:w-[180px]">Amount (UGX)</TableHead>
+                            <TableHead className="w-10 bg-background">#</TableHead>
+                            <TableHead className="bg-background">Member</TableHead>
+                            <TableHead className="w-[140px] bg-background sm:w-[180px]">Amount (UGX)</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {bulkRepaymentRows.map((row, idx) => (
                             <TableRow key={`${row.loanId}-${row.name}-${idx}`}>
+                              <TableCell className="text-muted-foreground tabular-nums">{idx + 1}</TableCell>
                               <TableCell className="font-medium">{row.name}</TableCell>
                               <TableCell>
                                 <Input
@@ -1173,10 +1178,14 @@ const Repayments = () => {
                           ))}
                         </TableBody>
                       </Table>
-                      <div className="flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
+                      </div>
+                      <div className="flex shrink-0 flex-col gap-3 border-t bg-background pt-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-sm">
                           Bulk total:{" "}
                           <span className="font-semibold tabular-nums">UGX {bulkRepaymentTotal.toLocaleString()}</span>
+                          <span className="ml-2 text-muted-foreground">
+                            ({bulkRepaymentRows.filter((r) => parseFloat(String(r.amount)) > 0).length} paying)
+                          </span>
                         </p>
                         <Button
                           type="button"
@@ -1194,10 +1203,18 @@ const Repayments = () => {
                           )}
                         </Button>
                       </div>
-                    </div>
-                  ) : null}
 
-                  <div className="min-h-0 flex-1 overflow-auto pr-1 pt-2">
+                      <Collapsible className="shrink-0 border-t pt-2">
+                        <CollapsibleTrigger asChild>
+                          <Button variant="ghost" size="sm" className="w-full justify-between">
+                            Member balances &amp; individual actions
+                            <span className="text-xs text-muted-foreground">
+                              {(selectedGroup?.members ?? []).length} members
+                            </span>
+                          </Button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="pt-2">
+                          <div className="max-h-[28vh] overflow-y-auto rounded-md border pr-1">
                     <Table className="min-w-[760px]">
                       <TableHeader>
                         <TableRow>
@@ -1231,7 +1248,11 @@ const Repayments = () => {
                         ))}
                       </TableBody>
                     </Table>
-                  </div>
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    </div>
+                  ) : null}
                 </DialogContent>
               </Dialog>
 

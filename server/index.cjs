@@ -63,6 +63,7 @@ const usersRouter = require('./routes/users.cjs');
 const notificationsRouter = require('./routes/notifications.cjs');
 const aiRouter = require('./routes/ai.cjs');
 const guarantorsRouter = require('./routes/guarantors.cjs');
+const groupsRouter = require('./routes/groups.cjs');
 const authRoutes = require('./routes/auth.js');
 const uploadsRouter = require('./routes/uploads.js');
 
@@ -122,6 +123,7 @@ app.use('/api/users', authMiddleware, usersRouter);
 app.use('/api/notifications', authMiddleware, notificationsRouter);
 app.use('/api/ai', authMiddleware, aiRouter);
 app.use('/api/guarantors', authMiddleware, guarantorsRouter);
+app.use('/api/groups', authMiddleware, groupsRouter);
 app.use('/api/upload', authMiddleware, uploadsRouter);
 
 // Production web UI: `npm run build` → dist/ (same origin as /api — required on a droplet)

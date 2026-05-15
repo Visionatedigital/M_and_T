@@ -4,6 +4,10 @@ const db = require('../db.cjs');
 const { isAdmin, isLoanOfficer } = require('../lib/roles.cjs');
 
 const { calculateClientScore } = require('../services/scoreService');
+const {
+  sqlMemberCountSubquery,
+  sqlOfficerGroupLoanFilter,
+} = require('../lib/groupMembersSql.cjs');
 
 /** Basic UUID v4 check for assigned_officer_id (avoids PG 22P02 invalid input syntax) */
 function isValidUuid(val) {
@@ -30,6 +34,16 @@ function todayYyyyMmDdLocal() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function loanPortfolioStatus(totalLoans, totalBorrowed, totalPaid) {
+  const loans = parseInt(totalLoans, 10) || 0;
+  const borrowed = parseFloat(totalBorrowed || 0);
+  const paid = parseFloat(totalPaid || 0);
+  if (loans === 0) return 'No Active Loans';
+  const balance = Math.max(0, borrowed * 1.3 - paid);
+  if (balance <= 0) return 'Fully Paid';
+  return 'Current';
+}
+
 // Get all borrowers with aggregated loan data
 router.get('/', async (req, res) => {
   const isGroup = req.query.isGroup === 'true';
@@ -38,50 +52,50 @@ router.get('/', async (req, res) => {
     if (isGroup) {
       const userId = req.user?.user_id || req.user?.id;
       const officerScoped = isLoanOfficer(req.user?.role) && userId;
-      const groupFilter = officerScoped
-        ? `WHERE EXISTS (
-                SELECT 1 FROM loan_applications la_o
-                JOIN borrowers b_o ON b_o.id = la_o.borrower_id
-                WHERE la_o.group_id = g.id
-                  AND la_o.status != 'rejected'
-                  AND b_o.assigned_officer_id = $1
-            )`
-        : '';
       const groupParams = officerScoped ? [userId] : [];
-      const officerJoin = officerScoped
-        ? ` AND la.borrower_id IN (SELECT id FROM borrowers WHERE assigned_officer_id = $1) `
-        : '';
+      const officerLoanFilter = officerScoped ? sqlOfficerGroupLoanFilter(1) : '';
+      const memberCountSql = sqlMemberCountSubquery('g.id', officerScoped ? officerLoanFilter.replace(/\bla\./g, 'la_mc.') : '');
+      // Only groups with at least one non-rejected loan linked by group_id (source of truth for stats)
       const { rows } = await db.query(`
                 SELECT 
                     g.id,
                     g.group_name as full_name,
                     'Group Account' as email,
-                    (SELECT b.phone_number FROM loan_applications la
-                     JOIN borrowers b ON la.borrower_id = b.id
-                     WHERE la.group_id = g.id LIMIT 1) as phone_number,
+                    (SELECT b.phone_number FROM loan_applications la_p
+                     JOIN borrowers b ON la_p.borrower_id = b.id
+                     WHERE la_p.group_id = g.id AND la_p.status != 'rejected'
+                     LIMIT 1) as phone_number,
                     g.created_at,
+                    ${memberCountSql} as member_count,
                     COUNT(la.id) as total_loans,
                     SUM(COALESCE(la.loan_amount, 0)) as total_borrowed,
                     COALESCE((
-                        SELECT SUM(amount) FROM repayments r 
+                        SELECT SUM(r.amount) FROM repayments r 
                         JOIN loan_applications la2 ON r.loan_application_id = la2.id 
-                        WHERE la2.group_id = g.id
+                        WHERE la2.group_id = g.id AND la2.status != 'rejected'
                           ${officerScoped ? 'AND la2.borrower_id IN (SELECT id FROM borrowers WHERE assigned_officer_id = $1)' : ''}
                     ), 0) as total_paid,
                     true as is_group
                 FROM groups g
-                LEFT JOIN loan_applications la ON g.id = la.group_id AND la.status != 'rejected' ${officerJoin}
-                ${groupFilter}
+                INNER JOIN loan_applications la ON g.id = la.group_id AND la.status != 'rejected' ${officerLoanFilter}
                 GROUP BY g.id
+                HAVING COUNT(la.id) > 0
                 ORDER BY g.group_name
             `, groupParams);
 
-      const processed = rows.map(r => ({
-        ...r,
-        total_paid: parseFloat(r.total_paid || 0),
-        open_loans_balance: Math.max(0, (parseFloat(r.total_borrowed || 0) * 1.3) - parseFloat(r.total_paid || 0)),
-        status: (parseFloat(r.total_borrowed || 0) * 1.3) <= parseFloat(r.total_paid || 0) ? 'Fully Paid' : 'Current'
-      }));
+      const processed = rows.map(r => {
+        const total_paid = parseFloat(r.total_paid || 0);
+        const total_borrowed = parseFloat(r.total_borrowed || 0);
+        return {
+          ...r,
+          member_count: parseInt(r.member_count, 10) || 0,
+          total_loans: parseInt(r.total_loans, 10) || 0,
+          total_borrowed,
+          total_paid,
+          open_loans_balance: Math.max(0, total_borrowed * 1.3 - total_paid),
+          status: loanPortfolioStatus(r.total_loans, total_borrowed, total_paid),
+        };
+      });
       return res.json(processed);
     }
 
@@ -126,7 +140,7 @@ router.get('/', async (req, res) => {
         total_borrowed: parseFloat(r.total_borrowed || 0),
         total_paid: total_paid,
         open_loans_balance: balance,
-        status: balance <= 0 && r.total_loans > 0 ? 'Fully Paid' : (r.total_loans > 0 ? 'Current' : 'New')
+        status: loanPortfolioStatus(r.total_loans, r.total_borrowed, total_paid)
       };
     }));
 
@@ -436,6 +450,54 @@ router.post('/', async (req, res) => {
     console.error('❌ Error creating borrower:');
     console.error('  Message:', err.message);
     res.status(500).json({ error: 'Failed to create borrower: ' + err.message });
+  }
+});
+
+// Delete borrower (no active loan records on file)
+router.delete('/:id', async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user?.user_id || req.user?.id;
+  const role = req.user?.role;
+
+  if (!isAdmin(role) && !isLoanOfficer(role)) {
+    return res.status(403).json({ error: 'Staff access required.' });
+  }
+
+  if (isLoanOfficer(role) && userId) {
+    const { rows: access } = await db.query(
+      'SELECT id FROM borrowers WHERE id = $1 AND assigned_officer_id = $2',
+      [id, userId]
+    );
+    if (access.length === 0) {
+      return res.status(403).json({ error: 'You can only delete borrowers assigned to you.' });
+    }
+  }
+
+  try {
+    const { rows: blocking } = await db.query(
+      `SELECT la.id, la.status
+       FROM loan_applications la
+       WHERE la.borrower_id = $1 AND la.status NOT IN ('rejected')
+       LIMIT 1`,
+      [id]
+    );
+    if (blocking.length > 0) {
+      return res.status(409).json({
+        error: 'Cannot delete this client while they have loan application(s) on file. Remove or reject those loans first.',
+      });
+    }
+
+    const { rowCount } = await db.query('DELETE FROM borrowers WHERE id = $1', [id]);
+    if (rowCount === 0) return res.status(404).json({ error: 'Borrower not found' });
+    res.json({ message: 'Borrower deleted' });
+  } catch (err) {
+    console.error('Borrower DELETE error:', err);
+    if (err && err.code === '23503') {
+      return res.status(409).json({
+        error: 'Cannot delete: this client is still referenced by other records in the system.',
+      });
+    }
+    res.status(500).json({ error: err.message || 'Failed to delete borrower' });
   }
 });
 
