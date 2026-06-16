@@ -8,10 +8,15 @@ const Branches = () => {
     {
       name: "Head Office - Nakasero",
       address: "Plot 2D/2E Nakasero Hill Road, Kampala",
-      phone: ["+256 785 609 370", "+256 756 790 357"],
+      phone: ["+256 (0) 730 687 607", "+256 (0) 708 693 071"],
       hours: "Monday - Friday: 8:00 AM - 5:00 PM\nSaturday: 9:00 AM - 1:00 PM",
     },
-    // Additional branches can be added here
+    {
+      name: "Kasangati Branch",
+      address: "Gayaza Road, Kasangati, Wakiso District",
+      phone: ["+256 (0) 708 693 071"],
+      hours: "Monday - Friday: 8:00 AM - 5:00 PM\nSaturday: 9:00 AM - 1:00 PM",
+    },
   ];
 
   return (
@@ -24,7 +29,7 @@ const Branches = () => {
           <div className="container mx-auto px-4">
             <h1 className="text-4xl md:text-5xl font-bold mb-4 text-center">Our Branches</h1>
             <p className="text-xl text-center text-primary-foreground/90 max-w-3xl mx-auto">
-              Visit us at any of our conveniently located branches across Uganda
+              Visit us at our Head Office or Kasangati branch for personalized financial services
             </p>
           </div>
         </section>
@@ -74,18 +79,22 @@ const Branches = () => {
               ))}
             </div>
 
-            {/* Map Placeholder */}
-            <div className="mt-12 max-w-5xl mx-auto">
+            {/* Map Section */}
+            <div className="mt-12 max-w-5xl mx-auto animate-fade-in">
               <Card className="border-none shadow-lg overflow-hidden">
                 <CardContent className="p-0">
-                  <div className="bg-muted/30 h-96 flex items-center justify-center">
-                    <div className="text-center p-8">
-                      <MapPin className="h-16 w-16 text-primary mx-auto mb-4" />
-                      <h3 className="text-xl font-bold mb-2">Find Us on the Map</h3>
-                      <p className="text-muted-foreground">
-                        Visit our head office at Nakasero Hill Road, Kampala
-                      </p>
-                    </div>
+                  <div className="relative w-full h-[400px]">
+                    <iframe
+                      title="M&T Microfinance Head Office Location"
+                      src="https://maps.google.com/maps?q=Plot%202D/2E%20Nakasero%20Hill%20Road,%20Kampala&t=&z=15&ie=UTF8&iwloc=&output=embed"
+                      width="100%"
+                      height="100%"
+                      style={{ border: 0 }}
+                      allowFullScreen={true}
+                      loading="lazy"
+                      referrerPolicy="no-referrer-when-downgrade"
+                      className="absolute inset-0"
+                    ></iframe>
                   </div>
                 </CardContent>
               </Card>

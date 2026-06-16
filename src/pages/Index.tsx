@@ -25,9 +25,9 @@ import {
 import { Link } from "react-router-dom";
 
 const stats = [
-  { value: "4+", label: "Core loan product lines", sub: "Tailored to individuals & businesses" },
-  { value: "Uganda", label: "Rooted locally", sub: "Branches & outreach you can reach" },
-  { value: "Support", label: "Dedicated team", sub: "Guidance from application to repayment" },
+  { value: "8+", label: "Core loan product lines", sub: "Tailored to individuals & businesses" },
+  { value: "Uganda", label: "Rooted locally", sub: "Branches in Nakasero & Kasangati" },
+  { value: "500+", label: "Active clients", sub: "Empowered individuals & small businesses" },
   { value: "Flexible", label: "Terms that fit", sub: "Repayment plans aligned to your cash flow" },
 ];
 
@@ -92,7 +92,7 @@ const faqs = [
   },
   {
     q: "How long does review take?",
-    a: "Timing depends on product type and completeness of your file. We aim to keep you informed throughout the process.",
+    a: "We review and approve most loans within 3 to 5 business days once all required documentation is submitted.",
   },
   {
     q: "Where are you located?",

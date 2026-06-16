@@ -11,7 +11,7 @@ const Footer = () => {
           <div className="space-y-4">
             <img src={logo} alt="M&T Microfinance" className="h-16 w-auto brightness-0 invert" />
             <p className="text-sm text-primary-foreground/90">
-              Developing Together - Your trusted microfinance partner in Uganda.
+              Developing Together - Your trusted partner. M&T Microfinance Uganda Limited is licensed and regulated by the Uganda Microfinance Regulatory Authority (UMRA).
             </p>
           </div>
 
@@ -82,14 +82,14 @@ const Footer = () => {
                 <MapPin className="h-5 w-5 flex-shrink-0 mt-0.5" />
                 <span>Plot 2D/2E Nakasero Hill Road<br />P.O.Box 29692 Kampala, Uganda</span>
               </li>
-              <li className="flex items-center gap-2 text-sm text-primary-foreground/90">
-                <Phone className="h-5 w-5 flex-shrink-0" />
+              <li className="flex items-start gap-2 text-sm text-primary-foreground/90">
+                <Phone className="h-5 w-5 flex-shrink-0 mt-0.5" />
                 <div className="flex flex-col">
-                  <a href="tel:+256785609370" className="hover:text-primary-foreground transition-colors">
-                    +256 785 609 370
+                  <a href="tel:+256730687607" className="hover:text-primary-foreground transition-colors">
+                    +256 (0) 730 687 607
                   </a>
-                  <a href="tel:+256756790357" className="hover:text-primary-foreground transition-colors">
-                    +256 756 790 357
+                  <a href="tel:+256708693071" className="hover:text-primary-foreground transition-colors">
+                    +256 (0) 708 693 071
                   </a>
                 </div>
               </li>
@@ -103,8 +103,16 @@ const Footer = () => {
           </div>
         </div>
 
-        <div className="border-t border-primary-foreground/20 mt-8 pt-8 text-center text-sm text-primary-foreground/80">
-          <p>&copy; {new Date().getFullYear()} M&T Microfinance (U) Ltd. All rights reserved.</p>
+        <div className="border-t border-primary-foreground/20 mt-8 pt-8 flex flex-col md:flex-row justify-between items-center text-sm text-primary-foreground/80 gap-4">
+          <p>&copy; {new Date().getFullYear()} M&T Microfinance Uganda Limited. All rights reserved.</p>
+          <div className="flex gap-4">
+            <Link to="/privacy" className="hover:text-primary-foreground hover:underline transition-colors">
+              Privacy Policy
+            </Link>
+            <Link to="/terms" className="hover:text-primary-foreground hover:underline transition-colors">
+              Terms of Use
+            </Link>
+          </div>
         </div>
       </div>
     </footer>

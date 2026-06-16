@@ -12,6 +12,8 @@ import StaffLogin from "./pages/StaffLogin";
 import StaffDashboard from "./pages/StaffDashboard";
 import AskAI from "./pages/AskAI";
 import NotFound from "./pages/NotFound";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
 import LoanApplications from "./pages/staff/LoanApplications";
 import LoanApplicationDetails from "./pages/staff/LoanApplicationDetails";
 import ActiveLoans from "./pages/staff/ActiveLoans";
@@ -76,6 +78,8 @@ function AppRoutes() {
           <Route path="/products" element={<Products />} />
           <Route path="/branches" element={<Branches />} />
           <Route path="/contact" element={<Contact />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
           <Route path="/staff-login" element={<StaffLogin />} />
           <Route path="/staff-dashboard" element={<StaffDashboard />} />
           <Route path="/staff-dashboard/ask-ai" element={<RequireAdmin><AskAI /></RequireAdmin>} />

@@ -25,10 +25,10 @@ const About = () => {
             <div className="max-w-4xl mx-auto">
               <h2 className="text-3xl md:text-4xl font-bold mb-6 text-center">Who We Are</h2>
               <p className="text-lg text-muted-foreground mb-6 leading-relaxed">
-                M&T Microfinance (U) Ltd is a leading microfinance institution in Uganda, dedicated to providing accessible and affordable financial services to individuals, civil servants, and small to medium enterprises. Our commitment is to empower our clients to achieve their financial goals and contribute to the economic development of Uganda.
+                M&T Microfinance Uganda Limited is a licensed microfinance provider in Uganda, regulated by the Uganda Microfinance Regulatory Authority (UMRA). We are dedicated to providing accessible and affordable financial services to individuals, civil servants, and small to medium enterprises. Our commitment is to empower our clients to achieve their financial goals and contribute to the economic development of Uganda.
               </p>
               <p className="text-lg text-muted-foreground leading-relaxed">
-                With years of experience in the financial sector, we understand the unique challenges faced by our clients. That's why we've designed our loan products to be flexible, convenient, and tailored to meet diverse financial needs.
+                With years of experience in the financial sector, we understand the unique challenges faced by our clients. That's why we've designed our loan products to be flexible, convenient, and tailored to meet diverse financial needs, provided they meet our credit assessment and collateral requirements.
               </p>
             </div>
           </div>
@@ -68,12 +68,15 @@ const About = () => {
                     <Award className="h-8 w-8 text-primary" />
                   </div>
                   <h3 className="text-2xl font-bold mb-4">Our Values</h3>
-                  <ul className="text-muted-foreground leading-relaxed space-y-2">
+                  <ul className="text-muted-foreground leading-relaxed space-y-2 mb-4">
                     <li>• Integrity and transparency</li>
                     <li>• Customer-centricity</li>
                     <li>• Innovation and excellence</li>
                     <li>• Community development</li>
                   </ul>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    We are committed to promoting financial literacy, supporting entrepreneurship, empowering youth and women-owned businesses, and contributing to community development initiatives that improve livelihoods across Uganda.
+                  </p>
                 </CardContent>
               </Card>
             </div>
@@ -87,10 +90,10 @@ const About = () => {
               <h2 className="text-3xl md:text-4xl font-bold mb-6 text-center">Our Story</h2>
               <div className="space-y-6 text-lg text-muted-foreground leading-relaxed">
                 <p>
-                  M&T Microfinance (U) Ltd was established with a vision to bridge the financial gap in Uganda and empower individuals and businesses to achieve their dreams. Since our inception, we have been committed to providing accessible, affordable, and customer-focused financial services.
+                  M&T Microfinance Uganda Limited was established in 2020 with a vision to bridge the financial gap in Uganda and empower individuals and businesses to achieve their dreams. Since our inception, we have been committed to providing accessible, affordable, and customer-focused financial services.
                 </p>
                 <p>
-                  Over the years, we have grown from a small microfinance institution to a trusted financial partner serving thousands of customers across Uganda. Our success is built on the foundation of trust, transparency, and unwavering commitment to our clients' financial well-being.
+                  Over the years, we have grown to become a trusted financial partner serving over 500 clients around Uganda. Our success is built on the foundation of trust, transparency, and unwavering commitment to our clients' financial well-being.
                 </p>
                 <p>
                   We understand that every customer has unique financial needs, which is why we offer a diverse range of loan products designed to cater to different segments of the market - from individual borrowers to civil servants and small to medium enterprises.
@@ -113,10 +116,10 @@ const About = () => {
                   <div className="w-24 h-24 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
                     <Users className="h-12 w-12 text-primary" />
                   </div>
-                  <h3 className="font-bold text-xl mb-2">Dr. Michael Tumusiime</h3>
+                  <h3 className="font-bold text-xl mb-2">Mr. Michael Musimenta</h3>
                   <p className="text-primary font-semibold mb-3">Chairman</p>
                   <p className="text-sm text-muted-foreground">
-                    With over 20 years of experience in financial services, Dr. Tumusiime brings extensive expertise in microfinance and banking operations.
+                    Managing Director of M&T Construction Company Limited, Mr. Musimenta brings strong governance, strategic oversight, and corporate leadership experience.
                   </p>
                 </CardContent>
               </Card>
@@ -125,10 +128,10 @@ const About = () => {
                   <div className="w-24 h-24 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
                     <Briefcase className="h-12 w-12 text-primary" />
                   </div>
-                  <h3 className="font-bold text-xl mb-2">Ms. Sarah Nakamya</h3>
+                  <h3 className="font-bold text-xl mb-2">Mr. Michael Junior Musimenta</h3>
                   <p className="text-primary font-semibold mb-3">Managing Director</p>
                   <p className="text-sm text-muted-foreground">
-                    A seasoned financial expert with a passion for financial inclusion, leading our operations with strategic vision and dedication.
+                    A dynamic leader and finance specialist dedicated to driving financial inclusion, expanding accessible credit solutions, and leading M&T with customer-centric growth.
                   </p>
                 </CardContent>
               </Card>
@@ -217,34 +220,8 @@ const About = () => {
           </div>
         </section>
 
-        {/* Awards & Recognition */}
-        <section className="py-16 bg-muted/30">
-          <div className="container mx-auto px-4">
-            <h2 className="text-3xl md:text-4xl font-bold mb-12 text-center">Awards & Recognition</h2>
-            <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
-              <Card className="border-none shadow-lg">
-                <CardContent className="p-6">
-                  <Award className="h-12 w-12 text-primary mb-4" />
-                  <h3 className="font-bold text-xl mb-2">Best Microfinance Institution 2023</h3>
-                  <p className="text-muted-foreground">
-                    Recognized by the Uganda Microfinance Association for excellence in service delivery and customer satisfaction.
-                  </p>
-                </CardContent>
-              </Card>
-              <Card className="border-none shadow-lg">
-                <CardContent className="p-6">
-                  <Award className="h-12 w-12 text-primary mb-4" />
-                  <h3 className="font-bold text-xl mb-2">Financial Inclusion Award</h3>
-                  <p className="text-muted-foreground">
-                    Awarded for outstanding contribution to financial inclusion and empowerment of underserved communities.
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        </section>
       </main>
-
+      
       <Footer />
     </div>
   );
