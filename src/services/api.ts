@@ -444,6 +444,11 @@ export const api = {
             if (!response.ok) throw new Error('Failed to fetch applications');
             return response.json();
         },
+        getByBorrower: async (borrowerId: string) => {
+            const response = await fetch(`${API_URL}/applications?borrower_id=${encodeURIComponent(borrowerId)}`, { headers: getHeaders() });
+            if (!response.ok) throw new Error('Failed to fetch borrower loans');
+            return response.json();
+        },
         getActive: async () => {
             const response = await fetch(`${API_URL}/applications/active`, { headers: getHeaders() });
             if (!response.ok) throw new Error('Failed to fetch active loans');

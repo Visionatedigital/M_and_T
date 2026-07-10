@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, User, Phone, Mail, MapPin, TrendingUp, Pencil, Save, X, Upload } from "lucide-react";
+import { ArrowLeft, User, Phone, Mail, MapPin, TrendingUp, Pencil, Save, X, Upload, PlusCircle, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { resolveMediaUrl } from "@/lib/resolveMediaUrl";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -49,6 +49,122 @@ interface BorrowerDetails {
 }
 
 type ClientType = "personal" | "business";
+
+const LOAN_STATUS_META: Record<string, { label: string; className: string }> = {
+    pending:      { label: "Pending",      className: "bg-yellow-100 text-yellow-800" },
+    under_review: { label: "Under Review", className: "bg-blue-100 text-blue-800" },
+    approved:     { label: "Approved",     className: "bg-green-100 text-green-800" },
+    disbursed:    { label: "Disbursed",    className: "bg-teal-100 text-teal-800" },
+    completed:    { label: "Cleared",      className: "bg-gray-100 text-gray-700" },
+    settled:      { label: "Cleared",      className: "bg-gray-100 text-gray-700" },
+    rejected:     { label: "Rejected",     className: "bg-red-100 text-red-700" },
+};
+
+function LoanStatusBadge({ status }: { status: string }) {
+    const meta = LOAN_STATUS_META[status] ?? { label: status, className: "bg-muted text-muted-foreground" };
+    return (
+        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${meta.className}`}>
+            {meta.label}
+        </span>
+    );
+}
+
+interface LoanHistoryCardProps {
+    loans: any[];
+    loading: boolean;
+    borrowerId: string;
+    onAddLoan: () => void;
+    onViewLoan: (id: string) => void;
+}
+
+function LoanHistoryCard({ loans, loading, onAddLoan, onViewLoan }: LoanHistoryCardProps) {
+    const cleared = loans.filter((l) => l.status === "completed" || l.status === "settled");
+    const hasCleared = cleared.length > 0;
+
+    return (
+        <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
+                <div>
+                    <CardTitle className="flex items-center gap-2">
+                        <FileText className="h-5 w-5 text-primary" />
+                        Loan History
+                    </CardTitle>
+                    {hasCleared && (
+                        <CardDescription className="mt-1 text-green-700 font-medium">
+                            This borrower has {cleared.length} cleared loan{cleared.length > 1 ? "s" : ""} — eligible for a new loan.
+                        </CardDescription>
+                    )}
+                </div>
+                <Button size="sm" className="shrink-0 gap-1.5" onClick={onAddLoan}>
+                    <PlusCircle className="h-4 w-4" />
+                    Add New Loan
+                </Button>
+            </CardHeader>
+            <CardContent>
+                {loading ? (
+                    <div className="flex justify-center py-8">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
+                    </div>
+                ) : loans.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-10 text-center gap-3">
+                        <FileText className="h-10 w-10 text-muted-foreground/40" />
+                        <p className="text-sm text-muted-foreground">No loan history yet.</p>
+                        <Button variant="outline" size="sm" className="gap-1.5" onClick={onAddLoan}>
+                            <PlusCircle className="h-4 w-4" />
+                            Create First Loan
+                        </Button>
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="border-b text-muted-foreground text-xs uppercase tracking-wide">
+                                    <th className="text-left py-2 pr-4 font-medium">Date</th>
+                                    <th className="text-left py-2 pr-4 font-medium">Product</th>
+                                    <th className="text-right py-2 pr-4 font-medium">Amount</th>
+                                    <th className="text-left py-2 pr-4 font-medium">Duration</th>
+                                    <th className="text-left py-2 pr-4 font-medium">Status</th>
+                                    <th className="py-2" />
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {loans.map((loan) => (
+                                    <tr key={loan.id} className="border-b last:border-0 hover:bg-muted/20 transition-colors">
+                                        <td className="py-2.5 pr-4 text-muted-foreground whitespace-nowrap">
+                                            {new Date(loan.created_at).toLocaleDateString()}
+                                        </td>
+                                        <td className="py-2.5 pr-4 font-medium max-w-[180px] truncate">
+                                            {loan.loan_product || "—"}
+                                        </td>
+                                        <td className="py-2.5 pr-4 text-right font-mono whitespace-nowrap">
+                                            UGX {Number(loan.loan_amount || 0).toLocaleString()}
+                                        </td>
+                                        <td className="py-2.5 pr-4 whitespace-nowrap text-muted-foreground">
+                                            {loan.loan_duration_months} {loan.duration_unit || "mo"}
+                                        </td>
+                                        <td className="py-2.5 pr-4">
+                                            <LoanStatusBadge status={loan.status} />
+                                        </td>
+                                        <td className="py-2.5 text-right">
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-7 px-2 text-xs"
+                                                onClick={() => onViewLoan(loan.id)}
+                                            >
+                                                View
+                                            </Button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    );
+}
 
 type EditDraft = {
     first_name: string;
@@ -133,6 +249,8 @@ const BorrowerDetails = () => {
     const [photoFile, setPhotoFile] = useState<File | null>(null);
     const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
     const [docsFile, setDocsFile] = useState<File | null>(null);
+    const [borrowerLoans, setBorrowerLoans] = useState<any[]>([]);
+    const [loansLoading, setLoansLoading] = useState(false);
 
     useEffect(() => {
         if (!photoFile) {
@@ -170,6 +288,15 @@ const BorrowerDetails = () => {
             navigate("/staff-dashboard/borrowers");
         }
     }, [borrowerId, navigate, toast, loadBorrowerDetails]);
+
+    useEffect(() => {
+        if (!borrowerId) return;
+        setLoansLoading(true);
+        api.applications.getByBorrower(borrowerId)
+            .then((loans) => setBorrowerLoans(loans || []))
+            .catch(() => setBorrowerLoans([]))
+            .finally(() => setLoansLoading(false));
+    }, [borrowerId]);
 
     useEffect(() => {
         if (!isAdmin) return;
@@ -486,43 +613,53 @@ const BorrowerDetails = () => {
                                                 )}
                                             </div>
                                         </div>
-                                        {canEdit && (
-                                            <div className="flex w-full shrink-0 flex-wrap gap-2 sm:w-auto sm:justify-end">
-                                                {isEditing ? (
-                                                    <>
-                                                        <Button
-                                                            type="button"
-                                                            size="sm"
-                                                            variant="outline"
-                                                            className="min-h-9 flex-1 sm:flex-initial touch-manipulation"
-                                                            onClick={cancelEdit}
-                                                            disabled={saving}
-                                                        >
-                                                            <X className="h-4 w-4 mr-1 shrink-0" /> Cancel
-                                                        </Button>
-                                                        <Button
-                                                            type="button"
-                                                            size="sm"
-                                                            className="min-h-9 flex-1 sm:flex-initial touch-manipulation"
-                                                            onClick={saveEdit}
-                                                            disabled={saving}
-                                                        >
-                                                            <Save className="h-4 w-4 mr-1 shrink-0" /> {saving ? "Saving…" : "Save"}
-                                                        </Button>
-                                                    </>
-                                                ) : (
+                                        <div className="flex w-full shrink-0 flex-wrap gap-2 sm:w-auto sm:justify-end">
+                                            {isEditing ? (
+                                                <>
                                                     <Button
                                                         type="button"
                                                         size="sm"
                                                         variant="outline"
-                                                        className="min-h-9 w-full sm:w-auto touch-manipulation"
-                                                        onClick={beginEdit}
+                                                        className="min-h-9 flex-1 sm:flex-initial touch-manipulation"
+                                                        onClick={cancelEdit}
+                                                        disabled={saving}
                                                     >
-                                                        <Pencil className="h-4 w-4 mr-1 shrink-0" /> Edit
+                                                        <X className="h-4 w-4 mr-1 shrink-0" /> Cancel
                                                     </Button>
-                                                )}
-                                            </div>
-                                        )}
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        className="min-h-9 flex-1 sm:flex-initial touch-manipulation"
+                                                        onClick={saveEdit}
+                                                        disabled={saving}
+                                                    >
+                                                        <Save className="h-4 w-4 mr-1 shrink-0" /> {saving ? "Saving…" : "Save"}
+                                                    </Button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    {canEdit && (
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="outline"
+                                                            className="min-h-9 touch-manipulation"
+                                                            onClick={beginEdit}
+                                                        >
+                                                            <Pencil className="h-4 w-4 mr-1 shrink-0" /> Edit
+                                                        </Button>
+                                                    )}
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        className="min-h-9 touch-manipulation bg-primary text-primary-foreground hover:bg-primary/90"
+                                                        onClick={() => navigate(`/staff-dashboard/loans/add?borrower=${borrowerId}`)}
+                                                    >
+                                                        <PlusCircle className="h-4 w-4 mr-1 shrink-0" /> Add New Loan
+                                                    </Button>
+                                                </>
+                                            )}
+                                        </div>
                                     </CardHeader>
                                     <CardContent className="space-y-4 min-w-0">
                                         {isEditing ? (
@@ -861,6 +998,14 @@ const BorrowerDetails = () => {
                                     </div>
                                 </CardContent>
                             </Card>
+
+                            <LoanHistoryCard
+                                loans={borrowerLoans}
+                                loading={loansLoading}
+                                borrowerId={borrowerId!}
+                                onAddLoan={() => navigate(`/staff-dashboard/loans/add?borrower=${borrowerId}`)}
+                                onViewLoan={(id) => navigate(`/staff-dashboard/loans/details/${id}`)}
+                            />
                         </div>
                     </main>
                 </div>

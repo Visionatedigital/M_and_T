@@ -337,7 +337,7 @@ const Index = () => {
                 <Button
                   variant="outline"
                   size="lg"
-                  className="font-semibold w-full sm:w-auto border-primary-foreground/40 text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground"
+                  className="font-semibold w-full sm:w-auto bg-transparent border-white text-white hover:bg-white/10 hover:text-white"
                 >
                   Contact us today
                 </Button>

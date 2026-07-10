@@ -46,7 +46,17 @@ const getOfficerScope = (req, alias = 'la', paramIndex = 1) => {
 router.get('/', async (req, res) => {
     try {
         const scope = getOfficerScope(req, 'la', 1);
-        const whereClause = scope.whereSql ? `WHERE ${scope.whereSql}` : '';
+        const values = [...scope.values];
+        const whereParts = [];
+
+        if (scope.whereSql) whereParts.push(scope.whereSql);
+
+        if (req.query.borrower_id) {
+            values.push(req.query.borrower_id);
+            whereParts.push(`la.borrower_id = $${values.length}`);
+        }
+
+        const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
 
         const { rows } = await db.query(`
             SELECT la.*, g.group_name as nested_group_name 
@@ -55,7 +65,7 @@ router.get('/', async (req, res) => {
             ${scope.joinSql}
             ${whereClause}
             ORDER BY la.created_at DESC
-        `, scope.values);
+        `, values);
 
         const processed = rows.map(app => ({
             ...app,

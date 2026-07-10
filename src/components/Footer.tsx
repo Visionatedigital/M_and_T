@@ -9,7 +9,9 @@ const Footer = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
           {/* Logo and About */}
           <div className="space-y-4">
-            <img src={logo} alt="M&T Microfinance" className="h-16 w-auto brightness-0 invert" />
+            <div className="inline-flex items-center justify-center bg-white rounded-lg p-2">
+              <img src={logo} alt="M&T Microfinance" className="h-12 w-auto" />
+            </div>
             <p className="text-sm text-primary-foreground/90">
               Developing Together - Your trusted partner. M&T Microfinance Uganda Limited is licensed and regulated by the Uganda Microfinance Regulatory Authority (UMRA).
             </p>
