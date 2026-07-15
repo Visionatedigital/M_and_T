@@ -16,6 +16,7 @@ import { Loader2, UserPlus, Search, Edit2, Trash2, ShieldCheck, Users, Save } fr
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
@@ -38,6 +39,7 @@ export function Guarantors() {
     const [searchTerm, setSearchTerm] = useState("");
     const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
     const [editingGuarantor, setEditingGuarantor] = useState<Guarantor | null>(null);
+    const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
     const [activeTab, setActiveTab] = useState("view");
 
     const emptyForm = {
@@ -113,15 +115,21 @@ export function Guarantors() {
         }
     };
 
-    const handleDelete = async (id: string, name: string) => {
-        if (confirm(`Are you sure you want to delete ${name}?`)) {
-            try {
-                await api.guarantors.delete(id);
-                toast({ title: "Deleted", description: "Guarantor has been removed." });
-                fetchData();
-            } catch (err) {
-                toast({ title: "Error", description: "Failed to delete guarantor.", variant: "destructive" });
-            }
+    const handleDelete = (id: string, name: string) => {
+        setDeleteTarget({ id, name });
+    };
+
+    const confirmDelete = async () => {
+        if (!deleteTarget) return;
+        try {
+            await api.guarantors.delete(deleteTarget.id);
+            setGuarantors(prev => prev.filter(g => g.id !== deleteTarget.id));
+            toast({ title: "Deleted", description: `${deleteTarget.name} has been removed.` });
+            fetchData();
+        } catch (err) {
+            toast({ title: "Error", description: "Failed to delete guarantor.", variant: "destructive" });
+        } finally {
+            setDeleteTarget(null);
         }
     };
 
@@ -364,6 +372,25 @@ export function Guarantors() {
                     </main>
                 </div>
             </div>
+            <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Guarantor</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to remove <span className="font-semibold text-foreground">{deleteTarget?.name}</span> from the guarantors register? This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                            onClick={confirmDelete}
+                        >
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </SidebarProvider>
     );
 }

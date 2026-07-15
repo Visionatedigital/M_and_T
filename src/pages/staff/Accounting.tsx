@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -106,6 +107,7 @@ const Accounting = () => {
   const [totalEntries, setTotalEntries] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [deleteEntryId, setDeleteEntryId] = useState<string | null>(null);
 
   // Filter State
   const [filterType, setFilterType] = useState("all");
@@ -704,8 +706,14 @@ const Accounting = () => {
   };
 
   // ─── Delete ───────────────────────────────────────────────
-  const handleDelete = async (id: string) => {
-    if (!confirm("Delete this entry? This cannot be undone.")) return;
+  const handleDelete = (id: string) => {
+    setDeleteEntryId(id);
+  };
+
+  const confirmDeleteEntry = async () => {
+    if (!deleteEntryId) return;
+    const id = deleteEntryId;
+    setDeleteEntryId(null);
     try {
       await api.accounting.deleteEntry(id);
       toast({ title: "Entry deleted" });
@@ -2362,6 +2370,23 @@ const Accounting = () => {
           </main>
         </div >
       </div >
+
+      <AlertDialog open={!!deleteEntryId} onOpenChange={(open) => { if (!open) setDeleteEntryId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Entry</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this accounting entry? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-600 hover:bg-red-700 text-white" onClick={confirmDeleteEntry}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SidebarProvider >
   );
 };

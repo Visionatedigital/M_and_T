@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { Users, User, Search, Plus, Eye, Phone, Mail, MapPin, UserPlus, FileText, DollarSign, Filter, Loader2, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -119,6 +120,8 @@ const Borrowers = () => {
         phone_number: "",
     });
     const [isDialogOpen, setIsDialogOpen] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState<Borrower | null>(null);
+    const [forceDeleteTarget, setForceDeleteTarget] = useState<{ entry: Borrower; message: string } | null>(null);
 
     useEffect(() => {
         checkAuth();
@@ -256,10 +259,14 @@ const Borrowers = () => {
         openBorrowerProfile(entry);
     };
 
-    const handleDeleteEntry = async (entry: Borrower) => {
-        const label = entry.is_group ? `group "${entry.full_name}"` : `client "${entry.full_name}"`;
-        if (!confirm(`Delete ${label}? This cannot be undone.`)) return;
+    const handleDeleteEntry = (entry: Borrower) => {
+        setDeleteTarget(entry);
+    };
 
+    const confirmDelete = async () => {
+        const entry = deleteTarget;
+        if (!entry) return;
+        setDeleteTarget(null);
         try {
             if (entry.is_group) {
                 try {
@@ -267,14 +274,8 @@ const Borrowers = () => {
                 } catch (error: unknown) {
                     const err = error as Error & { requires_force?: boolean };
                     if (err.requires_force) {
-                        if (
-                            !confirm(
-                                `${err.message}\n\nDelete the group anyway? Loans will remain but will no longer be linked to this group.`
-                            )
-                        ) {
-                            return;
-                        }
-                        await api.groups.delete(entry.id, true);
+                        setForceDeleteTarget({ entry, message: err.message });
+                        return;
                     } else {
                         throw error;
                     }
@@ -290,6 +291,23 @@ const Borrowers = () => {
                 title: "Deleted",
                 description: entry.is_group ? "Group has been removed." : "Client has been removed.",
             });
+            loadBorrowers();
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Delete failed";
+            toast({ title: "Error", description: message, variant: "destructive" });
+        }
+    };
+
+    const confirmForceDelete = async () => {
+        const { entry } = forceDeleteTarget!;
+        setForceDeleteTarget(null);
+        try {
+            await api.groups.delete(entry.id, true);
+            if (selectedGroupDetail?.id === entry.id) {
+                setGroupDialogOpen(false);
+                setSelectedGroupDetail(null);
+            }
+            toast({ title: "Deleted", description: "Group has been removed." });
             loadBorrowers();
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : "Delete failed";
@@ -1105,6 +1123,47 @@ const Borrowers = () => {
                     </div>
                 </DialogContent>
             </Dialog >
+            {/* Delete confirmation */}
+            <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            Delete {deleteTarget?.is_group ? "Group" : "Client"}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete{" "}
+                            <span className="font-semibold text-foreground">"{deleteTarget?.full_name}"</span>?
+                            This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction className="bg-red-600 hover:bg-red-700 text-white" onClick={confirmDelete}>
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Force-delete group confirmation (group has linked loans) */}
+            <AlertDialog open={!!forceDeleteTarget} onOpenChange={(open) => { if (!open) setForceDeleteTarget(null); }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Group Has Active Loans</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {forceDeleteTarget?.message}
+                            <br /><br />
+                            Delete the group anyway? Loans will remain but will no longer be linked to this group.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction className="bg-red-600 hover:bg-red-700 text-white" onClick={confirmForceDelete}>
+                            Delete Anyway
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </SidebarProvider >
     );
 };
