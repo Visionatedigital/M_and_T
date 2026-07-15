@@ -84,22 +84,30 @@ export function Guarantors() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            const data = {
-                ...formData
-            };
+            const data = { ...formData };
 
             if (editingGuarantor) {
-                await api.guarantors.update(editingGuarantor.id, data);
+                const updated = await api.guarantors.update(editingGuarantor.id, data);
+                // Optimistically update the list in-place
+                setGuarantors(prev =>
+                    prev.map(g => g.id === editingGuarantor.id ? { ...g, ...updated } : g)
+                );
                 toast({ title: "Success", description: "Guarantor updated successfully." });
                 setIsAddDialogOpen(false);
+                resetForm();
+                fetchData(); // sync with server in background
             } else {
-                await api.guarantors.create(data);
+                const created = await api.guarantors.create(data);
+                // Optimistically prepend the new guarantor so it shows immediately
+                if (created?.id) {
+                    setGuarantors(prev => [created, ...prev]);
+                }
                 toast({ title: "Success", description: "Guarantor registered successfully." });
                 clearFormDraft(DRAFT_KEYS.GUARANTOR_ADD);
-                setActiveTab("view");
+                resetForm();
+                setActiveTab("view"); // switch AFTER state is ready
+                fetchData(); // sync full list in background
             }
-            resetForm();
-            fetchData();
         } catch (err) {
             toast({ title: "Error", description: "Failed to save guarantor.", variant: "destructive" });
         }

@@ -5,35 +5,14 @@ const { isAdmin, isLoanOfficer } = require('../lib/roles.cjs');
 
 router.get('/', async (req, res) => {
     try {
-        const userId = req.user?.user_id || req.user?.id;
-
-        if (isAdmin(req.user?.role)) {
-            const { rows } = await db.query(
-                'SELECT id, full_name, email, phone_number, id_number, address, created_at FROM guarantors ORDER BY full_name'
-            );
-            return res.json(rows);
-        }
-
-        if (!isLoanOfficer(req.user?.role) || !userId) {
+        if (!isAdmin(req.user?.role) && !isLoanOfficer(req.user?.role)) {
             return res.status(403).json({ error: 'Administrator or loan officer access required.' });
         }
 
+        // Both admins and loan officers need to see all guarantors so they can
+        // select from the full list when attaching guarantors to a loan.
         const { rows } = await db.query(
-            `
-            SELECT DISTINCT g.id, g.full_name, g.email, g.phone_number, g.id_number, g.address, g.created_at
-            FROM guarantors g
-            WHERE EXISTS (
-                SELECT 1
-                FROM loan_applications la
-                JOIN borrowers b ON b.id = la.borrower_id
-                WHERE b.assigned_officer_id = $1
-                  AND la.guarantors IS NOT NULL
-                  AND la.guarantors::text != ''
-                  AND la.guarantors::text ILIKE '%' || g.id::text || '%'
-            )
-            ORDER BY g.full_name
-            `,
-            [userId]
+            'SELECT id, full_name, email, phone_number, id_number, address, created_at FROM guarantors ORDER BY full_name'
         );
         return res.json(rows);
     } catch (err) {
