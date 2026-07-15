@@ -72,6 +72,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Public Routes
 app.use('/api/auth', authRoutes);
 app.get('/health', (req, res) => res.json({ status: 'ok', database: 'connected' }));
+app.get('/api/health', (req, res) => res.json({ status: 'ok', database: 'connected' }));
 /** Real DB check — open in browser if login returns 500 (does not expose secrets). */
 app.get('/api/health/db', async (req, res) => {
     const urlSet = Boolean(process.env.DATABASE_URL && String(process.env.DATABASE_URL).trim().length > 0);
