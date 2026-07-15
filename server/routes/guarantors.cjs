@@ -3,14 +3,13 @@ const router = express.Router();
 const db = require('../db.cjs');
 const { isAdmin, isLoanOfficer } = require('../lib/roles.cjs');
 
+const isStaff = (role) => isAdmin(role) || isLoanOfficer(role);
+
 router.get('/', async (req, res) => {
     try {
-        if (!isAdmin(req.user?.role) && !isLoanOfficer(req.user?.role)) {
-            return res.status(403).json({ error: 'Administrator or loan officer access required.' });
+        if (!isStaff(req.user?.role)) {
+            return res.status(403).json({ error: 'Staff access required.' });
         }
-
-        // Both admins and loan officers need to see all guarantors so they can
-        // select from the full list when attaching guarantors to a loan.
         const { rows } = await db.query(
             'SELECT id, full_name, email, phone_number, id_number, address, created_at FROM guarantors ORDER BY full_name'
         );
@@ -23,7 +22,7 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
     try {
-        if (!isAdmin(req.user?.role) && !isLoanOfficer(req.user?.role)) {
+        if (!isStaff(req.user?.role)) {
             return res.status(403).json({ error: 'Staff access required.' });
         }
         const { full_name, email, phone_number, id_number, address } = req.body;
@@ -42,28 +41,10 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
     try {
-        if (!isAdmin(req.user?.role) && !isLoanOfficer(req.user?.role)) {
+        if (!isStaff(req.user?.role)) {
             return res.status(403).json({ error: 'Staff access required.' });
         }
-        const userId = req.user?.user_id || req.user?.id;
         const { id } = req.params;
-        if (isLoanOfficer(req.user?.role) && userId) {
-            const { rows } = await db.query(
-                `
-                SELECT 1 FROM guarantors g WHERE g.id = $1::uuid AND EXISTS (
-                    SELECT 1 FROM loan_applications la
-                    JOIN borrowers b ON b.id = la.borrower_id
-                    WHERE b.assigned_officer_id = $2
-                      AND la.guarantors IS NOT NULL
-                      AND la.guarantors::text ILIKE '%' || g.id::text || '%'
-                )
-                `,
-                [id, userId]
-            );
-            if (rows.length === 0) {
-                return res.status(403).json({ error: 'Guarantor is not linked to your portfolio.' });
-            }
-        }
         const { full_name, email, phone_number, id_number, address } = req.body;
         const { rows } = await db.query(
             `UPDATE guarantors SET
@@ -87,28 +68,10 @@ router.put('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
     try {
-        if (!isAdmin(req.user?.role) && !isLoanOfficer(req.user?.role)) {
+        if (!isStaff(req.user?.role)) {
             return res.status(403).json({ error: 'Staff access required.' });
         }
-        const userId = req.user?.user_id || req.user?.id;
         const { id } = req.params;
-        if (isLoanOfficer(req.user?.role) && userId) {
-            const { rows } = await db.query(
-                `
-                SELECT 1 FROM guarantors g WHERE g.id = $1::uuid AND EXISTS (
-                    SELECT 1 FROM loan_applications la
-                    JOIN borrowers b ON b.id = la.borrower_id
-                    WHERE b.assigned_officer_id = $2
-                      AND la.guarantors IS NOT NULL
-                      AND la.guarantors::text ILIKE '%' || g.id::text || '%'
-                )
-                `,
-                [id, userId]
-            );
-            if (rows.length === 0) {
-                return res.status(403).json({ error: 'Guarantor is not linked to your portfolio.' });
-            }
-        }
         const { rowCount } = await db.query('DELETE FROM guarantors WHERE id = $1', [id]);
         if (rowCount === 0) return res.status(404).json({ error: 'Guarantor not found' });
         res.json({ message: 'Deleted' });
