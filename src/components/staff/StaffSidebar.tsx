@@ -137,6 +137,7 @@ const menuItems = [
     icon: Users,
     items: [
       { title: "Staff Directory", url: "/staff-dashboard/staff", icon: Users },
+      { title: "Officer Portfolios", url: "/staff-dashboard/staff/portfolios", icon: Wallet },
       { title: "Payroll", url: "/staff-dashboard/staff/payroll", icon: Receipt },
     ],
   },

@@ -175,6 +175,18 @@ export const api = {
                 throw new Error(msg);
             }
             return r.json();
+        },
+        delete: async (id: string) => {
+            const r = await fetch(`${API_URL}/repayments/${id}`, {
+                method: 'DELETE',
+                headers: getHeaders(),
+            });
+            if (!r.ok) {
+                let msg = 'Failed to delete repayment';
+                try { const err = await r.json(); msg = err.error || msg; } catch { /* ignore */ }
+                throw new Error(msg);
+            }
+            return r.json();
         }
     },
     branches: {
@@ -755,6 +767,14 @@ export const api = {
     users: {
         getAll: () => fetch(`${API_URL}/users`, { headers: getHeaders() }).then(r => {
             if (!r.ok) throw new Error('Failed to fetch users');
+            return r.json();
+        }),
+        getLoanOfficerPortfolios: () => fetch(`${API_URL}/users/loan-officer-portfolios`, { headers: getHeaders() }).then(r => {
+            if (!r.ok) throw new Error('Failed to fetch loan officer portfolios');
+            return r.json();
+        }),
+        getLoanOfficerPortfolioDetails: (id: string) => fetch(`${API_URL}/users/loan-officer-portfolios/${id}`, { headers: getHeaders() }).then(r => {
+            if (!r.ok) throw new Error('Failed to fetch loan officer portfolio details');
             return r.json();
         }),
         create: (data: any) => fetch(`${API_URL}/users`, {

@@ -9,10 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Receipt, Search, Plus, DollarSign, Calendar, FileSpreadsheet, History, Pencil, Loader2, Users } from "lucide-react";
+import { Receipt, Search, Plus, DollarSign, Calendar, FileSpreadsheet, History, Pencil, Loader2, Users, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useUserRole } from "@/hooks/useUserRole";
 
@@ -66,6 +67,8 @@ const Repayments = () => {
   const [editNotes, setEditNotes] = useState("");
   const [editSaving, setEditSaving] = useState(false);
   const [editMemberBreakdown, setEditMemberBreakdown] = useState<{ name: string; amount: string }[]>([]);
+  const [deletePaymentTarget, setDeletePaymentTarget] = useState<any | null>(null);
+  const [deletePaymentSaving, setDeletePaymentSaving] = useState(false);
 
   const [collectorSummary, setCollectorSummary] = useState<{
     date_from: string;
@@ -508,6 +511,27 @@ const Repayments = () => {
       toast({ title: "Update failed", description: error.message, variant: "destructive" });
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  const deletePayment = async () => {
+    if (!deletePaymentTarget) return;
+    setDeletePaymentSaving(true);
+    try {
+      const result = await api.repayments.delete(deletePaymentTarget.id);
+      toast({ title: "Deleted", description: result?.message || "Repayment deleted." });
+      setDeletePaymentTarget(null);
+      if (editTarget?.id === deletePaymentTarget.id) {
+        setIsEditPaymentOpen(false);
+        setEditTarget(null);
+        setEditMemberBreakdown([]);
+      }
+      await refreshHistory();
+      await loadRepayments();
+    } catch (error: any) {
+      toast({ title: "Delete failed", description: error.message, variant: "destructive" });
+    } finally {
+      setDeletePaymentSaving(false);
     }
   };
 
@@ -1381,15 +1405,26 @@ const Repayments = () => {
                                   {p.notes || "—"}
                                 </TableCell>
                                 <TableCell>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="gap-1"
-                                    onClick={() => openEditPayment(p)}
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                    Edit
-                                  </Button>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="gap-1"
+                                      onClick={() => openEditPayment(p)}
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                      Edit
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="gap-1 text-red-600 hover:text-red-700"
+                                      onClick={() => setDeletePaymentTarget(p)}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                      Delete
+                                    </Button>
+                                  </div>
                                 </TableCell>
                               </TableRow>
                             );
@@ -1400,6 +1435,36 @@ const Repayments = () => {
                   </div>
                 </DialogContent>
               </Dialog>
+
+              <AlertDialog
+                open={!!deletePaymentTarget}
+                onOpenChange={(open) => {
+                  if (!open && !deletePaymentSaving) setDeletePaymentTarget(null);
+                }}
+              >
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete repayment</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Delete this repayment of UGX {Number(deletePaymentTarget?.amount || 0).toLocaleString()}
+                      {deletePaymentTarget?.payment_date
+                        ? ` recorded on ${new Date(deletePaymentTarget.payment_date).toLocaleDateString()}`
+                        : ""}?
+                      This will also reverse its related accounting entries.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={deletePaymentSaving}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                      disabled={deletePaymentSaving}
+                      onClick={deletePayment}
+                    >
+                      {deletePaymentSaving ? "Deleting..." : "Delete"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
 
               {/* Edit Payment Dialog */}
               <Dialog

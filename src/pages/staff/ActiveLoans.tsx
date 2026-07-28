@@ -435,8 +435,8 @@ const ActiveLoans = () => {
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Group/Client</TableHead>
-                            <TableHead>{viewMode === "list" ? "Leader" : "Members"}</TableHead>
+                            <TableHead>{viewMode === "list" ? "Client" : "Group"}</TableHead>
+                            <TableHead>{viewMode === "list" ? "Borrower" : "Members"}</TableHead>
                             <TableHead>Principal</TableHead>
                             <TableHead>Total Amount</TableHead>
                             <TableHead>Paid</TableHead>
@@ -475,9 +475,7 @@ const ActiveLoans = () => {
                                       onClick={() => navigate(detailsPath)}
                                     >
                                       <TableCell className="font-medium">{getLoanTitle(loan)}</TableCell>
-                                      <TableCell>
-                                        {isGroupLoanEntry(loan) ? loan.full_name : "-"}
-                                      </TableCell>
+                                      <TableCell>{loan.full_name}</TableCell>
                                       <TableCell>UGX {(loan.principal ?? 0).toLocaleString()}</TableCell>
                                       <TableCell>UGX {(loan.total_amount ?? 0).toLocaleString()}</TableCell>
                                       <TableCell>UGX {(loan.amount_paid ?? 0).toLocaleString()}</TableCell>

@@ -1036,6 +1036,77 @@ router.put('/:id', async (req, res) => {
     }
 });
 
+// Delete a repayment and reverse its related accounting entries
+router.delete('/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        await db.query('BEGIN');
+
+        const { rows: existing } = await db.query(
+            `SELECT r.*, la.full_name, la.loan_product, la.borrower_id
+             FROM repayments r
+             JOIN loan_applications la ON la.id = r.loan_application_id
+             WHERE r.id = $1
+             FOR UPDATE`,
+            [id]
+        );
+
+        if (existing.length === 0) {
+            await db.query('ROLLBACK');
+            return res.status(404).json({ error: 'Repayment not found' });
+        }
+
+        const repayment = existing[0];
+
+        const accessScope = getOfficerScope(req, 'la', 2);
+        if (accessScope.whereSql) {
+            const { rows: accessRows } = await db.query(
+                `
+                SELECT la.id
+                FROM loan_applications la
+                ${accessScope.joinSql}
+                WHERE la.id = $1 AND ${accessScope.whereSql}
+                LIMIT 1
+                `,
+                [repayment.loan_application_id, ...accessScope.values]
+            );
+            if (accessRows.length === 0) {
+                await db.query('ROLLBACK');
+                return res.status(403).json({ error: 'Not authorized to delete this repayment' });
+            }
+        }
+
+        await reverseRepaymentAccounting(repayment, {
+            full_name: repayment.full_name,
+            loan_product: repayment.loan_product
+        });
+
+        const hasSdBalanceColumn = await db.query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'loan_applications' AND column_name = 'security_deposit_balance'
+        `).then(r => r.rows.length > 0).catch(() => false);
+
+        const penaltyCovered = parseFloat(repayment.penalty_covered_by_security_deposit || 0);
+        if (hasSdBalanceColumn && penaltyCovered > 0) {
+            await db.query(
+                `UPDATE loan_applications
+                 SET security_deposit_balance = COALESCE(security_deposit_balance, 0) + $1
+                 WHERE id = $2`,
+                [penaltyCovered, repayment.loan_application_id]
+            );
+        }
+
+        await db.query(`DELETE FROM repayments WHERE id = $1`, [id]);
+        await db.query('COMMIT');
+
+        res.json({ message: 'Repayment deleted successfully' });
+    } catch (err) {
+        await db.query('ROLLBACK');
+        console.error(err);
+        res.status(500).json({ error: 'Failed to delete repayment' });
+    }
+});
+
 // Check for overdue repayments (manual trigger or called by cron)
 router.post('/check-overdue', async (req, res) => {
     try {

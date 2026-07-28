@@ -48,6 +48,7 @@ import { StaffManagement } from "./pages/staff/StaffManagement";
 import Payroll from "./pages/staff/Payroll";
 import BorrowerDetails from "./pages/staff/BorrowerDetails";
 import AddBorrower from "./pages/staff/AddBorrower";
+import LoanOfficerPortfolios from "./pages/staff/LoanOfficerPortfolios";
 import { RequireAdmin } from "./components/staff/RequireAdmin";
 import { ElectronUpdateNotifier } from "./components/electron/ElectronUpdateNotifier";
 
@@ -89,6 +90,7 @@ function AppRoutes() {
           <Route path="/staff-dashboard/applications/rejected" element={<LoanApplications />} />
           <Route path="/staff-dashboard/applications/:id" element={<LoanApplicationDetails />} />
           <Route path="/staff-dashboard/staff" element={<StaffManagement />} />
+          <Route path="/staff-dashboard/staff/portfolios" element={<RequireAdmin><LoanOfficerPortfolios /></RequireAdmin>} />
           <Route path="/staff-dashboard/staff/payroll" element={<Payroll />} />
           <Route path="/staff-dashboard/loans" element={<ActiveLoans />} />
           <Route path="/staff-dashboard/loans/add" element={<AddLoan />} />
