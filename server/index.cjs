@@ -66,6 +66,7 @@ const guarantorsRouter = require('./routes/guarantors.cjs');
 const groupsRouter = require('./routes/groups.cjs');
 const authRoutes = require('./routes/auth.js');
 const uploadsRouter = require('./routes/uploads.js');
+const airtelPaymentsRouter = require('./routes/airtelPayments.cjs');
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
@@ -126,6 +127,7 @@ app.use('/api/ai', authMiddleware, aiRouter);
 app.use('/api/guarantors', authMiddleware, guarantorsRouter);
 app.use('/api/groups', authMiddleware, groupsRouter);
 app.use('/api/upload', authMiddleware, uploadsRouter);
+app.use('/api/airtel-payments', authMiddleware, airtelPaymentsRouter);
 
 // Production web UI: `npm run build` → dist/ (same origin as /api — required on a droplet)
 const distPath = path.resolve(__dirname, '..', 'dist');

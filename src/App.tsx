@@ -49,6 +49,7 @@ import Payroll from "./pages/staff/Payroll";
 import BorrowerDetails from "./pages/staff/BorrowerDetails";
 import AddBorrower from "./pages/staff/AddBorrower";
 import LoanOfficerPortfolios from "./pages/staff/LoanOfficerPortfolios";
+import MobileMoneyPayments from "./pages/staff/MobileMoneyPayments";
 import { RequireAdmin } from "./components/staff/RequireAdmin";
 import { ElectronUpdateNotifier } from "./components/electron/ElectronUpdateNotifier";
 
@@ -108,6 +109,7 @@ function AppRoutes() {
           <Route path="/staff-dashboard/borrowers/add" element={<AddBorrower />} />
           <Route path="/staff-dashboard/borrowers/history" element={<BorrowerDetails />} />
           <Route path="/staff-dashboard/repayments" element={<Repayments />} />
+          <Route path="/staff-dashboard/repayments/mobile-money" element={<MobileMoneyPayments />} />
           <Route path="/staff-dashboard/repayments/add" element={<Repayments />} />
           <Route path="/staff-dashboard/repayments/schedule" element={<Repayments />} />
           <Route path="/staff-dashboard/reports/loans" element={<RequireAdmin><Reports /></RequireAdmin>} />

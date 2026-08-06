@@ -74,6 +74,7 @@ interface LoanApplication {
     interest_rate?: number;
     interest_fixed_amount?: number;
     borrower_id?: string | null;
+    loan_reference?: string | null;
 }
 
 const LoanApplicationDetails = () => {
@@ -549,6 +550,24 @@ const LoanApplicationDetails = () => {
 
                             {/* Sidebar Column (Loan Stats) */}
                             <div className="space-y-6">
+
+                                {application.loan_reference && (
+                                    <Card className="border-emerald-500/30 bg-emerald-50/30 dark:bg-emerald-950/20">
+                                        <CardHeader className="pb-2">
+                                            <CardTitle className="text-base text-emerald-800 dark:text-emerald-200">
+                                                Mobile Money Payment Reference
+                                            </CardTitle>
+                                            <CardDescription>
+                                                Share this reference with the client when they pay via Airtel Money
+                                            </CardDescription>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <p className="font-mono text-2xl font-bold text-primary tracking-wide">
+                                                {application.loan_reference}
+                                            </p>
+                                        </CardContent>
+                                    </Card>
+                                )}
 
                                 {/* Loan Summary */}
                                 <Card className="border-primary/20 shadow-md">

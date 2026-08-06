@@ -20,7 +20,8 @@ import {
   Package,
   BookOpen,
   TrendingUp,
-  Scale
+  Scale,
+  Smartphone
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -80,6 +81,7 @@ const menuItems = [
     icon: DollarSign,
     items: [
       { title: "View Repayments", url: "/staff-dashboard/repayments", icon: Receipt },
+      { title: "Mobile Money", url: "/staff-dashboard/repayments/mobile-money", icon: Smartphone },
       { title: "Add Repayment", url: "/staff-dashboard/repayments/add", icon: DollarSign },
       { title: "Repayment Schedule", url: "/staff-dashboard/repayments/schedule", icon: FileSpreadsheet },
     ],

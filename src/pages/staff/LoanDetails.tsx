@@ -52,6 +52,7 @@ interface LoanDetails {
   reviewed_at: string | null;
   assigned_officer_id: string | null;
   rejection_reason: string | null;
+  loan_reference?: string | null;
   // Calculated fields
   principal: number;
   total_amount: number;
@@ -236,7 +237,16 @@ const LoanDetails = () => {
                   </Button>
                   <div>
                     <h1 className="text-3xl font-bold">Loan Details</h1>
-                    <p className="text-muted-foreground">{loanTitle} • Loan ID: {loan.id.slice(0, 8)}...</p>
+                    <p className="text-muted-foreground">
+                      {loanTitle} • Loan ID: {loan.id.slice(0, 8)}...
+                      {loan.loan_reference && (
+                        <>
+                          {" "}
+                          • Payment ref:{" "}
+                          <span className="font-mono font-medium text-primary">{loan.loan_reference}</span>
+                        </>
+                      )}
+                    </p>
                   </div>
                 </div>
                 {getStatusBadge(loan.status)}
@@ -374,6 +384,12 @@ const LoanDetails = () => {
                         <span className="text-muted-foreground">Loan Title:</span>
                         <span className="font-medium">{loanTitle}</span>
                       </div>
+                      {loan.loan_reference && (
+                        <div className="flex justify-between text-sm items-center">
+                          <span className="text-muted-foreground">Mobile Money Ref:</span>
+                          <span className="font-mono font-semibold text-primary">{loan.loan_reference}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Loan Amount:</span>
                         <span className="font-medium">UGX {loan.loan_amount.toLocaleString()}</span>

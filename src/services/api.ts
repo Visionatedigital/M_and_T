@@ -1010,5 +1010,26 @@ export const api = {
             if (!r.ok) throw new Error('Failed to delete record');
             return r.json();
         }),
+    },
+    airtelPayments: {
+        getAll: (params?: Record<string, string>) => {
+            const qs = params ? `?${new URLSearchParams(params)}` : '';
+            return fetch(`${API_URL}/airtel-payments${qs}`, { headers: getHeaders() }).then(r => {
+                if (!r.ok) throw new Error('Failed to fetch mobile money payments');
+                return r.json();
+            });
+        },
+        getById: (id: string) => fetch(`${API_URL}/airtel-payments/${id}`, { headers: getHeaders() }).then(r => {
+            if (!r.ok) throw new Error('Failed to fetch payment details');
+            return r.json();
+        }),
+        getStats: () => fetch(`${API_URL}/airtel-payments/stats`, { headers: getHeaders() }).then(r => {
+            if (!r.ok) throw new Error('Failed to fetch payment stats');
+            return r.json();
+        }),
+        getStatuses: () => fetch(`${API_URL}/airtel-payments/statuses`, { headers: getHeaders() }).then(r => {
+            if (!r.ok) throw new Error('Failed to fetch payment statuses');
+            return r.json();
+        }),
     }
 };
