@@ -155,6 +155,7 @@ const MobileMoneyPayments = () => {
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<MobileMoneyPayment | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
 
   const loadFilters = useCallback(async () => {
     try {
@@ -216,6 +217,7 @@ const MobileMoneyPayments = () => {
     (async () => {
       try {
         await api.auth.getMe();
+        setAuthReady(true);
         await loadFilters();
       } catch {
         navigate("/staff-login");
@@ -224,8 +226,9 @@ const MobileMoneyPayments = () => {
   }, [navigate, loadFilters]);
 
   useEffect(() => {
+    if (!authReady) return;
     loadData();
-  }, [loadData]);
+  }, [authReady, loadData]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -240,9 +243,10 @@ const MobileMoneyPayments = () => {
   }, [activeTab, dateFrom, dateTo, loanReference, transactionId, statusFilter, officerFilter, setSearchParams]);
 
   useEffect(() => {
+    if (!authReady) return;
     const timer = setInterval(() => loadData(true), REFRESH_MS);
     return () => clearInterval(timer);
-  }, [loadData]);
+  }, [authReady, loadData]);
 
   const handleTabChange = (tab: TabKey) => {
     setActiveTab(tab);

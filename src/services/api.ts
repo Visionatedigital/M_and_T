@@ -1012,21 +1012,43 @@ export const api = {
         }),
     },
     airtelPayments: {
-        getAll: (params?: Record<string, string>) => {
+        getAll: async (params?: Record<string, string>) => {
             const qs = params ? `?${new URLSearchParams(params)}` : '';
-            return fetch(`${API_URL}/airtel-payments${qs}`, { headers: getHeaders() }).then(r => {
-                if (!r.ok) throw new Error('Failed to fetch mobile money payments');
-                return r.json();
-            });
+            const response = await fetch(`${API_URL}/airtel-payments${qs}`, { headers: getHeaders() });
+            if (!response.ok) {
+                let msg = 'Failed to fetch mobile money payments';
+                try {
+                    const err = await response.json();
+                    msg = err.detail || err.error || msg;
+                } catch { /* ignore */ }
+                throw new Error(msg);
+            }
+            return response.json();
         },
-        getById: (id: string) => fetch(`${API_URL}/airtel-payments/${id}`, { headers: getHeaders() }).then(r => {
-            if (!r.ok) throw new Error('Failed to fetch payment details');
-            return r.json();
-        }),
-        getStats: () => fetch(`${API_URL}/airtel-payments/stats`, { headers: getHeaders() }).then(r => {
-            if (!r.ok) throw new Error('Failed to fetch payment stats');
-            return r.json();
-        }),
+        getById: async (id: string) => {
+            const response = await fetch(`${API_URL}/airtel-payments/${id}`, { headers: getHeaders() });
+            if (!response.ok) {
+                let msg = 'Failed to fetch payment details';
+                try {
+                    const err = await response.json();
+                    msg = err.detail || err.error || msg;
+                } catch { /* ignore */ }
+                throw new Error(msg);
+            }
+            return response.json();
+        },
+        getStats: async () => {
+            const response = await fetch(`${API_URL}/airtel-payments/stats`, { headers: getHeaders() });
+            if (!response.ok) {
+                let msg = 'Failed to fetch payment stats';
+                try {
+                    const err = await response.json();
+                    msg = err.detail || err.error || msg;
+                } catch { /* ignore */ }
+                throw new Error(msg);
+            }
+            return response.json();
+        },
         getStatuses: () => fetch(`${API_URL}/airtel-payments/statuses`, { headers: getHeaders() }).then(r => {
             if (!r.ok) throw new Error('Failed to fetch payment statuses');
             return r.json();
