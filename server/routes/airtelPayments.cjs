@@ -20,9 +20,19 @@ const TAB_STATUS_MAP = {
         'no_match',
         'pending',
         'failed',
+        'received',
     ],
     duplicates: ['duplicate'],
 };
+
+function normalizeStatus(value) {
+    return String(value || '').toLowerCase().trim();
+}
+
+function statusInTab(status, tabKey) {
+    const normalized = normalizeStatus(status);
+    return (TAB_STATUS_MAP[tabKey] || []).includes(normalized);
+}
 
 /** Cached column names per table — refreshed every 5 minutes */
 let schemaCache = { at: 0, tables: {} };
@@ -84,6 +94,9 @@ async function getAirtelSchema() {
     const receivedAtCol = pickColumn(apmCols, ['received_at', 'created_at'], 'created_at');
     const statusCol = pickColumn(apmCols, ['processing_status', 'status'], 'processing_status');
     const transactionIdCol = pickColumn(apmCols, ['transaction_id', 'external_id', 'txn_id'], 'transaction_id');
+    const loanReferenceCol = pickColumn(apmCols, ['loan_reference', 'reference_normalized', 'reference_raw']);
+    const parsingStatusCol = pickColumn(apmCols, ['parsing_status', 'parse_status']);
+    const matchingNotesCol = pickColumn(apmCols, ['matching_notes', 'match_notes']);
 
     return {
         apmCols,
@@ -94,6 +107,9 @@ async function getAirtelSchema() {
         receivedAtCol,
         statusCol,
         transactionIdCol,
+        loanReferenceCol,
+        parsingStatusCol,
+        matchingNotesCol,
         hasLoanReferenceOnLa: laCols.has('loan_reference'),
         hasExternalTxnOnRepayments: repCols.has('external_transaction_id'),
         hasAccountingEntries: aeCols.size > 0,
@@ -147,6 +163,57 @@ function sqlErrorResponse(res, err, context) {
     return res.status(500).json(payload);
 }
 
+function loanReferenceSelect(schema) {
+    const parts = [];
+    for (const col of ['loan_reference', 'reference_normalized', 'reference_raw']) {
+        if (schema.apmCols.has(col)) parts.push(`apm.${col}`);
+    }
+    if (!parts.length) return 'NULL::text AS loan_reference';
+    return `COALESCE(${parts.join(', ')}) AS loan_reference`;
+}
+
+function parsingStatusSelect(schema) {
+    if (schema.parsingStatusCol) {
+        return `apm.${schema.parsingStatusCol} AS parsing_status`;
+    }
+    return 'NULL::text AS parsing_status';
+}
+
+function matchingNotesSelect(schema) {
+    if (schema.matchingNotesCol) {
+        return `apm.${schema.matchingNotesCol} AS matching_notes`;
+    }
+    return 'NULL::text AS matching_notes';
+}
+
+function buildRepaymentParts(schema) {
+    let repaymentJoin = '';
+    let repaymentSelect = 'NULL::uuid AS linked_repayment_id';
+    if (schema.hasExternalTxnOnRepayments) {
+        repaymentJoin = `LEFT JOIN repayments r ON r.external_transaction_id = apm.${schema.transactionIdCol}`;
+        repaymentSelect = schema.hasRepaymentIdOnApm
+            ? 'COALESCE(apm.repayment_id, r.id) AS linked_repayment_id'
+            : 'r.id AS linked_repayment_id';
+    } else if (schema.hasRepaymentIdOnApm) {
+        repaymentSelect = 'apm.repayment_id AS linked_repayment_id';
+    }
+    return { repaymentJoin, repaymentSelect };
+}
+
+function buildAccountingParts(schema) {
+    let accountingJoin = '';
+    let accountingSelect = 'NULL::uuid AS linked_accounting_entry_id';
+    if (schema.hasAccountingEntries && schema.hasExternalTxnOnRepayments) {
+        accountingJoin = 'LEFT JOIN accounting_entries ae ON ae.reference_id = r.id';
+        accountingSelect = schema.hasAccountingEntryIdOnApm
+            ? 'COALESCE(apm.accounting_entry_id, ae.id) AS linked_accounting_entry_id'
+            : 'ae.id AS linked_accounting_entry_id';
+    } else if (schema.hasAccountingEntryIdOnApm) {
+        accountingSelect = 'apm.accounting_entry_id AS linked_accounting_entry_id';
+    }
+    return { accountingJoin, accountingSelect };
+}
+
 function buildListQuery(req, schema) {
     const scope = getOfficerScope(req, 'la', 1);
     const values = [...scope.values];
@@ -158,8 +225,8 @@ function buildListQuery(req, schema) {
 
     const tab = String(req.query.tab || 'processed').toLowerCase();
     const statuses = TAB_STATUS_MAP[tab] || TAB_STATUS_MAP.processed;
-    values.push(statuses);
-    whereParts.push(`apm.${schema.statusCol} = ANY($${values.length}::text[])`);
+    values.push(statuses.map((s) => s.toLowerCase()));
+    whereParts.push(`LOWER(apm.${schema.statusCol}) = ANY($${values.length}::text[])`);
 
     const receivedExpr = `apm.${schema.receivedAtCol}`;
 
@@ -173,11 +240,18 @@ function buildListQuery(req, schema) {
     }
     if (req.query.loan_reference) {
         values.push(`%${String(req.query.loan_reference).trim().toUpperCase()}%`);
-        const refParts = [`UPPER(COALESCE(apm.loan_reference, '')) LIKE $${values.length}`];
+        const refParts = [];
+        for (const col of ['loan_reference', 'reference_normalized', 'reference_raw']) {
+            if (schema.apmCols.has(col)) {
+                refParts.push(`UPPER(COALESCE(apm.${col}, '')) LIKE $${values.length}`);
+            }
+        }
         if (schema.hasLoanReferenceOnLa) {
             refParts.push(`UPPER(COALESCE(la.loan_reference, '')) LIKE $${values.length}`);
         }
-        whereParts.push(`(${refParts.join(' OR ')})`);
+        if (refParts.length) {
+            whereParts.push(`(${refParts.join(' OR ')})`);
+        }
     }
     if (req.query.transaction_id) {
         values.push(`%${String(req.query.transaction_id).trim()}%`);
@@ -199,26 +273,8 @@ function buildListQuery(req, schema) {
         ? 'la.loan_reference AS matched_loan_reference'
         : 'NULL::text AS matched_loan_reference';
 
-    let repaymentJoin = '';
-    let repaymentSelect = 'NULL::uuid AS linked_repayment_id';
-    if (schema.hasExternalTxnOnRepayments) {
-        repaymentJoin = `LEFT JOIN repayments r ON r.external_transaction_id = apm.${schema.transactionIdCol}`;
-        repaymentSelect = 'COALESCE(apm.repayment_id, r.id) AS linked_repayment_id';
-    } else if (schema.hasRepaymentIdOnApm) {
-        repaymentSelect = 'apm.repayment_id AS linked_repayment_id';
-    }
-
-    let accountingJoin = '';
-    let accountingSelect = 'NULL::uuid AS linked_accounting_entry_id';
-    if (schema.hasAccountingEntryIdOnApm) {
-        accountingSelect = 'apm.accounting_entry_id AS linked_accounting_entry_id';
-    }
-    if (schema.hasAccountingEntries && schema.hasExternalTxnOnRepayments) {
-        accountingJoin = 'LEFT JOIN accounting_entries ae ON ae.reference_id = r.id';
-        accountingSelect = schema.hasAccountingEntryIdOnApm
-            ? 'COALESCE(apm.accounting_entry_id, ae.id) AS linked_accounting_entry_id'
-            : 'ae.id AS linked_accounting_entry_id';
-    }
+    const { repaymentJoin, repaymentSelect } = buildRepaymentParts(schema);
+    const { accountingJoin, accountingSelect } = buildAccountingParts(schema);
 
     const sql = `
         SELECT
@@ -227,15 +283,16 @@ function buildListQuery(req, schema) {
             ${rawSelect},
             ${colSelect(schema.apmCols, 'apm', 'sender_phone')},
             ${colSelectTyped(schema.apmCols, 'apm', 'amount', 'numeric')},
-            ${colSelect(schema.apmCols, 'apm', 'loan_reference')},
+            ${loanReferenceSelect(schema)},
             ${colSelectTyped(schema.apmCols, 'apm', 'matched_loan_application_id', 'uuid')},
             apm.${schema.statusCol} AS processing_status,
             ${colSelectTyped(schema.apmCols, 'apm', 'match_confidence', 'numeric')},
-            ${colSelect(schema.apmCols, 'apm', 'parsing_status')},
-            ${colSelect(schema.apmCols, 'apm', 'matching_notes')},
-            ${colSelect(schema.apmCols, 'apm', 'payment_method')},
+            ${parsingStatusSelect(schema)},
+            ${matchingNotesSelect(schema)},
+            ${colSelect(schema.apmCols, 'apm', 'payment_method', 'payment_method')},
             ${colSelectTyped(schema.apmCols, 'apm', 'previous_balance', 'numeric')},
             ${colSelectTyped(schema.apmCols, 'apm', 'outstanding_balance', 'numeric')},
+            ${colSelectTyped(schema.apmCols, 'apm', 'wallet_balance', 'numeric', 'previous_balance_alt')},
             ${colSelectTyped(schema.apmCols, 'apm', 'repayment_id', 'uuid')},
             ${colSelectTyped(schema.apmCols, 'apm', 'accounting_entry_id', 'uuid')},
             ${receivedExpr} AS received_at,
@@ -266,9 +323,10 @@ function buildListQuery(req, schema) {
 }
 
 function mapRow(row) {
-    const isManualReview = TAB_STATUS_MAP.manual_review.includes(row.processing_status);
-    const isDuplicate = row.processing_status === 'duplicate';
-    const isProcessed = TAB_STATUS_MAP.processed.includes(row.processing_status);
+    const status = row.processing_status;
+    const isManualReview = statusInTab(status, 'manual_review');
+    const isDuplicate = statusInTab(status, 'duplicates');
+    const isProcessed = statusInTab(status, 'processed');
 
     return {
         id: row.id,
@@ -279,7 +337,9 @@ function mapRow(row) {
         sender_phone: maskPhone(row.sender_phone),
         sender_phone_raw: row.sender_phone || null,
         amount: parseFloat(row.amount) || 0,
-        previous_balance: row.previous_balance != null ? parseFloat(row.previous_balance) : null,
+        previous_balance: row.previous_balance != null
+            ? parseFloat(row.previous_balance)
+            : (row.previous_balance_alt != null ? parseFloat(row.previous_balance_alt) : null),
         outstanding_balance: row.outstanding_balance != null ? parseFloat(row.outstanding_balance) : null,
         processing_status: row.processing_status,
         match_confidence: row.match_confidence != null ? parseFloat(row.match_confidence) : null,
@@ -326,9 +386,9 @@ router.get('/stats', async (req, res) => {
         rows.forEach((r) => {
             const status = r.processing_status;
             const cnt = r.cnt || 0;
-            if (TAB_STATUS_MAP.processed.includes(status)) counts.processed += cnt;
-            else if (TAB_STATUS_MAP.duplicates.includes(status)) counts.duplicates += cnt;
-            else if (TAB_STATUS_MAP.manual_review.includes(status)) counts.manual_review += cnt;
+            if (statusInTab(status, 'processed')) counts.processed += cnt;
+            else if (statusInTab(status, 'duplicates')) counts.duplicates += cnt;
+            else if (statusInTab(status, 'manual_review')) counts.manual_review += cnt;
         });
 
         res.json(counts);
@@ -385,26 +445,8 @@ router.get('/:id', async (req, res) => {
             ? 'la.loan_reference AS matched_loan_reference'
             : 'NULL::text AS matched_loan_reference';
 
-        let repaymentJoin = '';
-        let repaymentSelect = 'NULL::uuid AS linked_repayment_id';
-        if (schema.hasExternalTxnOnRepayments) {
-            repaymentJoin = `LEFT JOIN repayments r ON r.external_transaction_id = apm.${schema.transactionIdCol}`;
-            repaymentSelect = 'COALESCE(apm.repayment_id, r.id) AS linked_repayment_id';
-        } else if (schema.hasRepaymentIdOnApm) {
-            repaymentSelect = 'apm.repayment_id AS linked_repayment_id';
-        }
-
-        let accountingJoin = '';
-        let accountingSelect = 'NULL::uuid AS linked_accounting_entry_id';
-        if (schema.hasAccountingEntryIdOnApm) {
-            accountingSelect = 'apm.accounting_entry_id AS linked_accounting_entry_id';
-        }
-        if (schema.hasAccountingEntries && schema.hasExternalTxnOnRepayments) {
-            accountingJoin = 'LEFT JOIN accounting_entries ae ON ae.reference_id = r.id';
-            accountingSelect = schema.hasAccountingEntryIdOnApm
-                ? 'COALESCE(apm.accounting_entry_id, ae.id) AS linked_accounting_entry_id'
-                : 'ae.id AS linked_accounting_entry_id';
-        }
+        const { repaymentJoin, repaymentSelect } = buildRepaymentParts(schema);
+        const { accountingJoin, accountingSelect } = buildAccountingParts(schema);
 
         const { rows } = await db.query(`
             SELECT
@@ -413,15 +455,16 @@ router.get('/:id', async (req, res) => {
                 ${rawSelect},
                 ${colSelect(schema.apmCols, 'apm', 'sender_phone')},
                 ${colSelectTyped(schema.apmCols, 'apm', 'amount', 'numeric')},
-                ${colSelect(schema.apmCols, 'apm', 'loan_reference')},
+                ${loanReferenceSelect(schema)},
                 ${colSelectTyped(schema.apmCols, 'apm', 'matched_loan_application_id', 'uuid')},
                 apm.${schema.statusCol} AS processing_status,
                 ${colSelectTyped(schema.apmCols, 'apm', 'match_confidence', 'numeric')},
-                ${colSelect(schema.apmCols, 'apm', 'parsing_status')},
-                ${colSelect(schema.apmCols, 'apm', 'matching_notes')},
-                ${colSelect(schema.apmCols, 'apm', 'payment_method')},
+                ${parsingStatusSelect(schema)},
+                ${matchingNotesSelect(schema)},
+                ${colSelect(schema.apmCols, 'apm', 'payment_method', 'payment_method')},
                 ${colSelectTyped(schema.apmCols, 'apm', 'previous_balance', 'numeric')},
                 ${colSelectTyped(schema.apmCols, 'apm', 'outstanding_balance', 'numeric')},
+                ${colSelectTyped(schema.apmCols, 'apm', 'wallet_balance', 'numeric', 'previous_balance_alt')},
                 ${colSelectTyped(schema.apmCols, 'apm', 'repayment_id', 'uuid')},
                 ${colSelectTyped(schema.apmCols, 'apm', 'accounting_entry_id', 'uuid')},
                 ${schema.receivedAtCol ? `apm.${schema.receivedAtCol}` : 'NULL::timestamptz'} AS received_at,
