@@ -15,6 +15,10 @@ dist.tar.gz
 .env
 .env.local
 .env.production
+
+# Handover doc contains live credentials — never commit
+docs/HANDOVER.md
+docs/HANDOVER.docx
 npm-cache/
 
 # Editor directories and files

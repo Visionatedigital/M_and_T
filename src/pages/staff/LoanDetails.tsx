@@ -242,7 +242,7 @@ const LoanDetails = () => {
                       {loan.loan_reference && (
                         <>
                           {" "}
-                          • Payment ref:{" "}
+                          • Loan ID:{" "}
                           <span className="font-mono font-medium text-primary">{loan.loan_reference}</span>
                         </>
                       )}
@@ -386,7 +386,7 @@ const LoanDetails = () => {
                       </div>
                       {loan.loan_reference && (
                         <div className="flex justify-between text-sm items-center">
-                          <span className="text-muted-foreground">Mobile Money Ref:</span>
+                          <span className="text-muted-foreground">Loan ID:</span>
                           <span className="font-mono font-semibold text-primary">{loan.loan_reference}</span>
                         </div>
                       )}

@@ -374,7 +374,7 @@ const MobileMoneyPayments = () => {
                       <Label htmlFor="loan-ref">Loan reference</Label>
                       <Input
                         id="loan-ref"
-                        placeholder="MNT000001"
+                        placeholder="MT006"
                         value={loanReference}
                         onChange={(e) => setLoanReference(e.target.value)}
                       />

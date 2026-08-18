@@ -555,10 +555,10 @@ const LoanApplicationDetails = () => {
                                     <Card className="border-emerald-500/30 bg-emerald-50/30 dark:bg-emerald-950/20">
                                         <CardHeader className="pb-2">
                                             <CardTitle className="text-base text-emerald-800 dark:text-emerald-200">
-                                                Mobile Money Payment Reference
+                                                Loan ID
                                             </CardTitle>
                                             <CardDescription>
-                                                Share this reference with the client when they pay via Airtel Money
+                                                Share this loan ID with the client when they pay via Airtel Money. The SMS reference should be like MT006.
                                             </CardDescription>
                                         </CardHeader>
                                         <CardContent>

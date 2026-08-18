@@ -5,6 +5,7 @@ const notificationService = require('../services/notificationService');
 const { analyzeApplication } = require('../services/aiService.cjs');
 const { isAdmin, isLoanOfficer } = require('../lib/roles.cjs');
 const { sqlOfficerLoanListScope } = require('../lib/officerLoanScope.cjs');
+const { loanApplicationColumns } = require('../lib/loanApplicationSchema.cjs');
 
 const ALLOWED_PAYMENT_METHODS = ['cash', 'bank_transfer', 'mobile_money'];
 
@@ -175,6 +176,31 @@ async function findOrCreateBorrower(member, options = {}) {
         RETURNING id
     `, [fullName, emailVal, phone, id_number || null, date_of_birth || null, address, district || village || '', assigningOfficerId]);
     return created[0].id;
+}
+
+async function assignLoanReference(client, borrowerId) {
+    if (borrowerId) {
+        const { rows: borrowerRows } = await client.query(
+            `SELECT unique_number FROM borrowers WHERE id = $1`,
+            [borrowerId]
+        );
+        const code = String(borrowerRows[0]?.unique_number || '').trim().toUpperCase();
+        if (/^MT[0-9]{3}$/.test(code)) {
+            const { rows: used } = await client.query(
+                `SELECT 1 FROM loan_applications WHERE upper(loan_reference) = $1 LIMIT 1`,
+                [code]
+            );
+            if (!used.length) return code;
+        }
+    }
+
+    const { rows } = await client.query(`
+        SELECT COALESCE(MAX(CAST(substring(loan_reference from 3) AS int)), 0) AS n
+        FROM loan_applications
+        WHERE loan_reference ~ '^MT[0-9]{3}$'
+    `);
+    const next = Number(rows[0]?.n || 0) + 1;
+    return `MT${String(next).padStart(3, '0')}`;
 }
 
 // Create application
@@ -354,6 +380,11 @@ router.post('/', async (req, res) => {
         if (applicationDate) {
             cols.push('created_at');
             values.push(applicationDate);
+        }
+        const laCols = await loanApplicationColumns();
+        if (laCols.has('loan_reference')) {
+            cols.push('loan_reference');
+            values.push(await assignLoanReference(db, borrower_id));
         }
         const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
         const query = `INSERT INTO loan_applications (${cols.join(', ')}) VALUES (${placeholders}) RETURNING *`;
