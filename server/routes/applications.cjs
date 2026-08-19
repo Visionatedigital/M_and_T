@@ -674,6 +674,19 @@ router.put('/:id', async (req, res) => {
                 p += 1;
             }
         }
+        const paidRes = await db.query(
+            'SELECT COALESCE(SUM(amount), 0)::numeric AS paid FROM repayments WHERE loan_application_id = $1',
+            [id]
+        );
+        const amountPaid = parseFloat(paidRes.rows[0]?.paid || 0);
+        const principal = parseFloat(body.loan_amount);
+        const ratePct = body.interest_rate != null ? parseFloat(body.interest_rate) : 30;
+        if (!Number.isNaN(principal) && principal >= 0) {
+            extraSql += `, outstanding_balance = $${p}`;
+            values.push(Math.max(0, principal * (1 + (Number.isNaN(ratePct) ? 30 : ratePct) / 100) - amountPaid));
+            p += 1;
+        }
+
         values.push(id);
         const idParam = p;
 

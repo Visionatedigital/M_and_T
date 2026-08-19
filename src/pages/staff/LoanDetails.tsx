@@ -28,7 +28,15 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users } from "lucide-react";
+import { Users, Pencil } from "lucide-react";
+import { LoanApplicationForm } from "@/components/loans/LoanApplicationForm";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface LoanDetails {
   id: string;
@@ -75,6 +83,7 @@ const LoanDetails = () => {
 
   const [isLoading, setIsLoading] = useState(true);
   const [loan, setLoan] = useState<LoanDetails | null>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -226,7 +235,7 @@ const LoanDetails = () => {
           <main className="flex-1 p-4 md:p-8 bg-gradient-to-b from-background to-muted/20">
             <div className="max-w-7xl mx-auto space-y-6">
               {/* Header */}
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
                   <Button
                     variant="ghost"
@@ -238,7 +247,7 @@ const LoanDetails = () => {
                   <div>
                     <h1 className="text-3xl font-bold">Loan Details</h1>
                     <p className="text-muted-foreground">
-                      {loanTitle} • Loan ID: {loan.id.slice(0, 8)}...
+                      {loanTitle}
                       {loan.loan_reference && (
                         <>
                           {" "}
@@ -249,7 +258,13 @@ const LoanDetails = () => {
                     </p>
                   </div>
                 </div>
-                {getStatusBadge(loan.status)}
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" onClick={() => setIsEditDialogOpen(true)}>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Edit Loan
+                  </Button>
+                  {getStatusBadge(loan.status)}
+                </div>
               </div>
 
               {/* Stats Cards */}
@@ -608,6 +623,27 @@ const LoanDetails = () => {
           </main>
         </div>
       </div>
+
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Loan Details</DialogTitle>
+            <DialogDescription>
+              Update client or loan information. Saving recalculates totals and the repayment schedule.
+            </DialogDescription>
+          </DialogHeader>
+          {loan && (
+            <LoanApplicationForm
+              initialData={loan}
+              onSuccess={() => {
+                setIsEditDialogOpen(false);
+                loadLoanDetails();
+              }}
+              onCancel={() => setIsEditDialogOpen(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </SidebarProvider>
   );
 };

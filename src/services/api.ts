@@ -507,7 +507,10 @@ export const api = {
                 headers: getHeaders(),
                 body: JSON.stringify(data),
             });
-            if (!response.ok) throw new Error('Failed to update application');
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error((err as { error?: string }).error || 'Failed to update application');
+            }
             return response.json();
         },
     },

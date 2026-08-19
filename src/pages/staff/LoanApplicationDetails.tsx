@@ -366,14 +366,12 @@ const LoanApplicationDetails = () => {
                                 )}
 
                                 {/* Edit Action for Staff */}
-                                {application.status === "pending" && (
-                                    <div className="flex gap-3 mt-2 md:mt-0">
-                                        <Button variant="outline" onClick={() => setIsEditDialogOpen(true)}>
-                                            <Edit className="mr-2 h-4 w-4" />
-                                            Edit Application
-                                        </Button>
-                                    </div>
-                                )}
+                                <div className="flex gap-3 mt-2 md:mt-0">
+                                    <Button variant="outline" onClick={() => setIsEditDialogOpen(true)}>
+                                        <Edit className="mr-2 h-4 w-4" />
+                                        Edit Application
+                                    </Button>
+                                </div>
                             </div>
 
                         </div>
