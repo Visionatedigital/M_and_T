@@ -8,8 +8,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Plain .mjs avoids Vite writing vite.config.ts.timestamp-*.mjs (helps with EPERM on Windows).
 export default defineConfig(({ mode }) => ({
-  // Required for Electron: loadFile("dist/index.html") uses file:// — absolute "/assets/..." would break.
-  base: "./",
+  // Web needs absolute "/assets/..." so deep routes like /staff-dashboard/* don't request
+  // /staff-dashboard/assets/* (that returns index.html → MIME "text/html" for module scripts).
+  // Electron loadFile uses file:// — set ELECTRON=1 (or VITE_BASE=./) for desktop builds.
+  base: process.env.VITE_BASE || (process.env.ELECTRON === "1" ? "./" : "/"),
   cacheDir: path.resolve(__dirname, "node_modules/.vite"),
   server: {
     host: true,
