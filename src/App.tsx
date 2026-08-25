@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, HashRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import About from "./pages/About";
 import Products from "./pages/Products";
@@ -51,30 +51,13 @@ import AddBorrower from "./pages/staff/AddBorrower";
 import LoanOfficerPortfolios from "./pages/staff/LoanOfficerPortfolios";
 import MobileMoneyPayments from "./pages/staff/MobileMoneyPayments";
 import { RequireAdmin } from "./components/staff/RequireAdmin";
-import { ElectronUpdateNotifier } from "./components/electron/ElectronUpdateNotifier";
 
 const queryClient = new QueryClient();
-
-/** Web: marketing home at /. Electron desktop: keep opening at staff login. */
-function LandingOrStaffRedirect() {
-  const isElectron =
-    typeof window !== "undefined" &&
-    Boolean((window as unknown as { electronAPI?: unknown }).electronAPI);
-  if (isElectron) return <Navigate to="/staff-login" replace />;
-  return <Index />;
-}
-
-function isElectronApp() {
-  return (
-    typeof window !== "undefined" &&
-    Boolean((window as unknown as { electronAPI?: unknown }).electronAPI)
-  );
-}
 
 function AppRoutes() {
   return (
         <Routes>
-          <Route path="/" element={<LandingOrStaffRedirect />} />
+          <Route path="/" element={<Index />} />
           <Route path="/home" element={<Index />} />
           <Route path="/about" element={<About />} />
           <Route path="/products" element={<Products />} />
@@ -146,16 +129,9 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <ElectronUpdateNotifier />
-      {isElectronApp() ? (
-        <HashRouter>
-          <AppRoutes />
-        </HashRouter>
-      ) : (
-        <BrowserRouter>
-          <AppRoutes />
-        </BrowserRouter>
-      )}
+      <BrowserRouter>
+        <AppRoutes />
+      </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
 );

@@ -156,7 +156,7 @@ If PM2 error logs show `PathError` / `originalPath: '*'` at `server/index.cjs`, 
 - `GET https://your-domain.com/health` → JSON ok  
 - Log in at **Staff Portal**, open **Loan Applications** — data should load from Supabase.
 
-## Electron vs browser
+## Routing
 
-- **Browser:** `/` shows the public homepage.  
-- **Electron desktop app:** still opens **staff login** when `window.electronAPI` exists.
+- `/` shows the public marketing homepage.
+- Staff use `/staff-login` and `/staff-dashboard/*`.
