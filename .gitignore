@@ -19,6 +19,10 @@ dist.tar.gz
 # Handover doc contains live credentials — never commit
 docs/HANDOVER.md
 docs/HANDOVER.docx
+docs/HANDOVER-formatted.docx
+docs/HANDOVER-story.docx
+docs/HANDOVER-story-v2.docx
+docs/handover-screenshots/
 npm-cache/
 
 # Editor directories and files

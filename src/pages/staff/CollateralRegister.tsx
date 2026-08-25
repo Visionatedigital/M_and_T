@@ -24,6 +24,23 @@ const CollateralRegister = () => {
     const [showAdvanced, setShowAdvanced] = useState(false);
     const [collaterals, setCollaterals] = useState<any[]>([]);
     const [searchTerm, setSearchTerm] = useState("");
+    const [pageSize, setPageSize] = useState(100);
+    const [draftStatus, setDraftStatus] = useState("");
+    const [draftCategory, setDraftCategory] = useState("");
+    const [draftBorrower, setDraftBorrower] = useState("");
+    const [draftLoanNo, setDraftLoanNo] = useState("");
+    const [draftSerial, setDraftSerial] = useState("");
+    const [draftFrom, setDraftFrom] = useState("");
+    const [draftTo, setDraftTo] = useState("");
+    const [applied, setApplied] = useState({
+        status: "",
+        category: "",
+        borrower: "",
+        loanNo: "",
+        serial: "",
+        from: "",
+        to: "",
+    });
     const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [editingCollateral, setEditingCollateral] = useState<any | null>(null);
     const [saving, setSaving] = useState(false);
@@ -118,11 +135,62 @@ const CollateralRegister = () => {
         }
     };
 
-    const filteredCollaterals = collaterals.filter(c => 
-        c.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.type?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.status?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const applyAdvancedFilters = () => {
+        setApplied({
+            status: draftStatus,
+            category: draftCategory,
+            borrower: draftBorrower,
+            loanNo: draftLoanNo,
+            serial: draftSerial,
+            from: draftFrom,
+            to: draftTo,
+        });
+    };
+
+    const clearAdvancedFilters = () => {
+        setDraftStatus("");
+        setDraftCategory("");
+        setDraftBorrower("");
+        setDraftLoanNo("");
+        setDraftSerial("");
+        setDraftFrom("");
+        setDraftTo("");
+        setApplied({ status: "", category: "", borrower: "", loanNo: "", serial: "", from: "", to: "" });
+    };
+
+    const filteredCollaterals = collaterals
+        .filter((c) => {
+            const q = searchTerm.trim().toLowerCase();
+            if (
+                q &&
+                !(c.description || "").toLowerCase().includes(q) &&
+                !(c.type || "").toLowerCase().includes(q) &&
+                !(c.status || "").toLowerCase().includes(q) &&
+                !(c.client_name || "").toLowerCase().includes(q) &&
+                !(c.borrower_name || "").toLowerCase().includes(q)
+            ) {
+                return false;
+            }
+            if (applied.status && String(c.status || "").toLowerCase() !== applied.status.toLowerCase()) return false;
+            if (applied.category && String(c.type || "").toLowerCase() !== applied.category.toLowerCase()) return false;
+            const borrowerName = c.client_name || c.borrower_name || "";
+            if (applied.borrower && !borrowerName.toLowerCase().includes(applied.borrower.toLowerCase())) return false;
+            if (applied.loanNo) {
+                const loanNo = String(c.loan_number || c.loan_id || "");
+                if (!loanNo.toLowerCase().includes(applied.loanNo.toLowerCase())) return false;
+            }
+            const serial = String(c.serial_number || c.plate_number || c.registration_number || "");
+            if (applied.serial && !serial.toLowerCase().includes(applied.serial.toLowerCase())) return false;
+            const created = c.created_at || c.registered_at;
+            if (applied.from) {
+                if (!created || new Date(created).getTime() < new Date(`${applied.from}T00:00:00`).getTime()) return false;
+            }
+            if (applied.to) {
+                if (!created || new Date(created).getTime() > new Date(`${applied.to}T23:59:59`).getTime()) return false;
+            }
+            return true;
+        })
+        .slice(0, pageSize);
 
     const statusFilters = [
         "Processing", "Open", "Current", "Due Today", "Missed Repayment", "Arrears", "Past Maturity", "Restructured", "Fully Paid", "Defaulted", "Credit Counseling", "Collection Agency", "Sequestrate", "Debt Review", "Fraud", "Investigation", "Legal", "Write-Off", "Collateral Up for sale", "Denied", "Not Taken Up", "Deposited into Branch", "Collateral with Borrower", "Returned to Borrower", "Repossession Initiated", "Repossessed", "Under Auction", "Sold", "Lost"
@@ -176,7 +244,11 @@ const CollateralRegister = () => {
                                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                                                 <div>
                                                     <label className="text-xs text-muted-foreground mb-1 block">Status</label>
-                                                    <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+                                                    <select
+                                                        value={draftStatus}
+                                                        onChange={(e) => setDraftStatus(e.target.value)}
+                                                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                                    >
                                                         <option value="">Any Status</option>
                                                         {statusFilters.map(status => (
                                                             <option key={status} value={status}>{status}</option>
@@ -185,7 +257,11 @@ const CollateralRegister = () => {
                                                 </div>
                                                 <div>
                                                     <label className="text-xs text-muted-foreground mb-1 block">Category</label>
-                                                    <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+                                                    <select
+                                                        value={draftCategory}
+                                                        onChange={(e) => setDraftCategory(e.target.value)}
+                                                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                                    >
                                                         <option value="">Any Category</option>
                                                         {categoryFilters.map(cat => (
                                                             <option key={cat} value={cat}>{cat}</option>
@@ -194,24 +270,52 @@ const CollateralRegister = () => {
                                                 </div>
                                             </div>
                                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                                <Input placeholder="Borrower Name" />
-                                                <Input placeholder="Loan#" />
-                                                <Input placeholder="Serial#" />
+                                                <Input
+                                                    placeholder="Borrower Name"
+                                                    value={draftBorrower}
+                                                    onChange={(e) => setDraftBorrower(e.target.value)}
+                                                />
+                                                <Input
+                                                    placeholder="Loan#"
+                                                    value={draftLoanNo}
+                                                    onChange={(e) => setDraftLoanNo(e.target.value)}
+                                                />
+                                                <Input
+                                                    placeholder="Serial#"
+                                                    value={draftSerial}
+                                                    onChange={(e) => setDraftSerial(e.target.value)}
+                                                />
                                                 <div className="flex gap-2 w-full md:col-span-4 lg:col-span-1">
                                                     <div className="flex-1">
                                                         <label className="text-xs text-muted-foreground mb-1 block">Register From Date</label>
-                                                        <Input type="date" placeholder="dd/mm/yyyy" />
+                                                        <Input
+                                                            type="date"
+                                                            value={draftFrom}
+                                                            onChange={(e) => setDraftFrom(e.target.value)}
+                                                        />
                                                     </div>
                                                     <div className="flex-1">
                                                         <label className="text-xs text-muted-foreground mb-1 block">Register To Date</label>
-                                                        <Input type="date" placeholder="dd/mm/yyyy" />
+                                                        <Input
+                                                            type="date"
+                                                            value={draftTo}
+                                                            onChange={(e) => setDraftTo(e.target.value)}
+                                                        />
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div className="flex justify-end">
-                                                <Button className="gap-2 px-8">
-                                                    <Search className="h-4 w-4" /> Search Collateral
-                                                </Button>
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <p className="text-xs text-muted-foreground">
+                                                    Showing {filteredCollaterals.length} matching items
+                                                </p>
+                                                <div className="flex gap-2">
+                                                    <Button type="button" variant="outline" onClick={clearAdvancedFilters}>
+                                                        Clear
+                                                    </Button>
+                                                    <Button type="button" className="gap-2 px-8" onClick={applyAdvancedFilters}>
+                                                        <Search className="h-4 w-4" /> Filter Results
+                                                    </Button>
+                                                </div>
                                             </div>
                                         </div>
                                     )}
@@ -220,10 +324,14 @@ const CollateralRegister = () => {
                                     <div className="mb-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                                             <span>Show</span>
-                                            <select className="rounded border bg-background px-2 py-1 text-sm">
-                                                <option>100</option>
-                                                <option>50</option>
-                                                <option>25</option>
+                                            <select
+                                                className="rounded border bg-background px-2 py-1 text-sm"
+                                                value={pageSize}
+                                                onChange={(e) => setPageSize(Number(e.target.value) || 100)}
+                                            >
+                                                <option value={100}>100</option>
+                                                <option value={50}>50</option>
+                                                <option value={25}>25</option>
                                             </select>
                                             <span>entries</span>
                                         </div>

@@ -117,23 +117,6 @@ const LoanCalculator = () => {
                 }
                 totalRepayment = periodicRepayment * D;
             }
-        } else if (method === "Interest Only") {
-            // Interest-only: pay only interest each period, full principal at end
-            const interestPerPeriod = P * ratePerPeriod;
-            periodicRepayment = interestPerPeriod;
-            totalInterest = interestPerPeriod * D;
-            totalRepayment = P + totalInterest;
-
-            for (let i = 1; i <= D; i++) {
-                const isLast = i === D;
-                schedule.push({
-                    period: i,
-                    principal: isLast ? P : 0,
-                    interest: interestPerPeriod,
-                    total: isLast ? P + interestPerPeriod : interestPerPeriod,
-                    balance: isLast ? 0 : P
-                });
-            }
         }
 
         // Effective Annual Rate for reference
@@ -218,13 +201,11 @@ const LoanCalculator = () => {
                                                 <SelectContent>
                                                     <SelectItem value="Flat Rate">Flat Rate</SelectItem>
                                                     <SelectItem value="Reducing Balance">Reducing Balance</SelectItem>
-                                                    <SelectItem value="Interest Only">Interest Only</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                             <p className="text-[10px] text-slate-400 leading-tight">
                                                 {method === "Flat Rate" && "Interest charged on original principal every period."}
                                                 {method === "Reducing Balance" && "Interest charged on outstanding balance; fixed repayment."}
-                                                {method === "Interest Only" && "Pay interest each period; full principal due at end."}
                                             </p>
                                         </div>
 

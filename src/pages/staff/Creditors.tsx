@@ -39,6 +39,20 @@ const Creditors = () => {
     const { toast } = useToast();
     const [searchTerm, setSearchTerm] = useState("");
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [draftType, setDraftType] = useState("");
+    const [draftStatus, setDraftStatus] = useState("");
+    const [draftMinBal, setDraftMinBal] = useState("");
+    const [draftMaxBal, setDraftMaxBal] = useState("");
+    const [draftDueFrom, setDraftDueFrom] = useState("");
+    const [draftDueTo, setDraftDueTo] = useState("");
+    const [applied, setApplied] = useState({
+        type: "",
+        status: "",
+        min: "",
+        max: "",
+        from: "",
+        to: "",
+    });
     const [creditors, setCreditors] = useState<Creditor[]>([]);
     const [loading, setLoading] = useState(true);
     const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -68,15 +82,16 @@ const Creditors = () => {
                 return {
                     id: c.id,
                     name: c.name,
-                    type: 'Business Loan',
+                    type: c.type || c.creditor_type || "Business Loan",
                     amount_borrowed: amount,
                     interest_rate: rate,
                     calculated_interest: calculatedInterest, // Added field to use in UI
                     balance: remainingBalance,
+                    total_repaid: totalRepaid,
                     due_date: c.maturity_date || c.start_date,
                     start_date: c.start_date,
                     maturity_date: c.maturity_date,
-                    status: 'Active'
+                    status: remainingBalance > 0.01 ? "Active" : "Settled",
                 };
             }));
         } catch (err) {
@@ -89,6 +104,52 @@ const Creditors = () => {
     useEffect(() => {
         fetchCreditors();
     }, []);
+
+    const applyAdvancedFilters = () => {
+        setApplied({
+            type: draftType,
+            status: draftStatus,
+            min: draftMinBal,
+            max: draftMaxBal,
+            from: draftDueFrom,
+            to: draftDueTo,
+        });
+    };
+
+    const clearAdvancedFilters = () => {
+        setDraftType("");
+        setDraftStatus("");
+        setDraftMinBal("");
+        setDraftMaxBal("");
+        setDraftDueFrom("");
+        setDraftDueTo("");
+        setApplied({ type: "", status: "", min: "", max: "", from: "", to: "" });
+    };
+
+    const filteredCreditors = creditors.filter((c: any) => {
+        const q = searchTerm.trim().toLowerCase();
+        if (
+            q &&
+            !(c.name || "").toLowerCase().includes(q) &&
+            !(c.type || "").toLowerCase().includes(q)
+        ) {
+            return false;
+        }
+        const bal = parseFloat(c.balance || 0);
+        const status = bal > 0.01 ? "Active" : "Settled";
+        if (applied.type && String(c.type || "") !== applied.type) return false;
+        if (applied.status && status !== applied.status) return false;
+        if (applied.min !== "" && bal < Number(applied.min)) return false;
+        if (applied.max !== "" && bal > Number(applied.max)) return false;
+        const due = c.due_date || c.maturity_date;
+        if (applied.from) {
+            if (!due || new Date(due).getTime() < new Date(`${applied.from}T00:00:00`).getTime()) return false;
+        }
+        if (applied.to) {
+            if (!due || new Date(due).getTime() > new Date(`${applied.to}T23:59:59`).getTime()) return false;
+        }
+        return true;
+    });
 
     const handleAddCreditor = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -318,17 +379,26 @@ const Creditors = () => {
                                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                                                 <div>
                                                     <label className="text-xs text-muted-foreground mb-1 block">Creditor Type</label>
-                                                    <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+                                                    <select
+                                                        value={draftType}
+                                                        onChange={(e) => setDraftType(e.target.value)}
+                                                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                                    >
                                                         <option value="">Any Type</option>
                                                         <option value="Bank">Bank</option>
                                                         <option value="Individual">Individual</option>
                                                         <option value="Institution">Institution</option>
                                                         <option value="Microfinance">Microfinance</option>
+                                                        <option value="Business Loan">Business Loan</option>
                                                     </select>
                                                 </div>
                                                 <div>
                                                     <label className="text-xs text-muted-foreground mb-1 block">Status</label>
-                                                    <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+                                                    <select
+                                                        value={draftStatus}
+                                                        onChange={(e) => setDraftStatus(e.target.value)}
+                                                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                                    >
                                                         <option value="">Any Status</option>
                                                         <option value="Active">Active</option>
                                                         <option value="Settled">Settled</option>
@@ -337,28 +407,54 @@ const Creditors = () => {
                                                 <div className="flex gap-2">
                                                     <div className="flex-1">
                                                         <label className="text-xs text-muted-foreground mb-1 block">Min Balance</label>
-                                                        <Input type="number" placeholder="0" />
+                                                        <Input
+                                                            type="number"
+                                                            placeholder="0"
+                                                            value={draftMinBal}
+                                                            onChange={(e) => setDraftMinBal(e.target.value)}
+                                                        />
                                                     </div>
                                                     <div className="flex-1">
                                                         <label className="text-xs text-muted-foreground mb-1 block">Max Balance</label>
-                                                        <Input type="number" placeholder="Any" />
+                                                        <Input
+                                                            type="number"
+                                                            placeholder="Any"
+                                                            value={draftMaxBal}
+                                                            onChange={(e) => setDraftMaxBal(e.target.value)}
+                                                        />
                                                     </div>
                                                 </div>
                                                 <div className="flex gap-2">
                                                     <div className="flex-1">
                                                         <label className="text-xs text-muted-foreground mb-1 block">Due From</label>
-                                                        <Input type="date" />
+                                                        <Input
+                                                            type="date"
+                                                            value={draftDueFrom}
+                                                            onChange={(e) => setDraftDueFrom(e.target.value)}
+                                                        />
                                                     </div>
                                                     <div className="flex-1">
                                                         <label className="text-xs text-muted-foreground mb-1 block">Due To</label>
-                                                        <Input type="date" />
+                                                        <Input
+                                                            type="date"
+                                                            value={draftDueTo}
+                                                            onChange={(e) => setDraftDueTo(e.target.value)}
+                                                        />
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div className="flex justify-end">
-                                                <Button className="gap-2 px-8">
-                                                    <Search className="h-4 w-4" /> Filter Results
-                                                </Button>
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <p className="text-xs text-muted-foreground">
+                                                    Showing {filteredCreditors.length} of {creditors.length} creditors
+                                                </p>
+                                                <div className="flex gap-2">
+                                                    <Button type="button" variant="outline" onClick={clearAdvancedFilters}>
+                                                        Clear
+                                                    </Button>
+                                                    <Button type="button" className="gap-2 px-8" onClick={applyAdvancedFilters}>
+                                                        <Search className="h-4 w-4" /> Filter Results
+                                                    </Button>
+                                                </div>
                                             </div>
                                         </div>
                                     )}
@@ -379,14 +475,14 @@ const Creditors = () => {
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
-                                                {creditors.length === 0 ? (
+                                                {filteredCreditors.length === 0 ? (
                                                     <TableRow>
                                                         <TableCell colSpan={8} className="h-32 text-center text-slate-400 italic">
-                                                            No active creditors found.
+                                                            No creditors match your filters.
                                                         </TableCell>
                                                     </TableRow>
                                                 ) : (
-                                                    creditors.map((c: any) => (
+                                                    filteredCreditors.map((c: any) => (
                                                         <TableRow key={c.id} className="hover:bg-indigo-50/30 transition-colors group border-b border-slate-100">
                                                             <TableCell className="font-bold text-slate-900 py-4">{c.name}</TableCell>
                                                             <TableCell>

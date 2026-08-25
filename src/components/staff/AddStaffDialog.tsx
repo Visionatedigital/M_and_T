@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api } from "@/services/api";
-import { Loader2, Plus } from "lucide-react";
+import { Eye, EyeOff, Loader2, Plus } from "lucide-react";
 
 interface AddStaffDialogProps {
     onSuccess: () => void;
@@ -23,6 +23,7 @@ export function AddStaffDialog({ onSuccess }: AddStaffDialogProps) {
     const [open, setOpen] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [showPassword, setShowPassword] = useState(true);
 
     const [formData, setFormData] = useState({
         full_name: "",
@@ -47,6 +48,7 @@ export function AddStaffDialog({ onSuccess }: AddStaffDialogProps) {
                 password: "",
                 role: "loan_officer",
             });
+            setShowPassword(true);
             onSuccess();
         } catch (err: any) {
             setError(err.message || "Failed to add staff member");
@@ -133,15 +135,29 @@ export function AddStaffDialog({ onSuccess }: AddStaffDialogProps) {
                             <Label htmlFor="password" className="text-right">
                                 Password
                             </Label>
-                            <Input
-                                id="password"
-                                type="password"
-                                value={formData.password}
-                                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                                className="col-span-3"
-                                required
-                                minLength={6}
-                            />
+                            <div className="col-span-3 relative">
+                                <Input
+                                    id="password"
+                                    type={showPassword ? "text" : "password"}
+                                    value={formData.password}
+                                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                                    className="pr-10"
+                                    required
+                                    minLength={6}
+                                    autoComplete="new-password"
+                                />
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground"
+                                    onClick={() => setShowPassword((v) => !v)}
+                                    aria-label={showPassword ? "Hide password" : "Show password"}
+                                    title={showPassword ? "Hide password" : "Show password"}
+                                >
+                                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                </Button>
+                            </div>
                         </div>
                     </div>
                     <DialogFooter>

@@ -50,7 +50,15 @@ interface Borrower {
     credit_score?: number;
     village?: string;
     borrower_photo?: string | null;
+    assigned_officer_id?: string | null;
+    assigned_officer_name?: string | null;
 }
+
+const fmtUgx = (num: number | null | undefined) =>
+    `UGX ${(Number(num) || 0).toLocaleString(undefined, {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+    })}`;
 
 const getScoreColor = (score: number) => {
     if (score >= 750) return "bg-green-100 text-green-800 border-green-200";
@@ -72,11 +80,21 @@ const Borrowers = () => {
     const location = useLocation();
     const [isLoading, setIsLoading] = useState(true);
     const [borrowers, setBorrowers] = useState<Borrower[]>([]);
+    const [groupRows, setGroupRows] = useState<Borrower[]>([]);
     const [filteredBorrowers, setFilteredBorrowers] = useState<Borrower[]>([]);
     const [searchTerm, setSearchTerm] = useState("");
     /** Separate search for "Find My Borrower" tab */
     const [findSearchTerm, setFindSearchTerm] = useState("");
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [draftStatusFilter, setDraftStatusFilter] = useState("");
+    const [draftOfficerFilter, setDraftOfficerFilter] = useState("");
+    const [draftAddedFrom, setDraftAddedFrom] = useState("");
+    const [draftAddedTo, setDraftAddedTo] = useState("");
+    const [statusFilter, setStatusFilter] = useState("");
+    const [officerFilter, setOfficerFilter] = useState("");
+    const [addedFrom, setAddedFrom] = useState("");
+    const [addedTo, setAddedTo] = useState("");
+    const [officers, setOfficers] = useState<Array<{ id: string; full_name: string }>>([]);
     const [listViewMode, setListViewMode] = useState<"individuals" | "groups">("individuals");
     const [groupDialogOpen, setGroupDialogOpen] = useState(false);
     const [groupLoading, setGroupLoading] = useState(false);
@@ -129,11 +147,33 @@ const Borrowers = () => {
 
     useEffect(() => {
         loadBorrowers();
-    }, [listViewMode]);
+    }, []);
 
     useEffect(() => {
         filterBorrowers();
-    }, [borrowers, searchTerm, location.pathname]);
+    }, [borrowers, groupRows, listViewMode, searchTerm, statusFilter, officerFilter, addedFrom, addedTo, location.pathname]);
+
+    useEffect(() => {
+        const loadOfficers = async () => {
+            try {
+                const users = await api.users.getAll();
+                const list = (Array.isArray(users) ? users : [])
+                    .filter((u: { role?: string }) => {
+                        const role = String(u.role || "").toLowerCase().replace(/\s+/g, "_");
+                        return role === "loan_officer";
+                    })
+                    .map((u: { id: string; full_name?: string }) => ({
+                        id: u.id,
+                        full_name: u.full_name || "Officer",
+                    }))
+                    .sort((a, b) => a.full_name.localeCompare(b.full_name));
+                setOfficers(list);
+            } catch {
+                setOfficers([]);
+            }
+        };
+        loadOfficers();
+    }, []);
 
     const checkAuth = async () => {
         try {
@@ -151,8 +191,12 @@ const Borrowers = () => {
 
     const loadBorrowers = async () => {
         try {
-            const data = await api.borrowers.getAll(listViewMode === "groups");
-            setBorrowers(data || []);
+            const [individuals, groups] = await Promise.all([
+                api.borrowers.getAll(false),
+                api.borrowers.getAll(true).catch(() => []),
+            ]);
+            setBorrowers(individuals || []);
+            setGroupRows(groups || []);
         } catch (error: any) {
             console.error("Load borrowers error:", error);
             toast({
@@ -163,6 +207,69 @@ const Borrowers = () => {
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const listSource = listViewMode === "groups" ? groupRows : borrowers;
+
+    const filterBorrowers = () => {
+        let filtered = listSource;
+
+        if (searchTerm) {
+            const lowerSearchTerm = searchTerm.toLowerCase();
+            filtered = filtered.filter(
+                (b) =>
+                    (b.full_name?.toLowerCase() || "").includes(lowerSearchTerm) ||
+                    (b.business_name?.toLowerCase() || "").includes(lowerSearchTerm) ||
+                    (b.unique_number?.toLowerCase() || "").includes(lowerSearchTerm) ||
+                    (b.email?.toLowerCase() || "").includes(lowerSearchTerm) ||
+                    (b.phone_number && b.phone_number.includes(searchTerm)) ||
+                    (b.district?.toLowerCase() || "").includes(lowerSearchTerm)
+            );
+        }
+
+        if (statusFilter) {
+            filtered = filtered.filter((b) => (b.status || "") === statusFilter);
+        }
+
+        if (officerFilter && listViewMode === "individuals") {
+            filtered = filtered.filter((b) => (b.assigned_officer_id || "") === officerFilter);
+        }
+
+        if (addedFrom) {
+            const fromTs = new Date(`${addedFrom}T00:00:00`).getTime();
+            filtered = filtered.filter((b) => {
+                if (!b.created_at) return false;
+                return new Date(b.created_at).getTime() >= fromTs;
+            });
+        }
+
+        if (addedTo) {
+            const toTs = new Date(`${addedTo}T23:59:59`).getTime();
+            filtered = filtered.filter((b) => {
+                if (!b.created_at) return false;
+                return new Date(b.created_at).getTime() <= toTs;
+            });
+        }
+
+        setFilteredBorrowers(filtered);
+    };
+
+    const clearAdvancedFilters = () => {
+        setDraftStatusFilter("");
+        setDraftOfficerFilter("");
+        setDraftAddedFrom("");
+        setDraftAddedTo("");
+        setStatusFilter("");
+        setOfficerFilter("");
+        setAddedFrom("");
+        setAddedTo("");
+    };
+
+    const applyAdvancedFilters = () => {
+        setStatusFilter(draftStatusFilter);
+        setOfficerFilter(draftOfficerFilter);
+        setAddedFrom(draftAddedFrom);
+        setAddedTo(draftAddedTo);
     };
 
     const handleBorrowerSubmit = async () => {
@@ -196,24 +303,6 @@ const Borrowers = () => {
         } catch (error: any) {
             toast({ title: "Error", description: error.message, variant: "destructive" });
         }
-    };
-
-    const filterBorrowers = () => {
-        let filtered = borrowers;
-
-        if (searchTerm) {
-            const lowerSearchTerm = searchTerm.toLowerCase();
-            filtered = filtered.filter(
-                (b) =>
-                    (b.full_name?.toLowerCase() || "").includes(lowerSearchTerm) ||
-                    (b.business_name?.toLowerCase() || "").includes(lowerSearchTerm) ||
-                    (b.unique_number?.toLowerCase() || "").includes(lowerSearchTerm) ||
-                    (b.email?.toLowerCase() || "").includes(lowerSearchTerm) ||
-                    (b.phone_number && b.phone_number.includes(searchTerm))
-            );
-        }
-
-        setFilteredBorrowers(filtered);
     };
 
     const findMatches = useMemo(() => {
@@ -439,41 +528,69 @@ const Borrowers = () => {
                                             </div>
                                             {showAdvanced && (
                                                 <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                                                         <div>
                                                             <label className="mb-1 block text-xs text-muted-foreground">Borrower Status</label>
-                                                            <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+                                                            <select
+                                                                value={draftStatusFilter}
+                                                                onChange={(e) => setDraftStatusFilter(e.target.value)}
+                                                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                                            >
                                                                 <option value="">Any Status</option>
                                                                 <option value="Current">Current</option>
                                                                 <option value="Past Maturity">Past Maturity</option>
                                                                 <option value="Fully Paid">Fully Paid</option>
+                                                                <option value="No Active Loans">No Active Loans</option>
                                                             </select>
                                                         </div>
                                                         <div>
                                                             <label className="mb-1 block text-xs text-muted-foreground">Assigned Officer</label>
-                                                            <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+                                                            <select
+                                                                value={draftOfficerFilter}
+                                                                onChange={(e) => setDraftOfficerFilter(e.target.value)}
+                                                                disabled={listViewMode === "groups"}
+                                                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                                            >
                                                                 <option value="">Any Officer</option>
+                                                                {officers.map((o) => (
+                                                                    <option key={o.id} value={o.id}>
+                                                                        {o.full_name}
+                                                                    </option>
+                                                                ))}
                                                             </select>
-                                                        </div>
-                                                        <div>
-                                                            <label className="mb-1 block text-xs text-muted-foreground">Location / Village</label>
-                                                            <Input placeholder="Village" />
                                                         </div>
                                                         <div className="flex gap-2">
                                                             <div className="flex-1">
                                                                 <label className="mb-1 block text-xs text-muted-foreground">Added From</label>
-                                                                <Input type="date" />
+                                                                <Input
+                                                                    type="date"
+                                                                    value={draftAddedFrom}
+                                                                    onChange={(e) => setDraftAddedFrom(e.target.value)}
+                                                                />
                                                             </div>
                                                             <div className="flex-1">
                                                                 <label className="mb-1 block text-xs text-muted-foreground">Added To</label>
-                                                                <Input type="date" />
+                                                                <Input
+                                                                    type="date"
+                                                                    value={draftAddedTo}
+                                                                    onChange={(e) => setDraftAddedTo(e.target.value)}
+                                                                />
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    <div className="flex justify-end">
-                                                        <Button className="gap-2 px-8">
-                                                            <Search className="h-4 w-4" /> Filter Results
-                                                        </Button>
+                                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                                        <p className="text-xs text-muted-foreground">
+                                                            Showing {filteredBorrowers.length} of {listSource.length}{" "}
+                                                            {listViewMode === "groups" ? "groups" : "borrowers"}
+                                                        </p>
+                                                        <div className="flex gap-2">
+                                                            <Button type="button" variant="outline" onClick={clearAdvancedFilters}>
+                                                                Clear
+                                                            </Button>
+                                                            <Button type="button" className="gap-2 px-8" onClick={applyAdvancedFilters}>
+                                                                <Search className="h-4 w-4" /> Filter Results
+                                                            </Button>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             )}
@@ -527,21 +644,11 @@ const Borrowers = () => {
                                                                         </div>
                                                                         <div>
                                                                             <span className="block text-xs text-muted-foreground">Paid</span>
-                                                                            <span>
-                                                                                {(borrower.total_paid || 0).toLocaleString(undefined, {
-                                                                                    minimumFractionDigits: 0,
-                                                                                    maximumFractionDigits: 0,
-                                                                                })}
-                                                                            </span>
+                                                                            <span>{fmtUgx(borrower.total_paid)}</span>
                                                                         </div>
                                                                         <div>
                                                                             <span className="block text-xs text-muted-foreground">Balance</span>
-                                                                            <span className="font-medium">
-                                                                                {(borrower.open_loans_balance || 0).toLocaleString(undefined, {
-                                                                                    minimumFractionDigits: 0,
-                                                                                    maximumFractionDigits: 0,
-                                                                                })}
-                                                                            </span>
+                                                                            <span className="font-medium">{fmtUgx(borrower.open_loans_balance)}</span>
                                                                         </div>
                                                                     </div>
                                                                     <div>
@@ -672,16 +779,10 @@ const Borrowers = () => {
                                                                                 </span>
                                                                             </TableCell>
                                                                             <TableCell className="whitespace-nowrap py-2 text-right">
-                                                                                {(borrower.total_paid || 0).toLocaleString(undefined, {
-                                                                                    minimumFractionDigits: 0,
-                                                                                    maximumFractionDigits: 0,
-                                                                                })}
+                                                                                {fmtUgx(borrower.total_paid)}
                                                                             </TableCell>
                                                                             <TableCell className="whitespace-nowrap py-2 text-right">
-                                                                                {(borrower.open_loans_balance || 0).toLocaleString(undefined, {
-                                                                                    minimumFractionDigits: 0,
-                                                                                    maximumFractionDigits: 0,
-                                                                                })}
+                                                                                {fmtUgx(borrower.open_loans_balance)}
                                                                             </TableCell>
                                                                             <TableCell className="py-2">
                                                                                 <span
@@ -809,10 +910,20 @@ const Borrowers = () => {
                                                                 )}
                                                                 <div className="text-xs pt-1">
                                                                     <span className="text-muted-foreground">Balance: </span>
-                                                                    <span className="font-medium">{(b.open_loans_balance || 0).toLocaleString()} UGX</span>
+                                                                    <span className="font-medium">{fmtUgx(b.open_loans_balance)}</span>
+                                                                    <span className="text-muted-foreground mx-2">·</span>
+                                                                    <span className="text-muted-foreground">Paid: </span>
+                                                                    <span className="font-medium">{fmtUgx(b.total_paid)}</span>
                                                                     <span className="text-muted-foreground mx-2">·</span>
                                                                     <span className="text-muted-foreground">Status: </span>
                                                                     <span>{b.status || "—"}</span>
+                                                                    {b.assigned_officer_name && (
+                                                                        <>
+                                                                            <span className="text-muted-foreground mx-2">·</span>
+                                                                            <span className="text-muted-foreground">Officer: </span>
+                                                                            <span>{b.assigned_officer_name}</span>
+                                                                        </>
+                                                                    )}
                                                                 </div>
                                                                 </div>
                                                             </div>
@@ -886,8 +997,11 @@ const Borrowers = () => {
                                                             <Popup>
                                                                 <div className="p-2">
                                                                     <h3 className="font-bold">{b.full_name}</h3>
-                                                                    <p className="text-sm text-muted-foreground">{b.village}, {b.district}</p>
-                                                                    <p className="text-sm mt-1">Active Loans: {b.active_loans}</p>
+                                                                    <p className="text-sm text-muted-foreground">
+                                                                        {[b.village, b.district].filter(Boolean).join(", ") || "No village/district on file"}
+                                                                    </p>
+                                                                    <p className="text-sm mt-1">Active loans: {b.active_loans ?? 0}</p>
+                                                                    <p className="text-sm">Balance: {fmtUgx(b.open_loans_balance)}</p>
                                                                     <Button
                                                                         size="sm"
                                                                         className="mt-2"

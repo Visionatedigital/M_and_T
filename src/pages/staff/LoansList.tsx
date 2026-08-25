@@ -19,6 +19,7 @@ interface Loan {
     released_date: string;
     borrower_name: string;
     loan_number: string;
+    loan_product?: string;
     principal: number;
     interest_rate: string;
     total_due: number;
@@ -36,6 +37,24 @@ interface LoansListProps {
     filterType: "all" | "due" | "missed" | "arrears" | "no-repayments" | "past-maturity" | "approve";
 }
 
+type AdvancedLoanFilters = {
+    product: string;
+    status: string;
+    minPrincipal: string;
+    maxPrincipal: string;
+    releasedFrom: string;
+    releasedTo: string;
+};
+
+const emptyLoanFilters: AdvancedLoanFilters = {
+    product: "",
+    status: "",
+    minPrincipal: "",
+    maxPrincipal: "",
+    releasedFrom: "",
+    releasedTo: "",
+};
+
 const LoansList = ({ title, description, filterType }: LoansListProps) => {
     const navigate = useNavigate();
     const { toast } = useToast();
@@ -44,7 +63,10 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
     const [loans, setLoans] = useState<Loan[]>([]);
     const [searchTerm, setSearchTerm] = useState("");
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [draftFilters, setDraftFilters] = useState<AdvancedLoanFilters>(emptyLoanFilters);
+    const [appliedFilters, setAppliedFilters] = useState<AdvancedLoanFilters>(emptyLoanFilters);
     const [payLoan, setPayLoan] = useState<Loan | null>(null);
+    const [productOptions, setProductOptions] = useState<string[]>([]);
 
     useEffect(() => {
         loadLoans();
@@ -53,37 +75,59 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
     const loadLoans = async () => {
         setIsLoading(true);
         try {
-            // In a real app, the API would take the filterType
-            // For now, we'll fetch all and filter client-side if needed, 
-            // or assume a placeholder for the specialized routes
             const data = await api.applications.getActive();
 
-            // Transform data to match requested table structure
-            const transformed: Loan[] = data.map((l: any) => ({
-                id: l.id,
-                released_date: l.disbursed_at || l.approved_at || l.created_at,
-                borrower_name: l.full_name || "Unknown",
-                loan_number: l.loan_number || `L-${l.id.substring(0, 6)}`,
-                principal: parseFloat(l.loan_amount || 0),
-                interest_rate: "15%/Month", // Placeholder until product logic is refined
-                total_due: parseFloat(l.loan_amount || 0) * 1.3, // 30% interest as per policy
-                paid: parseFloat(l.amount_paid || 0),
-                balance: (parseFloat(l.loan_amount || 0) * 1.3) - parseFloat(l.amount_paid || 0),
-                last_payment_date: l.last_repayment_date || "-",
-                status: l.status === 'disbursed' ? 'Current' : l.status,
-            }));
+            const transformed: Loan[] = data.map((l: any) => {
+                const principal = parseFloat(l.loan_amount || 0);
+                const paid = parseFloat(l.amount_paid || 0);
+                const duration = parseInt(l.loan_duration_months || 4, 10) || 4;
+                const released = l.disbursed_at || l.approved_at || l.created_at;
+                const totalDue = principal * 1.3;
+                const balance = Math.max(0, totalDue - paid);
+                let status = l.status === "disbursed" || l.status === "approved" ? "Current" : String(l.status || "");
+                if (balance <= 0) status = "Fully Paid";
+                else if (released) {
+                    const maturity = new Date(released);
+                    maturity.setMonth(maturity.getMonth() + duration);
+                    if (Date.now() > maturity.getTime() && balance > 0) status = "Past Maturity";
+                }
 
-            // Apply specialized filtering based on filterType
+                return {
+                    id: l.id,
+                    released_date: released,
+                    borrower_name: l.full_name || "Unknown",
+                    loan_number: l.loan_number || `L-${String(l.id).substring(0, 6)}`,
+                    loan_product: l.loan_product || "",
+                    principal,
+                    interest_rate: "30% flat",
+                    total_due: totalDue,
+                    paid,
+                    balance,
+                    last_payment_date: l.last_repayment_date || "-",
+                    status,
+                    loan_duration_months: duration,
+                    group_id: l.group_id || null,
+                };
+            });
+
+            const products = Array.from(
+                new Set(transformed.map((l) => l.loan_product).filter(Boolean) as string[])
+            ).sort();
+            setProductOptions(products);
+
             let filteredResults = transformed;
-            if (filterType === 'due') {
-                // Mock: assume loans with balance > 0 are "due" for this view
-                filteredResults = transformed.filter(l => l.balance > 0);
-            } else if (filterType === 'missed') {
-                filteredResults = transformed.filter(l => l.status === 'Missed');
-            } else if (filterType === 'arrears') {
-                filteredResults = transformed.filter(l => l.status === 'Arrears');
-            } else if (filterType === 'approve') {
-                filteredResults = transformed.filter(l => l.status === 'pending');
+            if (filterType === "due") {
+                filteredResults = transformed.filter((l) => l.balance > 0 && l.status === "Current");
+            } else if (filterType === "missed") {
+                filteredResults = transformed.filter((l) => /missed/i.test(l.status));
+            } else if (filterType === "arrears") {
+                filteredResults = transformed.filter((l) => /arrears/i.test(l.status));
+            } else if (filterType === "approve") {
+                filteredResults = transformed.filter((l) => /pending|under_review/i.test(l.status));
+            } else if (filterType === "past-maturity") {
+                filteredResults = transformed.filter((l) => l.status === "Past Maturity");
+            } else if (filterType === "no-repayments") {
+                filteredResults = transformed.filter((l) => l.balance > 0 && (l.paid || 0) <= 0);
             }
 
             setLoans(filteredResults);
@@ -99,10 +143,43 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
         }
     };
 
-    const filteredLoans = loans.filter(l =>
-        l.borrower_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        l.loan_number.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const applyAdvancedFilters = () => {
+        setAppliedFilters({ ...draftFilters });
+    };
+
+    const clearAdvancedFilters = () => {
+        setDraftFilters(emptyLoanFilters);
+        setAppliedFilters(emptyLoanFilters);
+    };
+
+    const filteredLoans = loans.filter((l) => {
+        const q = searchTerm.trim().toLowerCase();
+        if (
+            q &&
+            !(l.borrower_name || "").toLowerCase().includes(q) &&
+            !(l.loan_number || "").toLowerCase().includes(q) &&
+            !(l.loan_product || "").toLowerCase().includes(q)
+        ) {
+            return false;
+        }
+        if (appliedFilters.product && (l.loan_product || "") !== appliedFilters.product) return false;
+        if (appliedFilters.status && (l.status || "") !== appliedFilters.status) return false;
+        if (appliedFilters.minPrincipal && l.principal < Number(appliedFilters.minPrincipal)) return false;
+        if (appliedFilters.maxPrincipal && l.principal > Number(appliedFilters.maxPrincipal)) return false;
+        if (appliedFilters.releasedFrom) {
+            if (!l.released_date) return false;
+            if (new Date(l.released_date).getTime() < new Date(`${appliedFilters.releasedFrom}T00:00:00`).getTime()) {
+                return false;
+            }
+        }
+        if (appliedFilters.releasedTo) {
+            if (!l.released_date) return false;
+            if (new Date(l.released_date).getTime() > new Date(`${appliedFilters.releasedTo}T23:59:59`).getTime()) {
+                return false;
+            }
+        }
+        return true;
+    });
 
     return (
         <SidebarProvider>
@@ -163,46 +240,82 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
                                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                                                 <div>
                                                     <label className="text-xs text-muted-foreground mb-1 block">Loan Product</label>
-                                                    <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+                                                    <select
+                                                        value={draftFilters.product}
+                                                        onChange={(e) => setDraftFilters((f) => ({ ...f, product: e.target.value }))}
+                                                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                                    >
                                                         <option value="">Any Product</option>
-                                                        <option value="business">Business Loan</option>
-                                                        <option value="personal">Personal Loan</option>
+                                                        {productOptions.map((p) => (
+                                                            <option key={p} value={p}>{p}</option>
+                                                        ))}
                                                     </select>
                                                 </div>
                                                 <div>
                                                     <label className="text-xs text-muted-foreground mb-1 block">Status</label>
-                                                    <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
+                                                    <select
+                                                        value={draftFilters.status}
+                                                        onChange={(e) => setDraftFilters((f) => ({ ...f, status: e.target.value }))}
+                                                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                                    >
                                                         <option value="">Any Status</option>
                                                         <option value="Current">Current</option>
                                                         <option value="Past Maturity">Past Maturity</option>
+                                                        <option value="Fully Paid">Fully Paid</option>
                                                         <option value="Arrears">Arrears</option>
                                                     </select>
                                                 </div>
                                                 <div className="flex gap-2">
                                                     <div className="flex-1">
                                                         <label className="text-xs text-muted-foreground mb-1 block">Min Principal</label>
-                                                        <Input type="number" placeholder="0" />
+                                                        <Input
+                                                            type="number"
+                                                            placeholder="0"
+                                                            value={draftFilters.minPrincipal}
+                                                            onChange={(e) => setDraftFilters((f) => ({ ...f, minPrincipal: e.target.value }))}
+                                                        />
                                                     </div>
                                                     <div className="flex-1">
                                                         <label className="text-xs text-muted-foreground mb-1 block">Max Principal</label>
-                                                        <Input type="number" placeholder="Any" />
+                                                        <Input
+                                                            type="number"
+                                                            placeholder="Any"
+                                                            value={draftFilters.maxPrincipal}
+                                                            onChange={(e) => setDraftFilters((f) => ({ ...f, maxPrincipal: e.target.value }))}
+                                                        />
                                                     </div>
                                                 </div>
                                                 <div className="flex gap-2">
                                                     <div className="flex-1">
                                                         <label className="text-xs text-muted-foreground mb-1 block">Released From</label>
-                                                        <Input type="date" />
+                                                        <Input
+                                                            type="date"
+                                                            value={draftFilters.releasedFrom}
+                                                            onChange={(e) => setDraftFilters((f) => ({ ...f, releasedFrom: e.target.value }))}
+                                                        />
                                                     </div>
                                                     <div className="flex-1">
                                                         <label className="text-xs text-muted-foreground mb-1 block">Released To</label>
-                                                        <Input type="date" />
+                                                        <Input
+                                                            type="date"
+                                                            value={draftFilters.releasedTo}
+                                                            onChange={(e) => setDraftFilters((f) => ({ ...f, releasedTo: e.target.value }))}
+                                                        />
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div className="flex justify-end">
-                                                <Button className="gap-2 px-8">
-                                                    <Search className="h-4 w-4" /> Filter Loans
-                                                </Button>
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <p className="text-xs text-muted-foreground">
+                                                    Showing {filteredLoans.length} of {loans.length} loans
+                                                </p>
+                                                <div className="flex gap-2">
+                                                    <Button type="button" variant="outline" onClick={clearAdvancedFilters}>
+                                                        Clear
+                                                    </Button>
+                                                    <Button type="button" className="gap-2 px-8" onClick={applyAdvancedFilters}>
+                                                        <Search className="h-4 w-4" /> Filter Results
+                                                    </Button>
+                                                </div>
                                             </div>
                                         </div>
                                     )}

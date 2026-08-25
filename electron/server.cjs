@@ -594,13 +594,91 @@ async function startServer(userDataPath) {
                 `).all();
                 const repCount = db.prepare('SELECT COUNT(*) AS c FROM repayments').get();
                 const recentApps = db.prepare(`
-                    SELECT full_name, loan_product, status, loan_amount, updated_at FROM loan_applications ORDER BY datetime(updated_at) DESC LIMIT 8
+                    SELECT full_name, loan_product, status, loan_amount, updated_at FROM loan_applications ORDER BY datetime(updated_at) DESC LIMIT 15
+                `).all();
+
+                const monthStart = new Date();
+                monthStart.setDate(1);
+                monthStart.setHours(0, 0, 0, 0);
+                const monthStartIso = monthStart.toISOString().slice(0, 10);
+                const todayIso = new Date().toISOString().slice(0, 10);
+                const currentMonthLabel = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}`;
+
+                const mtdDisb = db.prepare(`
+                    SELECT COALESCE(SUM(loan_amount), 0) AS total, COUNT(*) AS cnt
+                    FROM loan_applications
+                    WHERE status IN ('approved','disbursed','completed') AND date(approved_at) >= date(?)
+                `).get(monthStartIso);
+                const mtdRep = db.prepare(`
+                    SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS cnt
+                    FROM repayments WHERE date(payment_date) >= date(?)
+                `).get(monthStartIso);
+                const todayRep = db.prepare(`
+                    SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS cnt
+                    FROM repayments WHERE date(payment_date) = date(?)
+                `).get(todayIso);
+
+                const monthlySeries = [];
+                for (let i = 11; i >= 0; i--) {
+                    const d = new Date();
+                    d.setDate(1);
+                    d.setMonth(d.getMonth() - i);
+                    const y = d.getFullYear();
+                    const m = d.getMonth();
+                    const label = `${y}-${String(m + 1).padStart(2, '0')}`;
+                    const start = `${label}-01`;
+                    const endDate = new Date(y, m + 1, 0);
+                    const end = endDate.toISOString().slice(0, 10);
+                    const disb = db.prepare(`
+                        SELECT COALESCE(SUM(loan_amount), 0) AS total, COUNT(*) AS cnt
+                        FROM loan_applications
+                        WHERE status IN ('approved','disbursed','completed')
+                          AND date(approved_at) >= date(?) AND date(approved_at) <= date(?)
+                    `).get(start, end);
+                    const rep = db.prepare(`
+                        SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS cnt
+                        FROM repayments
+                        WHERE date(payment_date) >= date(?) AND date(payment_date) <= date(?)
+                    `).get(start, end);
+                    monthlySeries.push({
+                        month: label,
+                        month_label: d.toLocaleString('en-US', { month: 'short', year: 'numeric' }),
+                        disbursed_ugx: Number(disb?.total || 0),
+                        disbursed_count: Number(disb?.cnt || 0),
+                        repayments_ugx: Number(rep?.total || 0),
+                        repayment_count: Number(rep?.cnt || 0),
+                    });
+                }
+
+                const statusPipeline = db.prepare(`
+                    SELECT COALESCE(status, 'unknown') AS status, COUNT(*) AS count,
+                           COALESCE(SUM(loan_amount), 0) AS principal_ugx
+                    FROM loan_applications GROUP BY status ORDER BY count DESC
+                `).all();
+
+                const pendingQueue = db.prepare(`
+                    SELECT full_name, loan_product, status, loan_amount, created_at, updated_at
+                    FROM loan_applications
+                    WHERE status IN ('pending', 'under_review')
+                    ORDER BY datetime(updated_at) DESC LIMIT 12
                 `).all();
 
                 snapshot = {
                     snapshot_generated_at: new Date().toISOString(),
                     viewer_role: 'desktop_sqlite',
                     source: 'Electron desktop SQLite (some fields differ from PostgreSQL)',
+                    snapshot_coverage: [
+                        'Lifetime totals',
+                        'Current month MTD disbursements & collections',
+                        'Last 12 months monthly_series',
+                        'Status pipeline and pending queue',
+                        'Recent applications',
+                    ],
+                    how_to_read_money: {
+                        currency: 'UGX',
+                        lifetime_vs_mtd:
+                            'reportStats.loanStats.totalDisbursed is lifetime. For this month use extensions.current_month or monthly_series.',
+                    },
                     reportStats: {
                         loanStats: {
                             totalApplications: Number(lr.total_applications || 0),
@@ -656,6 +734,32 @@ async function startServer(userDataPath) {
                             status: a.status,
                             loan_amount_ugx: a.loan_amount,
                             updated_at: a.updated_at,
+                        })),
+                        monthly_series: monthlySeries,
+                        current_month: {
+                            calendar_month: currentMonthLabel,
+                            month_start: monthStartIso,
+                            as_of_date: todayIso,
+                            disbursed_this_month_ugx: Number(mtdDisb?.total || 0),
+                            disbursed_this_month_count: Number(mtdDisb?.cnt || 0),
+                            collections_this_month_ugx: Number(mtdRep?.total || 0),
+                            collections_this_month_count: Number(mtdRep?.cnt || 0),
+                            collections_today_ugx: Number(todayRep?.total || 0),
+                            collections_today_count: Number(todayRep?.cnt || 0),
+                            note: 'Lifetime totalDisbursed is NOT the same as this month.',
+                        },
+                        status_pipeline: statusPipeline.map((r) => ({
+                            status: r.status,
+                            count: Number(r.count || 0),
+                            principal_ugx: Number(r.principal_ugx || 0),
+                        })),
+                        pending_under_review_queue: pendingQueue.map((r) => ({
+                            full_name: r.full_name,
+                            loan_product: r.loan_product,
+                            status: r.status,
+                            loan_amount_ugx: Number(r.loan_amount || 0),
+                            created_at: r.created_at,
+                            updated_at: r.updated_at,
                         })),
                     },
                 };

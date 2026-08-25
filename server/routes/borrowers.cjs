@@ -34,13 +34,14 @@ function todayYyyyMmDdLocal() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function loanPortfolioStatus(totalLoans, totalBorrowed, totalPaid) {
+function loanPortfolioStatus(totalLoans, totalBorrowed, totalPaid, hasPastMaturity = false) {
   const loans = parseInt(totalLoans, 10) || 0;
   const borrowed = parseFloat(totalBorrowed || 0);
   const paid = parseFloat(totalPaid || 0);
   if (loans === 0) return 'No Active Loans';
   const balance = Math.max(0, borrowed * 1.3 - paid);
   if (balance <= 0) return 'Fully Paid';
+  if (hasPastMaturity) return 'Past Maturity';
   return 'Current';
 }
 
@@ -115,34 +116,60 @@ router.get('/', async (req, res) => {
     const { rows } = await db.query(`
             SELECT 
                 b.*,
-                COUNT(la.id) as total_loans,
-                SUM(COALESCE(la.loan_amount, 0)) as total_borrowed,
+                off.full_name AS assigned_officer_name,
+                COUNT(la.id)::int AS total_loans,
+                COUNT(la.id) FILTER (WHERE la.status IN ('approved', 'disbursed'))::int AS active_loans,
+                COALESCE(SUM(la.loan_amount), 0)::numeric AS total_borrowed,
                 COALESCE((
-                    SELECT SUM(amount) FROM repayments r 
+                    SELECT SUM(r.amount) FROM repayments r 
                     JOIN loan_applications la2 ON r.loan_application_id = la2.id 
-                    WHERE la2.borrower_id = b.id
-                ), 0) as total_paid
+                    WHERE la2.borrower_id = b.id AND la2.status != 'rejected'
+                ), 0)::numeric AS total_paid,
+                EXISTS (
+                    SELECT 1
+                    FROM loan_applications la_pm
+                    WHERE la_pm.borrower_id = b.id
+                      AND la_pm.status IN ('approved', 'disbursed')
+                      AND la_pm.approved_at IS NOT NULL
+                      AND (
+                        la_pm.approved_at
+                          + (COALESCE(la_pm.loan_duration_months, 4) || ' months')::interval
+                      ) < NOW()
+                      AND (
+                        (COALESCE(la_pm.loan_amount, 0) * 1.3)
+                        - COALESCE((
+                            SELECT SUM(r2.amount) FROM repayments r2
+                            WHERE r2.loan_application_id = la_pm.id
+                          ), 0)
+                      ) > 0.01
+                ) AS has_past_maturity
             FROM borrowers b
+            LEFT JOIN profiles off ON off.id = b.assigned_officer_id
             LEFT JOIN loan_applications la ON b.id = la.borrower_id AND la.status != 'rejected'
             WHERE ${borrowerWhere}
-            GROUP BY b.id
+            GROUP BY b.id, off.full_name
             ORDER BY b.full_name
         `, borrowerValues.length ? borrowerValues : []);
 
-    const processed = await Promise.all(rows.map(async (r) => {
-      const total_borrowed_with_interest = parseFloat(r.total_borrowed || 0) * 1.3; 
+    const processed = rows.map((r) => {
+      const total_borrowed = parseFloat(r.total_borrowed || 0);
       const total_paid = parseFloat(r.total_paid || 0);
-      const balance = Math.max(0, total_borrowed_with_interest - total_paid);
+      const balance = Math.max(0, total_borrowed * 1.3 - total_paid);
+      const total_loans = parseInt(r.total_loans, 10) || 0;
+      const active_loans = parseInt(r.active_loans, 10) || 0;
+      const hasPastMaturity = Boolean(r.has_past_maturity);
 
       return {
         ...r,
-        total_loans: parseInt(r.total_loans),
-        total_borrowed: parseFloat(r.total_borrowed || 0),
-        total_paid: total_paid,
+        total_loans,
+        active_loans,
+        total_borrowed,
+        total_paid,
         open_loans_balance: balance,
-        status: loanPortfolioStatus(r.total_loans, r.total_borrowed, total_paid)
+        assigned_officer_name: r.assigned_officer_name || null,
+        status: loanPortfolioStatus(total_loans, total_borrowed, total_paid, hasPastMaturity),
       };
-    }));
+    });
 
     res.json(processed);
   } catch (err) {

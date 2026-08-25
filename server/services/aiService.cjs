@@ -226,7 +226,17 @@ const staffAssistantChat = async (messages, systemContent, snapshot) => {
     if (MOCK_KEY(apiKey)) {
         const ls = snapshot?.reportStats?.loanStats || {};
         const ext = snapshot?.extensions || {};
+        const cm = ext.current_month || {};
+        const ph = ext.portfolio_health || {};
         const oc = ext.officer_collections_last_90_days;
+        const series = Array.isArray(ext.monthly_series) ? ext.monthly_series : [];
+        const last3 = series
+            .slice(-3)
+            .map(
+                (r) =>
+                    `${r.month_label || r.month}: disb UGX ${Number(r.disbursed_ugx || 0).toLocaleString()} / coll UGX ${Number(r.repayments_ugx || 0).toLocaleString()}`
+            )
+            .join(' · ');
         const top =
             oc?.rows?.length > 0
                 ? oc.rows
@@ -242,9 +252,13 @@ const staffAssistantChat = async (messages, systemContent, snapshot) => {
             '',
             `**Automatic metrics** (from snapshot at ${snapshot?.snapshot_generated_at || 'unknown'}):`,
             `- Applications: ${ls.totalApplications ?? '—'} total · approved ${ls.approvedLoans ?? '—'} · pending ${ls.pendingLoans ?? '—'}`,
-            `- Principal tracked (completed/approved pathway): UGX ${Number(ls.totalDisbursed || 0).toLocaleString()}`,
-            `- Cash recorded on repayments: UGX ${Number(ls.totalPaid || 0).toLocaleString()} · est. outstanding UGX ${Number(ls.outstandingEstimate || 0).toLocaleString()}`,
-            `- Collection efficiency (vs principal+interest benchmark in reports): ${(ls.collectionEfficiencyPct ?? 0).toFixed(1)}%`,
+            `- Lifetime principal tracked: UGX ${Number(ls.totalDisbursed || 0).toLocaleString()} (not the same as this month)`,
+            `- This month (${cm.calendar_month_label || cm.calendar_month || 'MTD'}): disbursed UGX ${Number(cm.disbursed_this_month_ugx || 0).toLocaleString()} (${cm.disbursed_this_month_count ?? 0} loans) · collected UGX ${Number(cm.collections_this_month_ugx || 0).toLocaleString()}`,
+            `- Today collections: UGX ${Number(cm.collections_today_ugx || 0).toLocaleString()}`,
+            `- Outstanding: UGX ${Number(ph.outstanding_portfolio_ugx ?? ls.outstandingEstimate ?? 0).toLocaleString()} · PAR-30 est. UGX ${Number(ph.par_30_amount_ugx || 0).toLocaleString()} (${ph.par_30_pct_of_outstanding ?? 0}%)`,
+            `- Cash recorded on repayments (lifetime): UGX ${Number(ls.totalPaid || 0).toLocaleString()}`,
+            `- Collection efficiency (vs principal+interest benchmark): ${(ls.collectionEfficiencyPct ?? 0).toFixed(1)}%`,
+            last3 ? `- Recent months: ${last3}` : '',
             top ? `- Officer collections (${oc.date_from} → ${oc.date_to}) top lines: ${top}` : '',
         ]
             .filter(Boolean)
