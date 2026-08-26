@@ -726,4 +726,68 @@ router.put('/:id', async (req, res) => {
     }
 });
 
+// Delete application (any status, including approved) — administrators only.
+// Used to clear duplicate / double-entry loans. Removes related repayments and
+// accounting rows keyed to this application; collateral cascades; Airtel match SET NULL.
+router.delete('/:id', async (req, res) => {
+    if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: 'Only administrators can delete loan applications.' });
+    }
+
+    const { id } = req.params;
+    try {
+        await db.query('BEGIN');
+
+        const { rows: existing } = await db.query(
+            `SELECT id, status, full_name FROM loan_applications WHERE id = $1 FOR UPDATE`,
+            [id]
+        );
+        if (existing.length === 0) {
+            await db.query('ROLLBACK');
+            return res.status(404).json({ error: 'Application not found' });
+        }
+
+        const delRepayments = await db.query(
+            `DELETE FROM repayments WHERE loan_application_id = $1`,
+            [id]
+        );
+
+        let accountingDeleted = 0;
+        try {
+            const delAccounting = await db.query(
+                `DELETE FROM accounting_entries WHERE reference_id = $1`,
+                [id]
+            );
+            accountingDeleted = delAccounting.rowCount || 0;
+        } catch (acctErr) {
+            // Table may be missing in some environments; loan delete should still proceed
+            if (acctErr && acctErr.code !== '42P01') throw acctErr;
+        }
+
+        const { rowCount } = await db.query(`DELETE FROM loan_applications WHERE id = $1`, [id]);
+        if (!rowCount) {
+            await db.query('ROLLBACK');
+            return res.status(404).json({ error: 'Application not found' });
+        }
+
+        await db.query('COMMIT');
+        res.json({
+            message: 'Application deleted',
+            id,
+            status: existing[0].status,
+            repayments_deleted: delRepayments.rowCount || 0,
+            accounting_entries_deleted: accountingDeleted,
+        });
+    } catch (err) {
+        await db.query('ROLLBACK');
+        console.error('Application DELETE error:', err);
+        if (err && err.code === '23503') {
+            return res.status(409).json({
+                error: 'Cannot delete: this application is still referenced by other records.',
+            });
+        }
+        res.status(500).json({ error: err.message || 'Failed to delete application' });
+    }
+});
+
 module.exports = router;
