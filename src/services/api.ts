@@ -507,6 +507,17 @@ export const api = {
             }
             return response.json();
         },
+        delete: async (id: string) => {
+            const response = await fetch(`${API_URL}/applications/${id}`, {
+                method: 'DELETE',
+                headers: getHeaders(),
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error((err as { error?: string }).error || 'Failed to delete application');
+            }
+            return response.json();
+        },
     },
     clients: {
         getAll: async (isGroup = false) => {
