@@ -2,12 +2,11 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { fileURLToPath } from "url";
-import { componentTagger } from "lovable-tagger";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Plain .mjs avoids Vite writing vite.config.ts.timestamp-*.mjs (helps with EPERM on Windows).
-export default defineConfig(({ mode }) => ({
+export default defineConfig({
   // Absolute base so /staff-dashboard/* loads /assets/* (relative ./assets breaks SPA deep links).
   base: "/",
 
@@ -27,10 +26,10 @@ export default defineConfig(({ mode }) => ({
       "localhost",
     ],
   },
-  plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  plugins: [react()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
   },
-}));
+});
