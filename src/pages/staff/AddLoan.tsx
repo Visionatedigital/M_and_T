@@ -34,8 +34,10 @@ const AddLoan = () => {
 
                 setInitialData({
                     borrower_id: borrower.id,
+                    application_type: "individual",
                     first_name: firstName,
                     last_middle_name: lastMiddleName,
+                    full_name: borrower.full_name || "",
                     business_name: borrower.business_name || "",
                     phone_number: borrower.phone_number || "",
                     id_number: borrower.id_number || "",
@@ -44,6 +46,7 @@ const AddLoan = () => {
                     unique_number: borrower.unique_number || "",
                     // Default values for other required fields if any
                     loan_category: "Business",
+                    loan_purpose: "Working capital",
                     country: "Uganda"
                 });
             } catch (error) {

@@ -213,7 +213,7 @@ async function computeFinancialAnalysisZScore(req) {
             WITH portfolio_stats AS (
                 SELECT COALESCE(SUM(loan_amount), 0) as gross_portfolio
                 FROM loan_applications
-                WHERE status IN ('active', 'disbursed')
+                WHERE status IN ('active', 'approved', 'disbursed', 'completed', 'settled')
                 ${isLoanOfficer(role) ? `AND ${sqlOfficerVisibleLoanApps('', '$1')}` : ''}
             ),
             ledger_stats AS (

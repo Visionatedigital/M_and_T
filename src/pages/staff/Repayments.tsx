@@ -215,10 +215,13 @@ const Repayments = () => {
   const groupedRepayments = Object.values(
     repayments
       .filter(r => {
+        const name = String(r.full_name || r.client_name || "").toLowerCase();
+        const groupName = String(r.group_name || r.groups?.group_name || "").toLowerCase();
+        const phone = String(r.phone_number || "");
         const matchesSearch = !searchTerm ||
-          r.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          ((r.group_name || r.groups?.group_name) && (r.group_name || r.groups?.group_name || '').toLowerCase().includes(searchTerm.toLowerCase())) ||
-          (r.phone_number && r.phone_number.includes(searchTerm));
+          name.includes(searchTerm.toLowerCase()) ||
+          (groupName && groupName.includes(searchTerm.toLowerCase())) ||
+          (phone && phone.includes(searchTerm));
 
         const matchesStatus = statusFilter === "all" || r.status === statusFilter;
 
@@ -235,7 +238,7 @@ const Repayments = () => {
         if (!acc[key]) {
           acc[key] = {
             id: key,
-            name: curr.group_id ? (curr.group_name || curr.groups?.group_name || 'Unknown Group') : curr.full_name,
+            name: curr.group_id ? (curr.group_name || curr.groups?.group_name || 'Unknown Group') : (curr.full_name || curr.client_name || 'Unknown'),
             isGroup: !!curr.group_id,
             members: [],
             totalCollection: 0,
@@ -286,7 +289,7 @@ const Repayments = () => {
           const instAmt = (curr.loan_amount * 1.30) / numInst;
           acc[key].members.push({
             id: curr.id,
-            name: curr.full_name,
+            name: curr.full_name || curr.client_name || "Unknown",
             amount: curr.loan_amount,
             installment: instAmt,
             paidAmount: curr.paidAmount,

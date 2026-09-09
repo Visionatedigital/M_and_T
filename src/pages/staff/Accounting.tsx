@@ -24,7 +24,7 @@ import {
 import {
   TrendingUp, TrendingDown, Plus, Pencil, Trash2, RefreshCw, ArrowUpRight, ArrowDownRight,
   BookOpen, ChevronLeft, ChevronRight, FileText, Wallet, Receipt, AlertTriangle,
-  PiggyBank, Scale, Download, Smartphone, Landmark, MoveRight, MoveLeft,
+  PiggyBank, Scale, Download, Printer, Smartphone, Landmark, MoveRight, MoveLeft,
   BarChart3, Users, FileSpreadsheet, Loader2, Calendar as CalendarIcon, Search, Filter, Sparkles
 } from "lucide-react";
 
@@ -56,7 +56,7 @@ const EXPENSE_CATEGORIES = [
 ];
 const REVENUE_CATEGORIES = [
   "Interest Income", "Principal Recovery", "Processing Fees", "Late Payment Penalties", "Commission Income",
-  "Fee Income (Valuation/Tracking)", "Other Income",
+  "Fee Income (Valuation/Tracking)", "Share Capital", "Other Income",
 ];
 const PAYMENT_METHODS = ["cash", "mobile_money", "bank_transfer"];
 const PIE_COLORS = ["#1e3a5f", "#2563eb", "#0ea5e9", "#38bdf8", "#7dd3fc", "#bae6fd", "#c7843a", "#d97706", "#f59e0b", "#fbbf24", "#fcd34d", "#fef08a"];
@@ -301,6 +301,7 @@ const Accounting = () => {
           entry_type: 'revenue',
           category: 'Fee Income (Valuation/Tracking)',
           description: `${form.fee_type} (Gross Charge)${form.description ? ' - ' + form.description : ''}`,
+          narration: `${form.fee_type} (Gross Charge)${form.description ? ' - ' + form.description : ''}`,
           amount: spec.charge,
           entry_date: form.entry_date,
           payment_method: form.payment_method
@@ -311,6 +312,7 @@ const Accounting = () => {
           entry_type: 'expense',
           category: 'Direct Fee Costs',
           description: `${form.fee_type} (Vendor Cost)${form.description ? ' - ' + form.description : ''}`,
+          narration: `${form.fee_type} (Vendor Cost)${form.description ? ' - ' + form.description : ''}`,
           amount: spec.cost,
           entry_date: form.entry_date,
           payment_method: form.payment_method
@@ -333,7 +335,12 @@ const Accounting = () => {
     }
     setSubmitting(true);
     try {
-      await api.accounting.createEntry({ ...form, amount: parseFloat(form.amount) });
+      await api.accounting.createEntry({
+        ...form,
+        description: form.description || form.narration || null,
+        narration: form.narration || form.description || null,
+        amount: parseFloat(form.amount),
+      });
       toast({ title: "Entry recorded successfully ✓" });
       setDialogOpen(false);
       setForm({ entry_type: "expense", category: "", description: "", narration: "", amount: "", entry_date: new Date().toISOString().split("T")[0], payment_method: "cash", fee_type: "" });
@@ -933,16 +940,18 @@ const Accounting = () => {
                             </SelectContent>
                           </Select>
                         </div>
-                        {/* Description */}
+                        {/* Description / Narration (merged — stored on both columns for cash book compatibility) */}
                         <div>
-                          <Label>Description (optional)</Label>
-                          <Input placeholder="Notes about this entry" value={form.description}
-                            onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
-                        </div>
-                        <div>
-                          <Label>Narration (optional)</Label>
-                          <Input placeholder="Remarks for cash book / reports" value={form.narration}
-                            onChange={e => setForm(f => ({ ...f, narration: e.target.value }))} />
+                          <Label>Description / Narration (optional)</Label>
+                          <Input
+                            placeholder="Notes for cash book and reports"
+                            value={form.description}
+                            onChange={e => setForm(f => ({
+                              ...f,
+                              description: e.target.value,
+                              narration: e.target.value,
+                            }))}
+                          />
                         </div>
                         <div className="flex gap-2 pt-2">
                           <Button type="button" variant="outline" className="flex-1" onClick={() => setDialogOpen(false)}>Cancel</Button>
@@ -1015,18 +1024,15 @@ const Accounting = () => {
                           </Select>
                         </div>
                         <div>
-                          <Label>Description (optional)</Label>
+                          <Label>Description / Narration (optional)</Label>
                           <Input
+                            placeholder="Notes for cash book and reports"
                             value={editForm.description}
-                            onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
-                          />
-                        </div>
-                        <div>
-                          <Label>Narration (optional)</Label>
-                          <Input
-                            placeholder="Remarks for cash book / reports"
-                            value={editForm.narration}
-                            onChange={(e) => setEditForm((f) => ({ ...f, narration: e.target.value }))}
+                            onChange={(e) => setEditForm((f) => ({
+                              ...f,
+                              description: e.target.value,
+                              narration: e.target.value,
+                            }))}
                           />
                         </div>
                         <div className="flex gap-2 pt-2">
@@ -1490,10 +1496,15 @@ const Accounting = () => {
                             Reporting Period: <span className="font-medium text-slate-700">{formatDate(incomeStmt.period?.start)}</span> to <span className="font-medium text-slate-700">{formatDate(incomeStmt.period?.end)}</span>
                           </CardDescription>
                         </div>
-                        <Button variant="outline" size="sm" onClick={exportIncomeStatement} className="hover:bg-slate-50">
-                          <Download className="h-4 w-4 mr-2" />
-                          Export CSV
-                        </Button>
+                        <div className="flex flex-wrap gap-2 shrink-0">
+                          <Button variant="outline" size="sm" onClick={exportIncomeStatement} className="hover:bg-slate-50">
+                            <Download className="h-4 w-4 mr-2" />
+                            Export CSV
+                          </Button>
+                          <Button variant="outline" size="sm" className="hover:bg-slate-50 print:hidden" onClick={() => window.print()}>
+                            <Printer className="h-4 w-4 mr-2" /> Print
+                          </Button>
+                        </div>
                       </CardHeader>
                       <CardContent className="pt-6">
                         <div className="space-y-8">
@@ -1594,10 +1605,15 @@ const Accounting = () => {
                           <CardTitle className="flex items-center gap-2"><Scale className="h-5 w-5" /> Balance Sheet</CardTitle>
                           <CardDescription>As of {balanceSheet.as_of}</CardDescription>
                         </div>
-                        <Button variant="outline" size="sm" onClick={exportBalanceSheet}>
-                          <Download className="h-4 w-4 mr-2" />
-                          Export CSV
-                        </Button>
+                        <div className="flex flex-wrap gap-2 shrink-0">
+                          <Button variant="outline" size="sm" onClick={exportBalanceSheet}>
+                            <Download className="h-4 w-4 mr-2" />
+                            Export CSV
+                          </Button>
+                          <Button variant="outline" size="sm" className="print:hidden" onClick={() => window.print()}>
+                            <Printer className="h-4 w-4 mr-2" /> Print
+                          </Button>
+                        </div>
                       </CardHeader>
                       <CardContent>
                         <div className="grid md:grid-cols-3 gap-6">
@@ -1657,10 +1673,15 @@ const Accounting = () => {
                           <CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5" /> Cash Flow Statement</CardTitle>
                           <CardDescription>{cashFlow.period?.start} to {cashFlow.period?.end}</CardDescription>
                         </div>
-                        <Button variant="outline" size="sm" onClick={exportCashFlow}>
-                          <Download className="h-4 w-4 mr-2" />
-                          Export CSV
-                        </Button>
+                        <div className="flex flex-wrap gap-2 shrink-0">
+                          <Button variant="outline" size="sm" onClick={exportCashFlow}>
+                            <Download className="h-4 w-4 mr-2" />
+                            Export CSV
+                          </Button>
+                          <Button variant="outline" size="sm" className="print:hidden" onClick={() => window.print()}>
+                            <Printer className="h-4 w-4 mr-2" /> Print
+                          </Button>
+                        </div>
                       </CardHeader>
                       <CardContent>
                         <div className="space-y-4">
@@ -1840,6 +1861,10 @@ const Accounting = () => {
                           <Button variant="outline" className="h-10 px-4 font-semibold border-slate-200 hover:bg-slate-50" onClick={handleZScoreExport} disabled={isExportingZScore}>
                             {isExportingZScore ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
                             Export Word
+                          </Button>
+                          <Button variant="outline" className="h-10 px-4 font-semibold border-slate-200 hover:bg-slate-50 print:hidden" onClick={() => window.print()}>
+                            <Printer className="h-4 w-4 mr-2" />
+                            Print
                           </Button>
                         </div>
                       </div>
@@ -2023,9 +2048,14 @@ const Accounting = () => {
                           <CardTitle className="flex items-center gap-2"><PiggyBank className="h-5 w-5" /> Trial Balance</CardTitle>
                           <CardDescription>As of {trialBalance.as_of}</CardDescription>
                         </div>
-                        <Button variant="outline" size="sm" onClick={exportTrialBalance}>
-                          <Download className="h-4 w-4 mr-2" /> Export CSV
-                        </Button>
+                        <div className="flex flex-wrap gap-2 shrink-0">
+                          <Button variant="outline" size="sm" onClick={exportTrialBalance}>
+                            <Download className="h-4 w-4 mr-2" /> Export CSV
+                          </Button>
+                          <Button variant="outline" size="sm" className="print:hidden" onClick={() => window.print()}>
+                            <Printer className="h-4 w-4 mr-2" /> Print
+                          </Button>
+                        </div>
                       </CardHeader>
                       <CardContent>
                         <table className="w-full text-sm">
@@ -2151,6 +2181,9 @@ const Accounting = () => {
                           }}>
                             <Download className="h-3.5 w-3.5 mr-1" /> Export Word
                           </Button>
+                          <Button variant="outline" size="sm" className="print:hidden" onClick={() => window.print()}>
+                            <Printer className="h-3.5 w-3.5 mr-1" /> Print
+                          </Button>
                         </div>
                       </CardHeader>
                       <CardContent className="p-0 overflow-x-auto">
@@ -2226,6 +2259,9 @@ const Accounting = () => {
                           </Button>
                           <Button variant="outline" size="sm" className="bg-indigo-50 text-indigo-700 border-indigo-200" onClick={() => void handleFinancialPositionWordExport()}>
                             <Download className="h-3.5 w-3.5 mr-1" /> Export Word
+                          </Button>
+                          <Button variant="outline" size="sm" className="print:hidden" onClick={() => window.print()}>
+                            <Printer className="h-3.5 w-3.5 mr-1" /> Print
                           </Button>
                         </div>
                       </CardHeader>
@@ -2335,9 +2371,14 @@ const Accounting = () => {
                           <CardTitle className="text-lg flex items-center gap-2"><Wallet className="h-5 w-5 text-emerald-700" /> Cashflow Statement</CardTitle>
                           <CardDescription>Indirect Method</CardDescription>
                         </div>
-                        <Button variant="outline" size="sm" className="bg-emerald-50 text-emerald-700 border-emerald-200" onClick={exportCashflowStatement}>
-                          <Download className="h-3.5 w-3.5 mr-1" /> Export CSV
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" className="bg-emerald-50 text-emerald-700 border-emerald-200" onClick={exportCashflowStatement}>
+                            <Download className="h-3.5 w-3.5 mr-1" /> Export CSV
+                          </Button>
+                          <Button variant="outline" size="sm" className="print:hidden" onClick={() => window.print()}>
+                            <Printer className="h-3.5 w-3.5 mr-1" /> Print
+                          </Button>
+                        </div>
                       </CardHeader>
                       <CardContent className="pt-6">
                         <div className="space-y-6">
@@ -2395,7 +2436,7 @@ const Accounting = () => {
                           <p className="text-xs text-slate-500 mt-1 normal-case">Figures from accounting entries (revenue − expense for accumulated profits; categories containing &quot;share capital&quot;).</p>
                         </div>
                         <Button variant="outline" size="sm" className="shrink-0 print:hidden" onClick={() => window.print()}>
-                          <Download className="h-4 w-4 mr-1" /> Print
+                          <Printer className="h-4 w-4 mr-1" /> Print
                         </Button>
                       </CardHeader>
                       <CardContent className="p-0 bg-white">

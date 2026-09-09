@@ -34,13 +34,14 @@ import {
     upsertLoanApplicationDraft,
 } from "@/lib/formDrafts";
 
-// Schema for Guarantor
+// Schema for Guarantor — allow incomplete historical rows on edit
 const guarantorSchema = z.object({
-    name: z.string().min(1, "Name is required"),
-    phone: z.string().min(1, "Phone number is required"),
+    name: z.string().optional(),
+    phone: z.string().optional(),
     nin: z.string().optional(),
     address: z.string().optional(),
-});
+    id: z.string().optional(),
+}).passthrough();
 
 // Schema for Loan Application
 const formSchema = z.object({
@@ -64,13 +65,24 @@ const formSchema = z.object({
     interest_method: z.enum(["flat_rate", "reducing_balance", "interest_only", "fixed_fee"]).optional(),
     interest_rate: z.string().optional(),
     interest_fixed_amount: z.string().optional(),
-    loan_purpose: z.string().min(2, "Purpose is required"),
+    loan_purpose: z.preprocess(
+        (v) => (v == null || String(v).trim() === "" ? "Working capital" : String(v).trim()),
+        z.string().min(1, "Purpose is required")
+    ),
     business_location: z.string().optional(),
     group_name: z.string().optional(),
 
     // Legacy fields (populated from selected borrower when submitting)
     full_name: z.string().optional(),
-    email: z.union([z.string().email("Invalid email"), z.literal("")]).optional(),
+    email: z.preprocess(
+        (v) => {
+            const s = v == null ? "" : String(v).trim();
+            if (!s) return "";
+            // Invalid historical emails should not block edit/save
+            return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) ? s : "";
+        },
+        z.union([z.string().email("Invalid email"), z.literal("")])
+    ),
     phone_number: z.string().optional(),
     id_number: z.string().optional(),
     date_of_birth: z.string().optional(),
@@ -95,19 +107,21 @@ const formSchema = z.object({
     // Guarantors
     guarantors: z.array(guarantorSchema).optional(),
 
-    // Group Members
+    // Group Members — keep loose on edit so incomplete historical rows don't block save
     group_members: z.array(z.object({
-        name: z.string().min(1, "Name is required"),
-        phone: z.string().min(10, "Valid phone number is required"),
+        name: z.string().optional(),
+        phone: z.string().optional(),
         id_number: z.string().optional(),
-        email: z.string().email("Invalid email").optional().or(z.literal("")),
+        email: z.string().optional(),
         date_of_birth: z.string().optional(),
         district: z.string().optional(),
         county: z.string().optional(),
         sub_county: z.string().optional(),
         parish: z.string().optional(),
         village: z.string().optional(),
-    })).optional(),
+        amount: z.union([z.number(), z.string()]).optional(),
+        borrower_id: z.string().optional(),
+    }).passthrough()).optional(),
 
     /** YYYY-MM-DD — application filed / created in DB (backdating for migration) */
     application_date: z.string().optional(),
@@ -116,6 +130,22 @@ const formSchema = z.object({
 });
 
 type FormValues = z.infer<typeof formSchema>;
+
+function inferApplicationType(data: any): "individual" | "group" {
+    if (!data) return "individual";
+    if (data.application_type === "group" || data.application_type === "individual") {
+        return data.application_type;
+    }
+    if (data.group_id || data.group_name || data.loan_product === "Group Loan") return "group";
+    if (Array.isArray(data.group_members) && data.group_members.length > 0) return "group";
+    return "individual";
+}
+
+function sanitizeEmail(value: unknown): string {
+    const s = value == null ? "" : String(value).trim();
+    if (!s) return "";
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) ? s : "";
+}
 
 type LoanFormDraftPayload = {
     formValues: Partial<FormValues>;
@@ -266,7 +296,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
         resolver: zodResolver(formSchema),
         defaultValues: {
             borrower_id: initialData?.borrower_id || "",
-            application_type: (initialData?.application_type as "individual" | "group") || "individual",
+            application_type: inferApplicationType(initialData),
             loan_product: initialData?.loan_product || "",
             loan_category: initialData?.loan_category || "Business",
             loan_amount: initialData?.loan_amount?.toString() || "",
@@ -276,18 +306,18 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
             interest_method: (initialData?.interest_method as "flat_rate" | "reducing_balance" | "interest_only" | "fixed_fee") || "flat_rate",
             interest_rate: initialData?.interest_rate?.toString() || "30",
             interest_fixed_amount: initialData?.interest_fixed_amount?.toString() || "",
-            loan_purpose: initialData?.loan_purpose || "",
+            loan_purpose: initialData?.loan_purpose || "Working capital",
             full_name: initialData?.full_name || "",
-            email: initialData?.email || "",
+            email: sanitizeEmail(initialData?.email),
             phone_number: initialData?.phone_number || "",
             id_number: initialData?.id_number || "",
             date_of_birth: initialData?.date_of_birth?.split('T')[0] || "",
-            district: initialData?.address?.split(', ')[3] || "",
-            division: "",
-            county: initialData?.address?.split(', ')[2] || "",
-            sub_county: initialData?.address?.split(', ')[2] || "",
-            parish: initialData?.address?.split(', ')[1] || "",
-            village: initialData?.address?.split(', ')[0] || "",
+            district: initialData?.district || initialData?.address?.split(', ')[3] || "",
+            division: initialData?.division || "",
+            county: initialData?.county || initialData?.address?.split(', ')[2] || "",
+            sub_county: initialData?.sub_county || initialData?.address?.split(', ')[2] || "",
+            parish: initialData?.parish || initialData?.address?.split(', ')[1] || "",
+            village: initialData?.village || initialData?.address?.split(', ')[0] || "",
             business_location: initialData?.business_location || "",
             security_type: initialData?.security_type || "",
             security_value: initialData?.security_value?.toString() || "",
@@ -330,11 +360,20 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
         }
     }, [watchProduct, loanProducts]);
 
-    // When application type changes: auto-set Group Loan for group, clear for individual
+    // When application type changes: auto-set Group Loan for group, clear for individual.
+    // Skip the destructive clear on first mount when editing an existing group loan.
+    const appTypeInitialized = useRef(false);
     useEffect(() => {
         const currentProduct = form.getValues("loan_product");
         const isGroup = watchAppType === "group";
         const groupLoan = loanProducts.find(p => p.name === "Group Loan");
+        if (!appTypeInitialized.current) {
+            appTypeInitialized.current = true;
+            if (isGroup && groupLoan && !currentProduct) {
+                form.setValue("loan_product", "Group Loan");
+            }
+            return;
+        }
         if (isGroup && groupLoan) {
             form.setValue("loan_product", "Group Loan");
         } else if (!isGroup && currentProduct === "Group Loan") {
@@ -442,13 +481,42 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
     }, [memberOwnedCollateral, selectedCollateral]);
 
     useEffect(() => {
-        if (initialData?.application_type === "group" && initialData?.borrower_id) {
+        if (inferApplicationType(initialData) === "group" && initialData?.borrower_id) {
             api.borrowers.get(initialData.borrower_id).then(setSelectedGroupLeader).catch(() => {});
         }
-        if (initialData?.application_type === "individual" && initialData?.borrower_id) {
+        if (inferApplicationType(initialData) === "individual" && initialData?.borrower_id) {
             api.borrowers.get(initialData.borrower_id).then(setSelectedBorrowerForIndividual).catch(() => {});
+        } else if (inferApplicationType(initialData) === "individual" && !initialData?.borrower_id && initialData?.phone_number) {
+            // Legacy loans without borrower_id: try match by phone once directory loads
+            api.borrowers.getAll(false).then((list: any[]) => {
+                const phone = String(initialData.phone_number || "").replace(/\D/g, "");
+                const match = (list || []).find((b) => String(b.phone_number || "").replace(/\D/g, "") === phone);
+                if (match) {
+                    setSelectedBorrowerForIndividual(match);
+                    form.setValue("borrower_id", match.id);
+                } else if (initialData.full_name) {
+                    // Synthetic selection so edit can proceed; create path still uses findOrCreate on backend if needed
+                    setSelectedBorrowerForIndividual({
+                        id: initialData.borrower_id || "",
+                        full_name: initialData.full_name,
+                        phone_number: initialData.phone_number,
+                        email: initialData.email || "",
+                        id_number: initialData.id_number || "",
+                        address: initialData.address || "",
+                    });
+                }
+            }).catch(() => {});
+        } else if (inferApplicationType(initialData) === "individual" && initialData?.full_name && !initialData?.borrower_id) {
+            setSelectedBorrowerForIndividual({
+                id: "",
+                full_name: initialData.full_name,
+                phone_number: initialData.phone_number,
+                email: initialData.email || "",
+                id_number: initialData.id_number || "",
+                address: initialData.address || "",
+            });
         }
-    }, [initialData?.application_type, initialData?.borrower_id]);
+    }, [initialData?.application_type, initialData?.borrower_id, initialData?.group_id, initialData?.loan_product]);
 
     useEffect(() => {
         if (initialData) return;
@@ -583,9 +651,11 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                 return;
             }
 
-            // Individual applications require a selected borrower
+            // Individual applications require a selected borrower (or existing loan borrower on edit)
             if (values.application_type === "individual") {
-                if (!selectedBorrowerForIndividual?.id) {
+                const existingBorrowerId = selectedBorrowerForIndividual?.id || initialData?.borrower_id;
+                const hasIdentity = !!(selectedBorrowerForIndividual?.full_name || initialData?.full_name);
+                if (!existingBorrowerId && !hasIdentity) {
                     toast({ title: "Validation Error", description: "Please select a borrower from the directory.", variant: "destructive" });
                     return;
                 }
@@ -593,7 +663,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
 
             // Group applications require group name, group leader, and member amounts
             if (values.application_type === "group") {
-                if (!values.group_name?.trim()) {
+                if (!values.group_name?.trim() && !initialData?.group_name) {
                     toast({
                         title: "Group Name Required",
                         description: "Please enter the group name for group applications.",
@@ -601,7 +671,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                     });
                     return;
                 }
-                if (!selectedGroupLeader?.id) {
+                if (!selectedGroupLeader?.id && !initialData?.borrower_id) {
                     toast({
                         title: "Group Leader Required",
                         description: "Please select an existing borrower to be the group leader.",
@@ -610,8 +680,9 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                     return;
                 }
                 const totalAmount = Number(values.loan_amount) || 0;
-                const allocatedTotal = groupLeaderAmount + groupMembers.reduce((sum, m) => sum + (m.amount ?? 0), 0);
-                if (Math.abs(allocatedTotal - totalAmount) > 1) {
+                const allocatedTotal = groupLeaderAmount + groupMembers.reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
+                // Only enforce allocation when members have amounts entered
+                if (allocatedTotal > 0 && Math.abs(allocatedTotal - totalAmount) > 1) {
                     toast({
                         title: "Amount Mismatch",
                         description: `Member amounts (${allocatedTotal.toLocaleString()} UGX) must equal the total loan amount (${totalAmount.toLocaleString()} UGX). Use "Distribute equally" or adjust each member's share.`,
@@ -665,10 +736,12 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
             const durationUnit = values.duration_unit || "months";
             const loanDurationMonths = durationUnit === "weeks" ? durationVal / 4.33 : durationUnit === "years" ? durationVal * 12 : durationVal;
 
-            const borrowerData = values.application_type === "individual" ? selectedBorrowerForIndividual : selectedGroupLeader;
+            const borrowerData = values.application_type === "individual"
+                ? (selectedBorrowerForIndividual || initialData)
+                : (selectedGroupLeader || initialData);
             const addr = (borrowerData?.address || "").split(", ");
             const fullName = borrowerData?.full_name || values.full_name || "";
-            const emailVal = (borrowerData?.email || values.email || "").trim();
+            const emailVal = sanitizeEmail(borrowerData?.email || values.email || "");
             const phoneVal = borrowerData?.phone_number || values.phone_number || "";
             const idNum = borrowerData?.id_number || values.id_number || "";
             const dob = borrowerData?.date_of_birth ? String(borrowerData.date_of_birth).split("T")[0] : values.date_of_birth || "1990-01-01";
@@ -680,7 +753,9 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
 
             const applicationData = {
                 user_id: user.id,
-                borrower_id: values.application_type === "group" ? selectedGroupLeader?.id : selectedBorrowerForIndividual?.id,
+                borrower_id: values.application_type === "group"
+                    ? (selectedGroupLeader?.id || initialData?.borrower_id)
+                    : (selectedBorrowerForIndividual?.id || initialData?.borrower_id),
                 full_name: fullName,
                 email: emailVal,
                 phone_number: phoneVal,
@@ -704,7 +779,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                 interest_method: values.interest_method || "flat_rate",
                 interest_rate: values.interest_rate ? parseFloat(values.interest_rate) : null,
                 interest_fixed_amount: values.interest_fixed_amount ? parseFloat(values.interest_fixed_amount) : null,
-                loan_purpose: values.loan_purpose,
+                loan_purpose: values.loan_purpose || "Working capital",
                 business_location: values.loan_category === "Business" ? (values.business_location || null) : null,
                 employment_status: "Self-Employed",
 
@@ -722,7 +797,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
 
                 // JSON Fields
                 guarantors: guarantors,
-                group_name: values.group_name || null,
+                group_name: values.group_name || initialData?.group_name || null,
                 group_leader_amount: values.application_type === "group" ? groupLeaderAmount : undefined,
                 group_members: values.application_type === "group"
                     ? initialData

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, CheckCircle, XCircle, Users, User, DollarSign, Calendar, MapPin, Briefcase, FileText, Eye, Sparkles, Loader2, Info } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, Users, User, DollarSign, Calendar, MapPin, Briefcase, FileText, Eye, Sparkles, Loader2, Info, Edit, Printer } from "lucide-react";
 import { resolveMediaUrl } from "@/lib/resolveMediaUrl";
 import {
     AlertDialog,
@@ -498,15 +498,36 @@ const LoanApplicationDetails = () => {
                                                         <span className="font-medium text-sm">{doc.label}</span>
                                                     </div>
                                                     {doc.value ? (
-                                                        <a
-                                                            href={doc.value.startsWith("http") ? doc.value : resolveMediaUrl(doc.value) || doc.value}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm font-medium shrink-0"
-                                                        >
-                                                            <Eye className="h-4 w-4" />
-                                                            View
-                                                        </a>
+                                                        <div className="flex items-center gap-2 shrink-0">
+                                                            <a
+                                                                href={doc.value.startsWith("http") ? doc.value : resolveMediaUrl(doc.value) || doc.value}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm font-medium"
+                                                            >
+                                                                <Eye className="h-4 w-4" />
+                                                                View
+                                                            </a>
+                                                            <button
+                                                                type="button"
+                                                                className="flex items-center gap-1 text-slate-700 hover:text-slate-900 text-sm font-medium"
+                                                                onClick={() => {
+                                                                    const url = doc.value!.startsWith("http")
+                                                                        ? doc.value!
+                                                                        : resolveMediaUrl(doc.value!) || doc.value!;
+                                                                    const w = window.open(url, "_blank", "noopener,noreferrer");
+                                                                    if (!w) return;
+                                                                    const tryPrint = () => {
+                                                                        try { w.focus(); w.print(); } catch { /* ignore */ }
+                                                                    };
+                                                                    // Images/PDFs: print after load; otherwise attempt shortly
+                                                                    setTimeout(tryPrint, 800);
+                                                                }}
+                                                            >
+                                                                <Printer className="h-4 w-4" />
+                                                                Print
+                                                            </button>
+                                                        </div>
                                                     ) : (
                                                         <span className="text-muted-foreground text-xs italic">Not Uploaded</span>
                                                     )}
