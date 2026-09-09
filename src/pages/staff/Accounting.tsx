@@ -250,7 +250,11 @@ const Accounting = () => {
   const cashbookPrintRef = useRef<HTMLDivElement>(null);
   const agingPrintRef = useRef<HTMLDivElement>(null);
 
-  const printReport = (ref: React.RefObject<HTMLDivElement | null>, title: string) => {
+  const printReport = (
+    ref: React.RefObject<HTMLDivElement | null>,
+    title: string,
+    options?: { maxTableRows?: number },
+  ) => {
     if (!ref.current) {
       toast({
         title: "Nothing to print yet",
@@ -259,25 +263,28 @@ const Accounting = () => {
       });
       return;
     }
-    printElementAsDocument(ref.current, title);
+    // Ledgers (cashbook / portfolio / aging) get a row cap so print stays a few pages, not hundreds.
+    const ledgerTitles = /cashbook|portfolio|aging/i;
+    const maxTableRows = options?.maxTableRows ?? (ledgerTitles.test(title) ? 100 : 200);
+    printElementAsDocument(ref.current, title, { maxTableRows, stripCharts: true });
     toast({
       title: "Print dialog opened",
       description:
-        "Only this document is sent to print (not the sidebar). Pick a printer, or Save as PDF.",
+        "Compact document preview (not the sidebar). Large ledgers are trimmed — narrow the date range to print fewer rows.",
     });
   };
 
   const printActiveDocument = () => {
-    const map: Record<string, { ref: React.RefObject<HTMLDivElement | null>; title: string }> = {
-      pl: { ref: plPrintRef, title: "Financial Overview" },
-      portfolio: { ref: portfolioPrintRef, title: "Loan Portfolio" },
+    const map: Record<string, { ref: React.RefObject<HTMLDivElement | null>; title: string; maxTableRows?: number }> = {
+      pl: { ref: plPrintRef, title: "Financial Overview", maxTableRows: 40 },
+      portfolio: { ref: portfolioPrintRef, title: "Loan Portfolio", maxTableRows: 80 },
       income: { ref: incomePrintRef, title: "Profit & Loss Statement" },
       balance: { ref: balancePrintRef, title: "Balance Sheet" },
       cashflow: { ref: cashflowPrintRef, title: "Cash Flow Statement" },
-      cashbook: { ref: cashbookPrintRef, title: "Cashbook" },
+      cashbook: { ref: cashbookPrintRef, title: "Cashbook", maxTableRows: 80 },
       financial_analysis: { ref: analysisPrintRef, title: "Financial Risk Assessment" },
       trial: { ref: trialPrintRef, title: "Trial Balance" },
-      aging_report: { ref: agingPrintRef, title: "Portfolio Aging Report" },
+      aging_report: { ref: agingPrintRef, title: "Portfolio Aging Report", maxTableRows: 80 },
       comprehensive_income: { ref: comprehensivePrintRef, title: "Statement of Comprehensive Income" },
       financial_position: { ref: financialPositionPrintRef, title: "Statement of Financial Position" },
       cashflow_statement: { ref: cashflowStmtPrintRef, title: "Cashflow Statement" },
@@ -288,7 +295,7 @@ const Accounting = () => {
       toast({ title: "This tab cannot be printed yet", variant: "destructive" });
       return;
     }
-    printReport(target.ref, target.title);
+    printReport(target.ref, target.title, { maxTableRows: target.maxTableRows });
   };
 
   const filteredEntries = useMemo(() => {
@@ -1252,7 +1259,7 @@ const Accounting = () => {
                   </div>
 
                   {/* ── Charts Row ── */}
-                  <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-5 gap-4" data-print-hide>
                     {/* P&L Bar Chart — takes 3/5 width */}
                     <Card className="lg:col-span-3 shadow-sm">
                       <CardHeader>
@@ -1325,7 +1332,7 @@ const Accounting = () => {
                   </div>
 
                   {/* ── Net Profit Trend ── */}
-                  <Card className="shadow-sm">
+                  <Card className="shadow-sm" data-print-hide>
                     <CardHeader>
                       <CardTitle className="text-base">Net Profit Trend</CardTitle>
                       <CardDescription>Month-over-month profitability</CardDescription>
@@ -1468,7 +1475,7 @@ const Accounting = () => {
                       </div>
 
                       {/* Pagination */}
-                      <div className="flex items-center justify-between px-4 py-3 border-t">
+                      <div className="flex items-center justify-between px-4 py-3 border-t" data-print-hide>
                         <div className="text-xs text-slate-500">
                           Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, totalEntries)} of {totalEntries}
                         </div>
