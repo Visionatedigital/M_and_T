@@ -91,11 +91,15 @@ const menuItems = [
     icon: BookOpen,
     items: [
       { title: "Financial Overview", url: "/staff-dashboard/accounting?tab=pl", icon: LayoutDashboard },
+      { title: "Income Statement", url: "/staff-dashboard/accounting?tab=income", icon: FileText },
+      { title: "Balance Sheet", url: "/staff-dashboard/accounting?tab=balance", icon: Scale },
+      { title: "Cash Flow", url: "/staff-dashboard/accounting?tab=cashflow", icon: Wallet },
       { title: "Aging Report", url: "/staff-dashboard/accounting?tab=aging_report", icon: Clock },
       { title: "Cash Books", url: "/staff-dashboard/accounting?tab=cashbook", icon: BookOpen },
-      { title: "Income Statement", url: "/staff-dashboard/accounting?tab=income", icon: FileText },
       { title: "Comprehensive Income", url: "/staff-dashboard/accounting?tab=comprehensive_income", icon: TrendingUp },
       { title: "Trial Balance", url: "/staff-dashboard/accounting?tab=trial", icon: Scale },
+      { title: "Equity Statement", url: "/staff-dashboard/accounting?tab=equity_statement", icon: FileText },
+      { title: "Financial Analysis", url: "/staff-dashboard/accounting?tab=financial_analysis", icon: BarChart3 },
     ],
   },
   {

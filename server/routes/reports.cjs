@@ -1228,78 +1228,6 @@ router.get('/roi-stats', async (req, res) => {
 
 // Get Forecast (12-month Projection)
 // ──────────────────────────────────────────────────────────────
-// GET /api/reports/equity-statement
-// ──────────────────────────────────────────────────────────────
-router.get('/equity-statement', async (req, res) => {
-    try {
-        const { year = new Date().getFullYear() } = req.query;
-
-        // 1. Get initial Share Capital (from all time before current year)
-        const { rows: initialCapRows } = await db.query(`
-            SELECT COALESCE(SUM(amount), 0) as total
-            FROM accounting_entries
-            WHERE category = 'Share Capital' AND entry_date < $1
-        `, [`${year}-01-01`]);
-        let currentShareCapital = parseFloat(initialCapRows[0].total);
-
-        // 2. Get initial Retained Earnings (all net profit before current year)
-        const { rows: initialProfitRows } = await db.query(`
-            SELECT 
-                COALESCE(SUM(CASE WHEN entry_type = 'revenue' THEN amount ELSE -amount END), 0) as net
-            FROM accounting_entries
-            WHERE entry_date < $1 AND category != 'Share Capital'
-        `, [`${year}-01-01`]);
-        let currentAccumulatedProfits = parseFloat(initialProfitRows[0].net);
-
-        const months = [];
-        for (let m = 0; m < 12; m++) {
-            const startDate = new Date(year, m, 1);
-            const endDate = new Date(year, m + 1, 0);
-            const monthLabel = startDate.toLocaleString('default', { month: 'long' }).toUpperCase();
-
-            // Monthly Share Capital addition
-            const { rows: capRows } = await db.query(`
-                SELECT COALESCE(SUM(amount), 0) as total
-                FROM accounting_entries
-                WHERE category = 'Share Capital' 
-                AND entry_date >= $1 AND entry_date <= $2
-            `, [startDate, endDate]);
-            const monthlyShareCap = parseFloat(capRows[0].total);
-
-            // Monthly Net Profit
-            const { rows: profitRows } = await db.query(`
-                SELECT 
-                    COALESCE(SUM(CASE WHEN entry_type = 'revenue' THEN amount ELSE -amount END), 0) as net
-                FROM accounting_entries
-                WHERE category != 'Share Capital'
-                AND entry_date >= $1 AND entry_date <= $2
-            `, [startDate, endDate]);
-            const monthlyNetProfit = parseFloat(profitRows[0].net);
-
-            const openingCap = currentShareCapital;
-            const openingProfit = currentAccumulatedProfits;
-
-            currentShareCapital += monthlyShareCap;
-            currentAccumulatedProfits += monthlyNetProfit;
-
-            months.push({
-                month: monthLabel,
-                startDate: startDate.toLocaleDateString(),
-                endDate: endDate.toLocaleDateString(),
-                opening: { shareCapital: openingCap, accumulatedProfits: openingProfit },
-                changes: { shareCapital: monthlyShareCap, netProfit: monthlyNetProfit },
-                closing: { shareCapital: currentShareCapital, accumulatedProfits: currentAccumulatedProfits }
-            });
-        }
-
-        res.json({ year, data: months });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Failed to fetch equity statement' });
-    }
-});
-
-// ──────────────────────────────────────────────────────────────
 // GET /api/reports/equity-statement-docx
 // ──────────────────────────────────────────────────────────────
 router.get('/equity-statement-docx', async (req, res) => {
@@ -1966,9 +1894,8 @@ router.get('/aging-report', async (req, res) => {
         const msInDay = 1000 * 60 * 60 * 24;
         const periodDaysGlobal = Math.round((endDate.getTime() - startDate.getTime()) / msInDay);
 
-        // Fetch loans approved/disbursed within the selected date range (from <= approved_at <= to)
-        // The from/to dates filter which loans appear AND which payments are counted
-        // Statuses to include: same as loan portfolio - approved/disbursed/completed/settled
+        // Portfolio aging is an as-of snapshot: include loans issued on/before `to`.
+        // `from` only scopes the period Payments / interest-in-period columns.
         // LEFT JOIN on loan_products so loans with missing/mismatched product names still appear
         const { rows: loans } = await db.query(`
             SELECT 
@@ -1980,9 +1907,10 @@ router.get('/aging-report', async (req, res) => {
             FROM loan_applications l
             LEFT JOIN loan_products lp ON LOWER(TRIM(l.loan_product)) = LOWER(TRIM(lp.name))
             WHERE l.status IN ('approved', 'disbursed', 'active', 'completed', 'settled')
-            AND l.approved_at >= $1 AND l.approved_at <= $2
+            AND l.approved_at IS NOT NULL
+            AND l.approved_at <= $1
             ORDER BY l.approved_at DESC
-        `, [startDate, endDate]);
+        `, [endDate]);
 
         const agingDataRaw = await Promise.all(loans.map(async (loan, idx) => {
             // Get ALL repayments up to the snapshot (endDate)

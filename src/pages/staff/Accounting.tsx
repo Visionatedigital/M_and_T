@@ -69,6 +69,38 @@ const fmt = (n: number) =>
 
 const formatDate = (d: string) => new Date(d).toLocaleDateString("en-UG", { day: "numeric", month: "short", year: "numeric" });
 
+const todayISO = () => new Date().toISOString().split("T")[0];
+const yearStartISO = () => `${new Date().getFullYear()}-01-01`;
+const currentMonthISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
+
+/** Normalize equity-statement payloads from either from/to or legacy year-shaped APIs. */
+function normalizeEquityStatement(raw: any) {
+  if (!raw) return null;
+  if (raw.periodLabel && Array.isArray(raw.data) && raw.data[0]?.movements) return raw;
+  if (Array.isArray(raw.data) && raw.data[0]?.opening?.shareCapital !== undefined) {
+    const year = raw.year || new Date().getFullYear();
+    return {
+      periodLabel: `1 Jan ${year} – 31 Dec ${year}`,
+      data: raw.data.map((m: any) => ({
+        month: m.month,
+        dateLabel: `${m.startDate || ""} – ${m.endDate || ""}`.replace(/^ – | – $/g, "") || m.month,
+        openingLabel: m.startDate || "—",
+        closingLabel: m.endDate || "—",
+        opening: { shareCap: m.opening?.shareCapital ?? 0, profit: m.opening?.accumulatedProfits ?? 0 },
+        movements: {
+          capitalInjected: m.changes?.shareCapital ?? 0,
+          periodProfit: m.changes?.netProfit ?? 0,
+        },
+        closing: { shareCap: m.closing?.shareCapital ?? 0, profit: m.closing?.accumulatedProfits ?? 0 },
+      })),
+    };
+  }
+  return raw;
+}
+
 /** Strip legacy import prefix from Details (old rows stored as "Cashbook Import | YYYY | …"). */
 function cashBookLineDetails(description: string | null | undefined) {
   const s = String(description ?? "");
@@ -111,8 +143,8 @@ const Accounting = () => {
 
   // Filter State
   const [filterType, setFilterType] = useState("all");
-  const [filterFrom, setFilterFrom] = useState("2025-01-01");
-  const [filterTo, setFilterTo] = useState("2025-12-31");
+  const [filterFrom, setFilterFrom] = useState(yearStartISO);
+  const [filterTo, setFilterTo] = useState(todayISO);
   const [filterCategory, setFilterCategory] = useState("all");
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 15;
@@ -120,8 +152,8 @@ const Accounting = () => {
 
   // Report tabs state
   const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "pl");
-  const [reportFrom, setReportFrom] = useState(() => "2025-01-01");
-  const [reportTo, setReportTo] = useState(() => "2025-12-31");
+  const [reportFrom, setReportFrom] = useState(yearStartISO);
+  const [reportTo, setReportTo] = useState(todayISO);
   const [incomeStmt, setIncomeStmt] = useState<any>(null);
   const [balanceSheet, setBalanceSheet] = useState<any>(null);
   const [cashFlow, setCashFlow] = useState<any>(null);
@@ -139,7 +171,7 @@ const Accounting = () => {
   const [financialAiOpen, setFinancialAiOpen] = useState(false);
   const [financialAiLoading, setFinancialAiLoading] = useState(false);
   const [financialAiNarrative, setFinancialAiNarrative] = useState<string | null>(null);
-  const [selectedMonth, setSelectedMonth] = useState("2025-01");
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthISO);
 
   useEffect(() => {
     const tab = searchParams.get("tab");
@@ -313,14 +345,13 @@ const Accounting = () => {
     }
   };
 
-  // ─── Load Report (when tab changes) ────────────────────────
+  // ─── Load Report (when tab / filters change) ───────────────
   const loadReport = useCallback(async (tab: string) => {
     if (tab === "pl") return;
     setReportLoading(tab);
     try {
-      const to = reportTo || new Date().toISOString().split("T")[0];
-      const from = reportFrom || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0];
-      const month = selectedMonth;
+      const to = reportTo || todayISO();
+      const from = reportFrom || yearStartISO();
 
       if (tab === "loan_analytics" || tab === "client_analytics") {
         const data = await api.reports.getStats();
@@ -343,16 +374,19 @@ const Accounting = () => {
         const d = await api.accounting.getTrialBalance({ to });
         setTrialBalance(d);
       } else if (tab === "cashbook") {
-        const d = await api.accounting.getCashBook({ from, to, account: filterAccount !== "all" ? filterAccount : undefined });
+        const d = await api.accounting.getCashBook({
+          from,
+          to,
+          account: filterAccount !== "all" ? filterAccount : undefined,
+        });
         setCashBookData(d);
       } else if (tab === "aging_report") {
-        // Use global report to/from if available, otherwise fallback to current month
-        let agingTo = reportTo;
-        let agingFrom = reportFrom;
-        if (!agingTo) {
-          const [y, m] = selectedMonth.split('-').map(Number);
+        let agingTo = reportTo || to;
+        let agingFrom = reportFrom || from;
+        if (!reportTo && selectedMonth) {
+          const [y, m] = selectedMonth.split("-").map(Number);
           const lastDay = new Date(y, m, 0).getDate();
-          agingTo = `${selectedMonth}-${String(lastDay).padStart(2, '0')}`;
+          agingTo = `${selectedMonth}-${String(lastDay).padStart(2, "0")}`;
           agingFrom = `${selectedMonth}-01`;
         }
         const d = await api.reports.getAgingReport({ from: agingFrom, to: agingTo });
@@ -365,17 +399,16 @@ const Accounting = () => {
         setFinancialPositionData(d);
       } else if (tab === "equity_statement") {
         const d = await api.reports.getEquityStatement({ from, to });
-        setEquityStatementData(d);
+        setEquityStatementData(normalizeEquityStatement(d));
       } else if (tab === "cashflow_statement") {
-        const d = await api.reports.getCashflowStatement(to);
-        setCashflowStmtData(d.data);
+        const d = await api.reports.getCashflowStatement({ from, to });
+        setCashflowStmtData(d.data ?? d);
       } else if (tab === "financial_analysis") {
         const d = await api.reports.getFinancialAnalysis();
-        // Standardize zScore naming
         setFinancialAnalysisData({
           ...d,
-          z_score: d.zScore,
-          zone: d.interpretation?.split(' ')[0]
+          z_score: d.zScore ?? d.z_score,
+          zone: (d.interpretation || d.zone || "").split(" ")[0] || "—",
         });
       }
     } catch (e) {
@@ -384,7 +417,7 @@ const Accounting = () => {
     } finally {
       setReportLoading(null);
     }
-  }, [reportFrom, reportTo, toast]);
+  }, [reportFrom, reportTo, filterAccount, selectedMonth, toast]);
 
   useEffect(() => {
     if (activeTab && activeTab !== "pl") loadReport(activeTab);
@@ -699,10 +732,16 @@ const Accounting = () => {
     });
     rows.push({});
 
+    rows.push({ Category: "CASH FLOW FROM FINANCING ACTIVITIES", Amount: "" });
+    cashflowStmtData.financing_activities?.forEach((item: any) => {
+      rows.push({ Category: item.label, Amount: item.amount || 0 });
+    });
+    rows.push({});
+
     rows.push({ Category: "Opening Cash Equivalents", Amount: cashflowStmtData.cash_equivalents?.opening || 0 });
     rows.push({ Category: "Closing Cash Equivalents", Amount: cashflowStmtData.cash_equivalents?.closing || 0 });
 
-    exportToCSV(rows, `Cashflow_Statement_${reportTo || new Date().toISOString().split('T')[0]}`);
+    exportToCSV(rows, `Cashflow_Statement_${reportTo || todayISO()}`);
   };
 
   // ─── Delete ───────────────────────────────────────────────
@@ -1016,6 +1055,15 @@ const Accounting = () => {
                     <TabsTrigger value="pl" className="shrink-0 text-xs">
                       Financial Overview
                     </TabsTrigger>
+                    <TabsTrigger value="income" className="shrink-0 text-xs">
+                      Income Statement
+                    </TabsTrigger>
+                    <TabsTrigger value="balance" className="shrink-0 text-xs">
+                      Balance Sheet
+                    </TabsTrigger>
+                    <TabsTrigger value="cashflow" className="shrink-0 text-xs">
+                      Cash Flow
+                    </TabsTrigger>
                     <TabsTrigger value="portfolio" className="shrink-0 text-xs">
                       Loan Portfolio
                     </TabsTrigger>
@@ -1254,7 +1302,7 @@ const Accounting = () => {
                           <Input type="date" value={filterTo} onChange={e => { setFilterTo(e.target.value); setPage(0); }}
                             className="h-8 text-xs w-36" placeholder="To" />
                           <Button variant="ghost" size="sm" className="h-8 text-xs"
-                            onClick={() => { setFilterType("all"); setFilterCategory("all"); setFilterFrom(""); setFilterTo(""); setPage(0); }}>
+                            onClick={() => { setFilterType("all"); setFilterCategory("all"); setFilterFrom(yearStartISO()); setFilterTo(todayISO()); setPage(0); }}>
                             Clear
                           </Button>
                           <div className="relative w-full sm:w-48">
@@ -1530,7 +1578,9 @@ const Accounting = () => {
                         </div>
                       </CardContent>
                     </Card>
-                  ) : null}
+                  ) : (
+                    <div className="text-center py-12 text-slate-500 italic">No income statement data for this period. Adjust the date filters and click Refresh.</div>
+                  )}
                 </TabsContent>
 
                 {/* ── Balance Sheet ── */}
@@ -1591,7 +1641,9 @@ const Accounting = () => {
                         </div>
                       </CardContent>
                     </Card>
-                  ) : null}
+                  ) : (
+                    <div className="text-center py-12 text-slate-500 italic">No balance sheet data for this date. Adjust the To date and click Refresh.</div>
+                  )}
                 </TabsContent>
 
                 {/* ── Cash Flow ── */}
@@ -1650,7 +1702,9 @@ const Accounting = () => {
                         </div>
                       </CardContent>
                     </Card>
-                  ) : null}
+                  ) : (
+                    <div className="text-center py-12 text-slate-500 italic">No cash flow data for this period. Adjust the date filters and click Refresh.</div>
+                  )}
                 </TabsContent>
 
 
@@ -1669,7 +1723,7 @@ const Accounting = () => {
                       </div>
                     </div>
                     <div className="flex gap-4 items-center">
-                      <Select value={filterAccount} onValueChange={v => { setFilterAccount(v); loadReport("cashbook"); }}>
+                      <Select value={filterAccount} onValueChange={setFilterAccount}>
                         <SelectTrigger className="w-[180px] h-9 text-xs bg-white border-slate-200"><SelectValue placeholder="All Accounts" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All Accounts</SelectItem>
@@ -1701,16 +1755,29 @@ const Accounting = () => {
                             </tr>
                           </thead>
                           <tbody>
+                            {(() => {
+                              const accountKey = filterAccount === "all" ? "all" : filterAccount;
+                              const summaries = cashBookData.summaries || {};
+                              const opening =
+                                summaries[accountKey]?.opening ??
+                                (filterAccount === "all"
+                                  ? ["cash", "mobile_money", "bank_transfer"].reduce(
+                                      (s, k) => s + (summaries[k]?.opening || 0),
+                                      0,
+                                    )
+                                  : 0);
+                              return (
+                            <>
                             {/* Opening Balance Row */}
                             <tr className="bg-slate-50/80 font-bold border-b border-slate-100">
                               <td className="py-4 px-6 text-[11px] text-slate-400 font-mono italic">{new Date(reportFrom || cashBookData.period.start).toLocaleDateString('en-GB')}</td>
                               <td className="py-4 px-6 font-black text-slate-900 uppercase text-xs">OPENING BALANCE B/F</td>
                               <td colSpan={2} className="py-4 px-6"></td>
-                              <td className="py-4 px-6 text-right font-black text-slate-900 tabular-nums">{fmt(cashBookData.summaries?.[filterAccount === 'all' ? 'cash' : filterAccount]?.opening || 0)}</td>
+                              <td className="py-4 px-6 text-right font-black text-slate-900 tabular-nums">{fmt(opening)}</td>
                               <td className="py-4 px-6 text-[10px] text-slate-400 italic">Balance brought forward</td>
                             </tr>
                             {(() => {
-                              let runningBalance = cashBookData.summaries?.[filterAccount === 'all' ? 'cash' : filterAccount]?.opening || 0;
+                              let runningBalance = opening;
                               const sorted = [...(cashBookData.transactions || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
                               return sorted.map((t: any) => {
                                 const isDebit = t.entry_type === 'revenue' || t.entry_type === 'asset' || t.source === 'repayment';
@@ -1734,6 +1801,9 @@ const Accounting = () => {
                                   </tr>
                                 );
                               }).reverse();
+                            })()}
+                            </>
+                              );
                             })()}
                           </tbody>
                         </table>
@@ -1821,7 +1891,7 @@ const Accounting = () => {
                                 <path
                                   d="M 10 50 A 40 40 0 0 1 90 50"
                                   fill="none"
-                                  stroke={financialAnalysisData.z_score > 2.9 ? "#10b981" : financialAnalysisData.z_score > 1.23 ? "#f59e0b" : "#ef4444"}
+                                  stroke={financialAnalysisData.z_score > 2.6 ? "#10b981" : financialAnalysisData.z_score > 1.1 ? "#f59e0b" : "#ef4444"}
                                   strokeWidth="10"
                                   strokeLinecap="round"
                                   strokeDasharray={`${Math.min(125.6, Math.max(0, (financialAnalysisData.z_score / 4) * 125.6))}, 125.6`}
@@ -1834,9 +1904,9 @@ const Accounting = () => {
                                 </div>
                                 <div
                                   className={`inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shadow-md ${
-                                    financialAnalysisData.z_score > 2.9
+                                    financialAnalysisData.z_score > 2.6
                                       ? "bg-emerald-500 text-white"
-                                      : financialAnalysisData.z_score > 1.23
+                                      : financialAnalysisData.z_score > 1.1
                                         ? "bg-amber-500 text-white"
                                         : "bg-red-500 text-white"
                                   }`}
@@ -1901,10 +1971,10 @@ const Accounting = () => {
                           </CardTitle>
                         </CardHeader>
                         <CardContent className="grid md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-100 p-0 text-slate-900">
-                          <div className={`p-4 md:p-5 transition-all ${financialAnalysisData.z_score > 2.9 ? "bg-emerald-50/50" : "opacity-40"}`}>
+                          <div className={`p-4 md:p-5 transition-all ${financialAnalysisData.z_score > 2.6 ? "bg-emerald-50/50" : "opacity-40"}`}>
                             <div className="flex items-center gap-2 text-emerald-600 font-black mb-2 text-xs tracking-widest uppercase">
                               <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)] shrink-0" />
-                              Secure (Z {'>'} 2.9)
+                              Secure (Z {'>'} 2.6)
                             </div>
                             <p className="text-[10px] text-slate-600 leading-snug font-semibold">
                               The organization demonstrates optimal liquidity and profitability. Risk of failure within 2 years is statistically negligible. Strategic leverage and expansion are recommended.
@@ -1912,21 +1982,21 @@ const Accounting = () => {
                           </div>
                           <div
                             className={`p-4 md:p-5 transition-all ${
-                              financialAnalysisData.z_score > 1.23 && financialAnalysisData.z_score <= 2.9 ? "bg-amber-50/50" : "opacity-40"
+                              financialAnalysisData.z_score > 1.1 && financialAnalysisData.z_score <= 2.6 ? "bg-amber-50/50" : "opacity-40"
                             }`}
                           >
                             <div className="flex items-center gap-2 text-amber-600 font-black mb-2 text-xs tracking-widest uppercase">
                               <div className="h-2 w-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)] shrink-0" />
-                              Marginal (1.2 - 2.9)
+                              Marginal (1.1 - 2.6)
                             </div>
                             <p className="text-[10px] text-slate-600 leading-snug font-semibold">
                               Performance indicators are mixed. The entity resides in the &apos;Grey Zone&apos;. Management should focus on improving turnover ratios and reducing reliance on short-term liabilities.
                             </p>
                           </div>
-                          <div className={`p-4 md:p-5 transition-all ${financialAnalysisData.z_score <= 1.23 ? "bg-red-50/50" : "opacity-40"}`}>
+                          <div className={`p-4 md:p-5 transition-all ${financialAnalysisData.z_score <= 1.1 ? "bg-red-50/50" : "opacity-40"}`}>
                             <div className="flex items-center gap-2 text-red-600 font-black mb-2 text-xs tracking-widest uppercase">
                               <div className="h-2 w-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)] shrink-0" />
-                              Critical (Z {'<'} 1.2)
+                              Critical (Z {'<'} 1.1)
                             </div>
                             <p className="text-[10px] text-slate-600 leading-snug font-semibold">
                               Statistical indicators suggest high correlation with historical bankruptcy cases. Critical re-evaluation of current debt structure and immediate capital injection is likely required.
@@ -1935,7 +2005,9 @@ const Accounting = () => {
                         </CardContent>
                       </Card>
                     </div>
-                  ) : null}
+                  ) : (
+                    <div className="text-center py-12 text-slate-500 italic">No financial analysis data available.</div>
+                  )}
                 </TabsContent>
 
 
@@ -1967,7 +2039,9 @@ const Accounting = () => {
                         </table>
                       </CardContent>
                     </Card>
-                  ) : null}
+                  ) : (
+                    <div className="text-center py-12 text-slate-500 italic">No trial balance data for this date. Adjust the To date and click Refresh.</div>
+                  )}
                 </TabsContent>
 
                 {/* ── Aging Report ── */}
@@ -2127,7 +2201,9 @@ const Accounting = () => {
                         </table>
                       </CardContent>
                     </Card>
-                  ) : null}
+                  ) : (
+                    <div className="text-center py-12 text-slate-500 italic">No comprehensive income data for this period. Adjust the date filters and click Refresh.</div>
+                  )}
                 </TabsContent>
 
                 {/* ── Financial Position (Monthly Matrix) ── */}
@@ -2244,7 +2320,9 @@ const Accounting = () => {
                         </table>
                       </CardContent>
                     </Card>
-                  ) : null}
+                  ) : (
+                    <div className="text-center py-12 text-slate-500 italic">No financial position data for this period. Adjust the date filters and click Refresh.</div>
+                  )}
                 </TabsContent>
                 {/* ── Cashflow Statement ── */}
                 <TabsContent value="cashflow_statement" className="mt-4">
@@ -2280,6 +2358,15 @@ const Accounting = () => {
                               <div key={i} className="flex justify-between text-sm"><span>{item.label}</span><span>{item.amount?.toLocaleString()}</span></div>
                             ))}
                           </section>
+                          <section>
+                            <h3 className="font-bold text-slate-900 border-b pb-1 mb-2">CASH FLOW FROM FINANCING ACTIVITIES</h3>
+                            {(cashflowStmtData.financing_activities || []).map((item: any, i: number) => (
+                              <div key={i} className="flex justify-between text-sm"><span>{item.label}</span><span>{item.amount?.toLocaleString()}</span></div>
+                            ))}
+                            {(cashflowStmtData.financing_activities || []).length === 0 && (
+                              <div className="text-sm text-slate-400 italic">No financing activity in this period</div>
+                            )}
+                          </section>
                           <section className="bg-slate-50 p-4 rounded-lg">
                             <div className="flex justify-between font-bold"><span>Opening Cash Equivalents</span><span>{cashflowStmtData.cash_equivalents?.opening?.toLocaleString()}</span></div>
                             <div className="flex justify-between font-bold text-blue-800 mt-2 pt-2 border-t"><span>Closing Cash Equivalents</span><span>{cashflowStmtData.cash_equivalents?.closing?.toLocaleString()}</span></div>
@@ -2287,7 +2374,9 @@ const Accounting = () => {
                         </div>
                       </CardContent>
                     </Card>
-                  ) : null}
+                  ) : (
+                    <div className="text-center py-12 text-slate-500 italic">No cashflow statement data for this period. Adjust the date filters and click Refresh.</div>
+                  )}
                 </TabsContent>
 
                 {/* ── Equity Statement ── */}

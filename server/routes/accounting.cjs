@@ -132,7 +132,7 @@ router.get('/entries', async (req, res) => {
 // ──────────────────────────────────────────────────────────────
 router.post('/entries', async (req, res) => {
     try {
-        const { entry_type, category, description, amount, entry_date, payment_method, reference_id } = req.body;
+        const { entry_type, category, description, narration, amount, entry_date, payment_method, reference_id } = req.body;
         const recorded_by = req.user.user_id;
         const normalizedMethod = normalizePaymentMethod(payment_method);
 
@@ -1419,6 +1419,14 @@ router.get('/cash-book', async (req, res) => {
                 closing: Math.round(opening + periodIn - periodOut)
             };
         }
+
+        // Combined totals for "All Accounts" filter in the UI
+        summaries.all = {
+            opening: accounts.reduce((s, acc) => s + (summaries[acc]?.opening || 0), 0),
+            inflow: accounts.reduce((s, acc) => s + (summaries[acc]?.inflow || 0), 0),
+            outflow: accounts.reduce((s, acc) => s + (summaries[acc]?.outflow || 0), 0),
+            closing: accounts.reduce((s, acc) => s + (summaries[acc]?.closing || 0), 0),
+        };
 
         res.json({
             transactions: allTransactions,

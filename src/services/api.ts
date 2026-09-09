@@ -419,10 +419,19 @@ export const api = {
             a.download = filename;
             a.click();
         },
-        getCashflowStatement: (to?: string) => fetch(`${API_URL}/reports/cashflow-statement?to=${to || ''}`, { headers: getHeaders() }).then(r => {
-            if (!r.ok) throw new Error('Failed to fetch cashflow statement');
-            return r.json();
-        }),
+        getCashflowStatement: (params?: { from?: string; to?: string } | string) => {
+            const qs = new URLSearchParams();
+            if (typeof params === 'string') {
+                if (params) qs.append('to', params);
+            } else if (params) {
+                if (params.from) qs.append('from', params.from);
+                if (params.to) qs.append('to', params.to);
+            }
+            return fetch(`${API_URL}/reports/cashflow-statement?${qs}`, { headers: getHeaders() }).then(r => {
+                if (!r.ok) throw new Error('Failed to fetch cashflow statement');
+                return r.json();
+            });
+        },
         getEquityStatement: (params?: { from?: string; to?: string; year?: number }) => {
             const qs = new URLSearchParams();
             if (params?.from) qs.append('from', params.from);
