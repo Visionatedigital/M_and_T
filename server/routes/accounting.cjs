@@ -11,6 +11,26 @@ const normalizePaymentMethod = (value) => {
     return v;
 };
 
+/** Expand UI account filter to DB payment_method values (e.g. MoMo includes Airtel). */
+function paymentMethodsForAccountFilter(account) {
+    if (!account || account === 'all') return null;
+    const a = String(account).toLowerCase();
+    if (a === 'mobile_money' || a === 'mobile') return ['mobile_money', 'airtel_money', 'mtn_money'];
+    if (a === 'bank' || a === 'bank_transfer') return ['bank_transfer'];
+    if (a === 'cash') return ['cash'];
+    return [a];
+}
+
+function appendPaymentMethodFilter(sql, params, account, column = 'payment_method') {
+    const methods = paymentMethodsForAccountFilter(account);
+    if (!methods || methods.length === 0) return { sql, params };
+    const placeholders = methods.map((_, i) => `$${params.length + 1 + i}`).join(', ');
+    return {
+        sql: `${sql} AND ${column} IN (${placeholders})`,
+        params: [...params, ...methods],
+    };
+}
+
 // Logging middleware for accounting routes
 router.use((req, res, next) => {
     console.log(`📂 Accounting API: ${req.method} ${req.url}`);
@@ -1325,19 +1345,20 @@ router.get('/cash-book', async (req, res) => {
         const { start, end } = getDateRange(req);
         const { account } = req.query; // optional filter by payment_method
 
-        // 1. Fetch Manual Entries
+        // 1. Fetch Manual Entries (include created_at so newest Add Entry rows sort to the top)
         let entriesQuery = `
             SELECT 
                 id, entry_date as date, description, category, 
-                narration, amount, entry_type, payment_method, 'manual' as source
+                narration, amount, entry_type, payment_method, 'manual' as source,
+                created_at
             FROM accounting_entries 
             WHERE entry_date >= $1 AND entry_date <= $2
         `;
         let entriesParams = [start, end];
-        if (account) {
-            entriesQuery += ` AND payment_method = $3`;
-            entriesParams.push(account);
-        }
+        ({ sql: entriesQuery, params: entriesParams } = appendPaymentMethodFilter(
+            entriesQuery, entriesParams, account, 'payment_method'
+        ));
+        entriesQuery += ` ORDER BY entry_date ASC, created_at ASC NULLS FIRST`;
         const { rows: manualEntries } = await db.query(entriesQuery, entriesParams);
 
         // 2. Fetch Repayments (Inflows)
@@ -1347,16 +1368,16 @@ router.get('/cash-book', async (req, res) => {
                 'Loan Repayment - ' || la.full_name as description, 
                 'Interest & Principal' as category,
                 'Loan repayment'::text as narration,
-                r.amount, 'revenue' as entry_type, r.payment_method, 'repayment' as source
+                r.amount, 'revenue' as entry_type, r.payment_method, 'repayment' as source,
+                r.created_at
             FROM repayments r
             JOIN loan_applications la ON r.loan_application_id = la.id
             WHERE r.payment_date::date >= $1 AND r.payment_date::date <= $2
         `;
         let repaymentsParams = [start, end];
-        if (account) {
-            repaymentsQuery += ` AND r.payment_method = $3`;
-            repaymentsParams.push(account);
-        }
+        ({ sql: repaymentsQuery, params: repaymentsParams } = appendPaymentMethodFilter(
+            repaymentsQuery, repaymentsParams, account, 'r.payment_method'
+        ));
         const { rows: repayments } = await db.query(repaymentsQuery, repaymentsParams);
 
         let disbursementsQuery = `
@@ -1365,7 +1386,8 @@ router.get('/cash-book', async (req, res) => {
                 'Loan Disbursement - ' || full_name as description, 
                 'Loan Issue' as category,
                 'Loan issue'::text as narration,
-                loan_amount as amount, 'expense' as entry_type, 'cash' as payment_method, 'disbursement' as source
+                loan_amount as amount, 'expense' as entry_type, 'cash' as payment_method, 'disbursement' as source,
+                approved_at as created_at
             FROM loan_applications
             WHERE status IN ('disbursed', 'completed', 'settled')
             AND approved_at::date >= $1 AND approved_at::date <= $2
@@ -1373,28 +1395,38 @@ router.get('/cash-book', async (req, res) => {
         let disbursementsParams = [start, end];
 
         let disbursements = [];
-        if (!account || account === 'cash') {
+        if (!account || account === 'cash' || account === 'all') {
             const { rows } = await db.query(disbursementsQuery, disbursementsParams);
             disbursements = rows;
         }
 
-        // 4. Combine and Sort
+        // 4. Combine and Sort (oldest → newest; UI may reverse for display)
         const allTransactions = [...manualEntries, ...repayments, ...disbursements]
-            .sort((a, b) => new Date(a.date) - new Date(b.date));
+            .sort((a, b) => {
+                const da = new Date(a.date).getTime() - new Date(b.date).getTime();
+                if (da !== 0) return da;
+                const ca = new Date(a.created_at || a.date).getTime();
+                const cb = new Date(b.created_at || b.date).getTime();
+                return ca - cb;
+            });
 
         // 5. Calculate Balances by Account
         const accounts = ['cash', 'mobile_money', 'bank_transfer'];
         const summaries = {};
 
         for (const acc of accounts) {
+            const methods = paymentMethodsForAccountFilter(acc) || [acc];
             // Opening balance (Total historical before 'start')
             const { rows: openManual } = await db.query(
-                `SELECT SUM(CASE WHEN entry_type = 'revenue' THEN amount ELSE -amount END) as total FROM accounting_entries WHERE entry_date < $1 AND payment_method = $2`,
-                [start, acc]
+                `SELECT SUM(CASE WHEN entry_type = 'revenue' THEN amount ELSE -amount END) as total
+                 FROM accounting_entries
+                 WHERE entry_date < $1 AND payment_method = ANY($2::text[])`,
+                [start, methods]
             );
             const { rows: openRep } = await db.query(
-                `SELECT SUM(amount) as total FROM repayments WHERE payment_date::date < $1 AND payment_method = $2`,
-                [start, acc]
+                `SELECT SUM(amount) as total FROM repayments
+                 WHERE payment_date::date < $1 AND payment_method = ANY($2::text[])`,
+                [start, methods]
             );
 
             let openDis = 0;
@@ -1408,9 +1440,13 @@ router.get('/cash-book', async (req, res) => {
 
             const opening = parseFloat(openManual[0]?.total || 0) + parseFloat(openRep[0]?.total || 0) - openDis;
 
-            // Movements in period
-            const periodIn = allTransactions.filter(t => t.payment_method === acc && t.entry_type === 'revenue').reduce((s, t) => s + parseFloat(t.amount), 0);
-            const periodOut = allTransactions.filter(t => t.payment_method === acc && t.entry_type === 'expense').reduce((s, t) => s + parseFloat(t.amount), 0);
+            const methodSet = new Set(methods);
+            const periodIn = allTransactions
+                .filter(t => methodSet.has(t.payment_method) && t.entry_type === 'revenue')
+                .reduce((s, t) => s + parseFloat(t.amount), 0);
+            const periodOut = allTransactions
+                .filter(t => methodSet.has(t.payment_method) && t.entry_type === 'expense')
+                .reduce((s, t) => s + parseFloat(t.amount), 0);
 
             summaries[acc] = {
                 opening: Math.round(opening),
@@ -1431,7 +1467,8 @@ router.get('/cash-book', async (req, res) => {
         res.json({
             transactions: allTransactions,
             summaries,
-            period: { start, end }
+            period: { start, end },
+            filter_account: account || 'all',
         });
     } catch (err) {
         console.error('Cash book error:', err);

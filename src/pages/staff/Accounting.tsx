@@ -162,6 +162,7 @@ const Accounting = () => {
   const [trialBalance, setTrialBalance] = useState<any>(null);
   const [cashBookData, setCashBookData] = useState<any>(null);
   const [filterAccount, setFilterAccount] = useState("all");
+  const [cashBookSearch, setCashBookSearch] = useState("");
   const [reportLoading, setReportLoading] = useState<string | null>(null);
   const [agingData, setAgingData] = useState<any[]>([]);
   const [comprehensiveIncomeData, setComprehensiveIncomeData] = useState<any>(null);
@@ -362,9 +363,14 @@ const Accounting = () => {
         narration: form.narration || form.description || null,
         amount: parseFloat(form.amount),
       });
-      toast({ title: "Entry recorded successfully ✓" });
+      toast({
+        title: "Entry recorded successfully ✓",
+        description: `Saved to cash book (${(form.payment_method || "cash").replace(/_/g, " ")}). Use All Accounts or that channel to see it.`,
+      });
       setDialogOpen(false);
       setForm({ entry_type: "expense", category: "", description: "", narration: "", amount: "", entry_date: new Date().toISOString().split("T")[0], payment_method: "cash", fee_type: "" });
+      // Ensure cashbook is not stuck on another channel (e.g. Mobile Money hides Cash salary)
+      setFilterAccount("all");
       setRefreshKey(k => k + 1);
     } catch (err: any) {
       toast({ title: err.message || "Failed to save entry", variant: "destructive" });
@@ -1755,30 +1761,49 @@ const Accounting = () => {
 
                 {/* ── Cash Book ── */}
                 <TabsContent value="cashbook" className="mt-4 space-y-4">
-                  <div className="flex items-center justify-between bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-2">
-                    <div className="flex items-center gap-6">
-                      <div className="p-3 bg-slate-50 rounded-xl">
-                        <Landmark className="h-6 w-6 text-primary" />
+                  <div className="flex flex-col gap-3 bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-100 mb-2">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-center gap-4 min-w-0">
+                        <div className="p-3 bg-slate-50 rounded-xl shrink-0">
+                          <Landmark className="h-6 w-6 text-primary" />
+                        </div>
+                        <div className="min-w-0">
+                          <h2 className="text-xl font-black text-slate-900">Cashbook</h2>
+                          <p className="text-xs text-slate-500 font-medium tracking-tight">
+                            Daily transaction log — channel filter is separate from the date range
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <h2 className="text-xl font-black text-slate-900">Cashbook</h2>
-                        <p className="text-xs text-slate-500 font-medium tracking-tight">Daily transaction log and running balance</p>
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <div className="relative">
+                          <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                          <Input
+                            value={cashBookSearch}
+                            onChange={(e) => setCashBookSearch(e.target.value)}
+                            placeholder="Search salary, name…"
+                            className="h-9 w-44 sm:w-56 pl-8 text-xs"
+                          />
+                        </div>
+                        <Select value={filterAccount} onValueChange={setFilterAccount}>
+                          <SelectTrigger className="w-[180px] h-9 text-xs bg-white border-slate-200"><SelectValue placeholder="All Accounts" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Accounts</SelectItem>
+                            <SelectItem value="cash">Cash only</SelectItem>
+                            <SelectItem value="mobile_money">Mobile Money only</SelectItem>
+                            <SelectItem value="bank_transfer">Bank Transfer only</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button variant="outline" size="sm" onClick={exportCashBook} className="h-9 text-xs gap-1 border-slate-200 hover:bg-slate-50 shadow-sm">
+                          <Download className="h-3 w-3" /> Export Excel
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex gap-4 items-center">
-                      <Select value={filterAccount} onValueChange={setFilterAccount}>
-                        <SelectTrigger className="w-[180px] h-9 text-xs bg-white border-slate-200"><SelectValue placeholder="All Accounts" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Accounts</SelectItem>
-                          <SelectItem value="cash">Cash</SelectItem>
-                          <SelectItem value="mobile_money">Mobile Money</SelectItem>
-                          <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Button variant="outline" size="sm" onClick={exportCashBook} className="h-9 text-xs gap-1 border-slate-200 hover:bg-slate-50 shadow-sm">
-                        <Download className="h-3 w-3" /> Export Excel
-                      </Button>
-                    </div>
+                    {filterAccount !== "all" && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        Showing <span className="font-bold">{filterAccount.replace(/_/g, " ")}</span> only.
+                        Cash salary entries are hidden on Mobile Money / Bank. Switch to <button type="button" className="underline font-bold" onClick={() => setFilterAccount("all")}>All Accounts</button> or <button type="button" className="underline font-bold" onClick={() => setFilterAccount("cash")}>Cash</button>.
+                      </div>
+                    )}
                   </div>
 
                   {reportLoading === "cashbook" ? (
@@ -1809,6 +1834,14 @@ const Accounting = () => {
                                       0,
                                     )
                                   : 0);
+                              const q = cashBookSearch.trim().toLowerCase();
+                              let rows = [...(cashBookData.transactions || [])];
+                              if (q) {
+                                rows = rows.filter((t: any) =>
+                                  [t.description, t.category, t.narration, t.payment_method, String(t.amount)]
+                                    .some((v) => String(v || "").toLowerCase().includes(q)),
+                                );
+                              }
                               return (
                             <>
                             {/* Opening Balance Row */}
@@ -1821,13 +1854,27 @@ const Accounting = () => {
                             </tr>
                             {(() => {
                               let runningBalance = opening;
-                              const sorted = [...(cashBookData.transactions || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                              const sorted = rows.sort((a: any, b: any) => {
+                                const da = new Date(a.date).getTime() - new Date(b.date).getTime();
+                                if (da !== 0) return da;
+                                return new Date(a.created_at || a.date).getTime() - new Date(b.created_at || b.date).getTime();
+                              });
+                              if (sorted.length === 0) {
+                                return (
+                                  <tr>
+                                    <td colSpan={6} className="py-10 text-center text-slate-400 italic">
+                                      No rows match {filterAccount === "all" ? "this period" : `${filterAccount.replace(/_/g, " ")}`}{q ? ` / “${cashBookSearch}”` : ""}.
+                                      {filterAccount !== "all" ? " Try All Accounts." : ""}
+                                    </td>
+                                  </tr>
+                                );
+                              }
                               return sorted.map((t: any) => {
                                 const isDebit = t.entry_type === 'revenue' || t.entry_type === 'asset' || t.source === 'repayment';
                                 const amount = parseFloat(t.amount);
                                 runningBalance += isDebit ? amount : -amount;
                                 return (
-                                  <tr key={t.id} className="hover:bg-slate-50 transition-colors border-b border-slate-50 group">
+                                  <tr key={`${t.source || "row"}-${t.id}`} className="hover:bg-slate-50 transition-colors border-b border-slate-50 group">
                                     <td className="py-5 px-6 text-[11px] font-bold text-slate-500 font-mono">{new Date(t.date).toLocaleDateString('en-GB')}</td>
                                     <td className="py-5 px-6">
                                       <div className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{cashBookLineDetails(t.description) || t.category || "—"}</div>
@@ -1835,14 +1882,14 @@ const Accounting = () => {
                                         <div className="text-[9px] text-slate-500 mt-0.5 font-semibold tracking-wide uppercase">{t.category}</div>
                                       ) : null}
                                       <div className="text-[9px] text-slate-400 mt-0.5 flex items-center gap-1 font-bold">
-                                        <Badge variant="outline" className="h-4 py-0 text-[8px] border-slate-200">ID: {t.id.slice(0, 8)}</Badge>
+                                        <Badge variant="outline" className="h-4 py-0 text-[8px] border-slate-200">ID: {String(t.id).slice(0, 8)}</Badge>
                                         {t.payment_method ? (
                                           <Badge variant="outline" className="h-4 py-0 text-[8px] border-slate-200">{String(t.payment_method).replace(/_/g, " ")}</Badge>
                                         ) : null}
                                       </div>
                                     </td>
-                                    <td className="py-5 px-6 text-right">{isDebit ? <span className="font-black text-emerald-600 tabular-nums">{fmt(amount)}</span> : "—"}</td>
-                                    <td className="py-5 px-6 text-right">{!isDebit ? <span className="font-black text-red-500 tabular-nums">({fmt(amount)})</span> : "—"}</td>
+                                    <td className="py-5 px-6 text-right">{isDebit ? <span className="font-black text-emerald-600 tabular-nums">UGX {amount.toLocaleString()}</span> : "—"}</td>
+                                    <td className="py-5 px-6 text-right">{!isDebit ? <span className="font-black text-red-500 tabular-nums">(UGX {amount.toLocaleString()})</span> : "—"}</td>
                                     <td className="py-5 px-6 text-right font-black text-slate-900 bg-slate-50/50 tabular-nums">{fmt(runningBalance)}</td>
                                     <td className="py-5 px-6">
                                       <div className="text-[10px] text-slate-500 italic">{cashBookLineNarration(t)}</div>
