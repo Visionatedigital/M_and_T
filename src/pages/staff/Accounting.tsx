@@ -274,30 +274,6 @@ const Accounting = () => {
     });
   };
 
-  const printActiveDocument = () => {
-    const map: Record<string, { ref: React.RefObject<HTMLDivElement | null>; title: string; maxTableRows?: number }> = {
-      pl: { ref: plPrintRef, title: "Financial Overview", maxTableRows: 40 },
-      portfolio: { ref: portfolioPrintRef, title: "Loan Portfolio", maxTableRows: 80 },
-      income: { ref: incomePrintRef, title: "Profit & Loss Statement" },
-      balance: { ref: balancePrintRef, title: "Balance Sheet" },
-      cashflow: { ref: cashflowPrintRef, title: "Cash Flow Statement" },
-      cashbook: { ref: cashbookPrintRef, title: "Cashbook", maxTableRows: 80 },
-      financial_analysis: { ref: analysisPrintRef, title: "Financial Risk Assessment" },
-      trial: { ref: trialPrintRef, title: "Trial Balance" },
-      aging_report: { ref: agingPrintRef, title: "Portfolio Aging Report", maxTableRows: 80 },
-      comprehensive_income: { ref: comprehensivePrintRef, title: "Statement of Comprehensive Income" },
-      financial_position: { ref: financialPositionPrintRef, title: "Statement of Financial Position" },
-      cashflow_statement: { ref: cashflowStmtPrintRef, title: "Cashflow Statement" },
-      equity_statement: { ref: equityPrintRef, title: "Statement of Changes in Equity" },
-    };
-    const target = map[activeTab];
-    if (!target) {
-      toast({ title: "This tab cannot be printed yet", variant: "destructive" });
-      return;
-    }
-    printReport(target.ref, target.title, { maxTableRows: target.maxTableRows });
-  };
-
   const filteredEntries = useMemo(() => {
     const q = entrySearch.toLowerCase().trim();
     if (!q) return entries;
@@ -1169,7 +1145,7 @@ const Accounting = () => {
                     </TabsTrigger>
                     </TabsList>
                   </div>
-                  {activeTab !== "pl" ? (
+                  {activeTab !== "pl" && (
                     <div className="flex flex-wrap gap-2 items-center">
                       <Input type="date" value={reportFrom} onChange={e => setReportFrom(e.target.value)}
                         className="h-8 text-xs w-36" placeholder="From" />
@@ -1180,23 +1156,22 @@ const Accounting = () => {
                         <RefreshCw className={`h-3 w-3 mr-1 ${reportLoading ? "animate-spin" : ""}`} />
                         Refresh
                       </Button>
-                      <Button variant="outline" size="sm" className="h-8 text-xs" onClick={printActiveDocument}>
-                        <Printer className="h-3 w-3 mr-1" />
-                        Print
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-wrap gap-2 items-center">
-                      <Button variant="outline" size="sm" className="h-8 text-xs" onClick={printActiveDocument}>
-                        <Printer className="h-3 w-3 mr-1" />
-                        Print overview
-                      </Button>
                     </div>
                   )}
                 </div>
 
                 <TabsContent value="pl" className="space-y-6 mt-4">
                   <div ref={plPrintRef} className="space-y-6">
+                  <div className="flex items-center justify-between gap-3" data-print-hide>
+                    <div>
+                      <h2 className="text-lg font-bold text-slate-900">Financial Overview</h2>
+                      <p className="text-xs text-slate-500">Summary cards, journal entries, and key metrics</p>
+                    </div>
+                    <Button variant="outline" size="sm" className="h-9 text-xs gap-1 shrink-0"
+                      onClick={() => printReport(plPrintRef, "Financial Overview", { maxTableRows: 40 })}>
+                      <Printer className="h-3.5 w-3.5" /> Print
+                    </Button>
+                  </div>
                   {/* ── Summary Cards ── */}
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     {/* This Month Revenue */}
