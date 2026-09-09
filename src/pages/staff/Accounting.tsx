@@ -268,9 +268,9 @@ const Accounting = () => {
     const maxTableRows = options?.maxTableRows ?? (ledgerTitles.test(title) ? 100 : 200);
     printElementAsDocument(ref.current, title, { maxTableRows, stripCharts: true });
     toast({
-      title: "Print dialog opened",
+      title: "Print ready",
       description:
-        "Compact document preview (not the sidebar). Large ledgers are trimmed — narrow the date range to print fewer rows.",
+        "A short document preview should open (usually a few pages). If you still see hundreds of pages, hard-refresh the site (Ctrl+Shift+R) so the latest version loads.",
     });
   };
 
