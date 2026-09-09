@@ -744,6 +744,28 @@ router.get('/financial-export-xlsx', async (req, res) => {
     }
 });
 
+/** Admin: send the weekly report email now (same job as the Monday cron). */
+router.post('/send-weekly-report', async (req, res) => {
+    try {
+        const role = req.user?.role;
+        if (role !== 'admin') {
+            return res.status(403).json({ error: 'Only admins can send the weekly report' });
+        }
+        if (req.body?.to) {
+            process.env.WEEKLY_REPORT_TO = String(req.body.to);
+        }
+        const { runWeeklyReportEmail } = require('../services/weeklyReportEmail.cjs');
+        const result = await runWeeklyReportEmail();
+        if (!result.sent) {
+            return res.status(400).json(result);
+        }
+        res.json(result);
+    } catch (err) {
+        console.error('send-weekly-report error:', err);
+        res.status(500).json({ error: err.message || 'Failed to send weekly report' });
+    }
+});
+
 // AI Financial Summary (Word) — cover + KPI table (page 1), four-page layout with branding logo
 router.get('/ai-summary-docx', async (req, res) => {
     try {
