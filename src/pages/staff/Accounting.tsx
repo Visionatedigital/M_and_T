@@ -449,7 +449,7 @@ const Accounting = () => {
 
   useEffect(() => {
     if (activeTab && activeTab !== "pl") loadReport(activeTab);
-  }, [activeTab, loadReport]);
+  }, [activeTab, loadReport, refreshKey]);
 
   // ─── Export AI/Excel from Reports ─────────────────────────
   const handleAiExport = async () => {
@@ -1830,9 +1830,15 @@ const Accounting = () => {
                                   <tr key={t.id} className="hover:bg-slate-50 transition-colors border-b border-slate-50 group">
                                     <td className="py-5 px-6 text-[11px] font-bold text-slate-500 font-mono">{new Date(t.date).toLocaleDateString('en-GB')}</td>
                                     <td className="py-5 px-6">
-                                      <div className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{cashBookLineDetails(t.description)}</div>
+                                      <div className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{cashBookLineDetails(t.description) || t.category || "—"}</div>
+                                      {t.category ? (
+                                        <div className="text-[9px] text-slate-500 mt-0.5 font-semibold tracking-wide uppercase">{t.category}</div>
+                                      ) : null}
                                       <div className="text-[9px] text-slate-400 mt-0.5 flex items-center gap-1 font-bold">
                                         <Badge variant="outline" className="h-4 py-0 text-[8px] border-slate-200">ID: {t.id.slice(0, 8)}</Badge>
+                                        {t.payment_method ? (
+                                          <Badge variant="outline" className="h-4 py-0 text-[8px] border-slate-200">{String(t.payment_method).replace(/_/g, " ")}</Badge>
+                                        ) : null}
                                       </div>
                                     </td>
                                     <td className="py-5 px-6 text-right">{isDebit ? <span className="font-black text-emerald-600 tabular-nums">{fmt(amount)}</span> : "—"}</td>

@@ -20,8 +20,8 @@ const fmt = (n: number) =>
 const CashBooks = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [dateFrom, setDateFrom] = useState("2025-01-01");
-  const [dateTo, setDateTo] = useState("2025-12-31");
+  const [dateFrom, setDateFrom] = useState(() => `${new Date().getFullYear()}-01-01`);
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().split("T")[0]);
   const [activeTab, setActiveTab] = useState<"cash" | "bank" | "mobile_money">("cash");
   const [cashBookData, setCashBookData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -95,7 +95,8 @@ const CashBooks = () => {
     transactions = transactions.filter(
       (t: any) =>
         (t.description || "").toLowerCase().includes(term) ||
-        (t.category || "").toLowerCase().includes(term)
+        (t.category || "").toLowerCase().includes(term) ||
+        (t.narration || "").toLowerCase().includes(term)
     );
   }
   const sorted = [...transactions].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -131,6 +132,9 @@ const CashBooks = () => {
                       className="w-36"
                     />
                   </div>
+                  <Button variant="outline" className="gap-2" onClick={() => void loadCashBook()} disabled={loading}>
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Filter className="h-4 w-4" />} Refresh
+                  </Button>
                   <Button variant="outline" className="gap-2" onClick={exportToCSV} disabled={!cashBookData?.transactions?.length}>
                     <Download className="h-4 w-4" /> Export CSV
                                     </Button>
