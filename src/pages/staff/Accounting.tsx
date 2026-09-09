@@ -1,5 +1,5 @@
 // Accounting & reports — uses Card/Table only (no Alert UI component)
-import React, { useEffect, useState, useCallback, Fragment, useMemo } from "react";
+import React, { useEffect, useState, useCallback, Fragment, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { printElementAsDocument } from "@/lib/printDocument";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell, Area, AreaChart,
@@ -232,6 +233,26 @@ const Accounting = () => {
     entry_date: "",
     payment_method: "cash",
   });
+
+  // Print targets: only the statement card, not sidebar / chrome
+  const incomePrintRef = useRef<HTMLDivElement>(null);
+  const balancePrintRef = useRef<HTMLDivElement>(null);
+  const cashflowPrintRef = useRef<HTMLDivElement>(null);
+  const trialPrintRef = useRef<HTMLDivElement>(null);
+  const comprehensivePrintRef = useRef<HTMLDivElement>(null);
+  const financialPositionPrintRef = useRef<HTMLDivElement>(null);
+  const cashflowStmtPrintRef = useRef<HTMLDivElement>(null);
+  const equityPrintRef = useRef<HTMLDivElement>(null);
+  const analysisPrintRef = useRef<HTMLDivElement>(null);
+
+  const printReport = (ref: React.RefObject<HTMLDivElement | null>, title: string) => {
+    printElementAsDocument(ref.current, title);
+    toast({
+      title: "Print dialog opened",
+      description:
+        "Only the statement is sent to print (not the sidebar). Pick a printer, or choose Save as PDF if you have no printer installed.",
+    });
+  };
 
   const filteredEntries = useMemo(() => {
     const q = entrySearch.toLowerCase().trim();
@@ -836,23 +857,23 @@ const Accounting = () => {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full">
+      <div className="flex min-h-screen w-full min-w-0 overflow-x-hidden">
         <StaffSidebar />
-        <div className="flex-1 flex flex-col">
+        <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
           <StaffHeader />
-          <main className="flex-1 p-6 bg-slate-50">
-            <div className="max-w-7xl mx-auto space-y-6">
+          <main className="min-w-0 flex-1 overflow-x-clip bg-slate-50 p-3 sm:p-6">
+            <div className="mx-auto w-full min-w-0 max-w-7xl space-y-6">
 
               {/* ── Page Header ── */}
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
                   <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
                     <BookOpen className="h-6 w-6 text-blue-800" />
                     Accounting
                   </h1>
                   <p className="text-sm text-slate-500 mt-0.5">Financial statements, reports & journal entries</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2 shrink-0">
                   <Button
                     variant="outline"
                     size="sm"
@@ -1050,14 +1071,14 @@ const Accounting = () => {
               </div>
 
               {/* ── Report Tabs ── */}
-              <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-                  <TabsList
-                    className={cn(
-                      "max-w-full flex-nowrap gap-1 overflow-x-auto overflow-y-hidden bg-slate-100 p-1 [scrollbar-width:thin] touch-pan-x",
-                      "h-auto min-h-11 justify-start",
-                    )}
-                  >
+              <Tabs value={activeTab} onValueChange={handleTabChange} className="min-w-0 space-y-4">
+                <div className="flex min-w-0 w-full flex-col gap-3">
+                  <div className="min-w-0 w-full overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+                    <TabsList
+                      className={cn(
+                        "inline-flex h-auto min-h-11 w-max max-w-none flex-nowrap justify-start gap-1 bg-slate-100 p-1",
+                      )}
+                    >
                     <TabsTrigger value="pl" className="shrink-0 text-xs">
                       Financial Overview
                     </TabsTrigger>
@@ -1097,9 +1118,10 @@ const Accounting = () => {
                     <TabsTrigger value="trial" className="shrink-0 text-xs">
                       Trial Balance
                     </TabsTrigger>
-                  </TabsList>
+                    </TabsList>
+                  </div>
                   {activeTab !== "pl" && (
-                    <div className="flex gap-2 items-center">
+                    <div className="flex flex-wrap gap-2 items-center">
                       <Input type="date" value={reportFrom} onChange={e => setReportFrom(e.target.value)}
                         className="h-8 text-xs w-36" placeholder="From" />
                       <Input type="date" value={reportTo} onChange={e => setReportTo(e.target.value)}
@@ -1485,7 +1507,7 @@ const Accounting = () => {
                   {reportLoading === "income" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : incomeStmt ? (
-                    <Card className="shadow-sm border-slate-200">
+                    <Card ref={incomePrintRef} className="shadow-sm border-slate-200">
                       <CardHeader className="flex flex-row items-center justify-between border-b pb-4">
                         <div>
                           <CardTitle className="flex items-center gap-2 text-xl">
@@ -1496,12 +1518,12 @@ const Accounting = () => {
                             Reporting Period: <span className="font-medium text-slate-700">{formatDate(incomeStmt.period?.start)}</span> to <span className="font-medium text-slate-700">{formatDate(incomeStmt.period?.end)}</span>
                           </CardDescription>
                         </div>
-                        <div className="flex flex-wrap gap-2 shrink-0">
+                        <div className="flex flex-wrap gap-2 shrink-0" data-print-hide>
                           <Button variant="outline" size="sm" onClick={exportIncomeStatement} className="hover:bg-slate-50">
                             <Download className="h-4 w-4 mr-2" />
                             Export CSV
                           </Button>
-                          <Button variant="outline" size="sm" className="hover:bg-slate-50 print:hidden" onClick={() => window.print()}>
+                          <Button variant="outline" size="sm" className="hover:bg-slate-50" onClick={() => printReport(incomePrintRef, "Profit & Loss Statement")}>
                             <Printer className="h-4 w-4 mr-2" /> Print
                           </Button>
                         </div>
@@ -1599,18 +1621,18 @@ const Accounting = () => {
                   {reportLoading === "balance" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : balanceSheet ? (
-                    <Card>
+                    <Card ref={balancePrintRef}>
                       <CardHeader className="flex flex-row items-center justify-between">
                         <div>
                           <CardTitle className="flex items-center gap-2"><Scale className="h-5 w-5" /> Balance Sheet</CardTitle>
                           <CardDescription>As of {balanceSheet.as_of}</CardDescription>
                         </div>
-                        <div className="flex flex-wrap gap-2 shrink-0">
+                        <div className="flex flex-wrap gap-2 shrink-0" data-print-hide>
                           <Button variant="outline" size="sm" onClick={exportBalanceSheet}>
                             <Download className="h-4 w-4 mr-2" />
                             Export CSV
                           </Button>
-                          <Button variant="outline" size="sm" className="print:hidden" onClick={() => window.print()}>
+                          <Button variant="outline" size="sm" onClick={() => printReport(balancePrintRef, "Balance Sheet")}>
                             <Printer className="h-4 w-4 mr-2" /> Print
                           </Button>
                         </div>
@@ -1667,18 +1689,18 @@ const Accounting = () => {
                   {reportLoading === "cashflow" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : cashFlow ? (
-                    <Card>
+                    <Card ref={cashflowPrintRef}>
                       <CardHeader className="flex flex-row items-center justify-between">
                         <div>
                           <CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5" /> Cash Flow Statement</CardTitle>
                           <CardDescription>{cashFlow.period?.start} to {cashFlow.period?.end}</CardDescription>
                         </div>
-                        <div className="flex flex-wrap gap-2 shrink-0">
+                        <div className="flex flex-wrap gap-2 shrink-0" data-print-hide>
                           <Button variant="outline" size="sm" onClick={exportCashFlow}>
                             <Download className="h-4 w-4 mr-2" />
                             Export CSV
                           </Button>
-                          <Button variant="outline" size="sm" className="print:hidden" onClick={() => window.print()}>
+                          <Button variant="outline" size="sm" onClick={() => printReport(cashflowPrintRef, "Cash Flow Statement")}>
                             <Printer className="h-4 w-4 mr-2" /> Print
                           </Button>
                         </div>
@@ -1843,13 +1865,13 @@ const Accounting = () => {
                   {reportLoading === "financial_analysis" ? (
                     <div className="flex items-center justify-center py-16"><RefreshCw className="h-8 w-8 text-primary animate-spin" /></div>
                   ) : financialAnalysisData ? (
-                    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div ref={analysisPrintRef} className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
                       <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
                         <div className="min-w-0">
                           <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">Financial Risk Assessment</h2>
                           <p className="text-slate-500 text-sm font-medium tracking-tight">Altman Z-Score Model for Private Firms</p>
                         </div>
-                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <div className="flex flex-wrap items-center gap-2 shrink-0" data-print-hide>
                           <Button
                             className="h-10 px-4 font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
                             onClick={() => void handleFinancialAiAnalysis()}
@@ -1862,7 +1884,7 @@ const Accounting = () => {
                             {isExportingZScore ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
                             Export Word
                           </Button>
-                          <Button variant="outline" className="h-10 px-4 font-semibold border-slate-200 hover:bg-slate-50 print:hidden" onClick={() => window.print()}>
+                          <Button variant="outline" className="h-10 px-4 font-semibold border-slate-200 hover:bg-slate-50" onClick={() => printReport(analysisPrintRef, "Financial Risk Assessment")}>
                             <Printer className="h-4 w-4 mr-2" />
                             Print
                           </Button>
@@ -2042,17 +2064,17 @@ const Accounting = () => {
                   {reportLoading === "trial" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : trialBalance ? (
-                    <Card>
+                    <Card ref={trialPrintRef}>
                       <CardHeader className="flex flex-row items-center justify-between">
                         <div>
                           <CardTitle className="flex items-center gap-2"><PiggyBank className="h-5 w-5" /> Trial Balance</CardTitle>
                           <CardDescription>As of {trialBalance.as_of}</CardDescription>
                         </div>
-                        <div className="flex flex-wrap gap-2 shrink-0">
+                        <div className="flex flex-wrap gap-2 shrink-0" data-print-hide>
                           <Button variant="outline" size="sm" onClick={exportTrialBalance}>
                             <Download className="h-4 w-4 mr-2" /> Export CSV
                           </Button>
-                          <Button variant="outline" size="sm" className="print:hidden" onClick={() => window.print()}>
+                          <Button variant="outline" size="sm" onClick={() => printReport(trialPrintRef, "Trial Balance")}>
                             <Printer className="h-4 w-4 mr-2" /> Print
                           </Button>
                         </div>
@@ -2161,7 +2183,7 @@ const Accounting = () => {
                   {reportLoading === "comprehensive_income" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : comprehensiveIncomeData ? (
-                    <Card className="shadow-sm overflow-hidden">
+                    <Card ref={comprehensivePrintRef} className="shadow-sm overflow-hidden">
                       <CardHeader className="bg-slate-50 border-b flex flex-row items-center justify-between pb-4">
                         <div>
                           <CardTitle className="text-lg flex items-center gap-2">
@@ -2170,7 +2192,7 @@ const Accounting = () => {
                           </CardTitle>
                           <CardDescription>Monthly Matrix (Values in UGX)</CardDescription>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2" data-print-hide>
                           <Button variant="outline" size="sm" className="bg-emerald-50 text-emerald-700 border-emerald-200" onClick={exportComprehensiveIncome}>
                             <Download className="h-3.5 w-3.5 mr-1" /> Export CSV
                           </Button>
@@ -2181,7 +2203,7 @@ const Accounting = () => {
                           }}>
                             <Download className="h-3.5 w-3.5 mr-1" /> Export Word
                           </Button>
-                          <Button variant="outline" size="sm" className="print:hidden" onClick={() => window.print()}>
+                          <Button variant="outline" size="sm" onClick={() => printReport(comprehensivePrintRef, "Statement of Comprehensive Income")}>
                             <Printer className="h-3.5 w-3.5 mr-1" /> Print
                           </Button>
                         </div>
@@ -2244,7 +2266,7 @@ const Accounting = () => {
                   {reportLoading === "financial_position" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : financialPositionData ? (
-                    <Card className="shadow-sm overflow-hidden">
+                    <Card ref={financialPositionPrintRef} className="shadow-sm overflow-hidden">
                       <CardHeader className="bg-slate-50 border-b flex flex-row items-center justify-between pb-4">
                         <div>
                           <CardTitle className="text-lg flex items-center gap-2">
@@ -2253,14 +2275,14 @@ const Accounting = () => {
                           </CardTitle>
                           <CardDescription>Monthly Data (Values in UGX)</CardDescription>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2" data-print-hide>
                           <Button variant="outline" size="sm" className="bg-blue-50 text-blue-700 border-blue-200" onClick={exportFinancialPosition}>
                             <Download className="h-3.5 w-3.5 mr-1" /> Export CSV
                           </Button>
                           <Button variant="outline" size="sm" className="bg-indigo-50 text-indigo-700 border-indigo-200" onClick={() => void handleFinancialPositionWordExport()}>
                             <Download className="h-3.5 w-3.5 mr-1" /> Export Word
                           </Button>
-                          <Button variant="outline" size="sm" className="print:hidden" onClick={() => window.print()}>
+                          <Button variant="outline" size="sm" onClick={() => printReport(financialPositionPrintRef, "Statement of Financial Position")}>
                             <Printer className="h-3.5 w-3.5 mr-1" /> Print
                           </Button>
                         </div>
@@ -2365,17 +2387,17 @@ const Accounting = () => {
                   {reportLoading === "cashflow_statement" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : cashflowStmtData ? (
-                    <Card className="shadow-sm">
+                    <Card ref={cashflowStmtPrintRef} className="shadow-sm">
                       <CardHeader className="bg-slate-50 border-b flex flex-row items-center justify-between">
                         <div>
                           <CardTitle className="text-lg flex items-center gap-2"><Wallet className="h-5 w-5 text-emerald-700" /> Cashflow Statement</CardTitle>
                           <CardDescription>Indirect Method</CardDescription>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2" data-print-hide>
                           <Button variant="outline" size="sm" className="bg-emerald-50 text-emerald-700 border-emerald-200" onClick={exportCashflowStatement}>
                             <Download className="h-3.5 w-3.5 mr-1" /> Export CSV
                           </Button>
-                          <Button variant="outline" size="sm" className="print:hidden" onClick={() => window.print()}>
+                          <Button variant="outline" size="sm" onClick={() => printReport(cashflowStmtPrintRef, "Cashflow Statement")}>
                             <Printer className="h-3.5 w-3.5 mr-1" /> Print
                           </Button>
                         </div>
@@ -2425,7 +2447,7 @@ const Accounting = () => {
                   {reportLoading === "equity_statement" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : equityStatementData ? (
-                    <Card className="shadow-sm max-w-4xl mx-auto border border-slate-200 overflow-hidden">
+                    <Card ref={equityPrintRef} className="shadow-sm max-w-4xl mx-auto border border-slate-200 overflow-hidden">
                       <CardHeader className="bg-slate-50 border-b flex flex-row items-start justify-between gap-4 py-4 px-4 sm:px-6">
                         <div className="text-center w-full min-w-0">
                           <h2 className="text-lg sm:text-xl font-bold uppercase tracking-tight text-[#1F4E79]">M-T Growth Gateway</h2>
@@ -2435,7 +2457,7 @@ const Accounting = () => {
                           </p>
                           <p className="text-xs text-slate-500 mt-1 normal-case">Figures from accounting entries (revenue − expense for accumulated profits; categories containing &quot;share capital&quot;).</p>
                         </div>
-                        <Button variant="outline" size="sm" className="shrink-0 print:hidden" onClick={() => window.print()}>
+                        <Button variant="outline" size="sm" className="shrink-0" data-print-hide onClick={() => printReport(equityPrintRef, "Statement of Changes in Equity")}>
                           <Printer className="h-4 w-4 mr-1" /> Print
                         </Button>
                       </CardHeader>

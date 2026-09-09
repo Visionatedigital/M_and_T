@@ -273,7 +273,9 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
         return leader?.amount ?? 0;
     });
     const [borrowers, setBorrowers] = useState<any[]>([]);
-    const [selectedBorrowerForIndividual, setSelectedBorrowerForIndividual] = useState<any>(null);
+    const [selectedBorrowerForIndividual, setSelectedBorrowerForIndividual] = useState<any>(
+        () => initialData?._borrower || null
+    );
     const [selectedGroupLeader, setSelectedGroupLeader] = useState<any>(null);
     const [groupLeaderOpen, setGroupLeaderOpen] = useState(false);
     const [individualBorrowerOpen, setIndividualBorrowerOpen] = useState(false);
@@ -484,18 +486,40 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
         if (inferApplicationType(initialData) === "group" && initialData?.borrower_id) {
             api.borrowers.get(initialData.borrower_id).then(setSelectedGroupLeader).catch(() => {});
         }
-        if (inferApplicationType(initialData) === "individual" && initialData?.borrower_id) {
-            api.borrowers.get(initialData.borrower_id).then(setSelectedBorrowerForIndividual).catch(() => {});
+        if (inferApplicationType(initialData) === "individual" && (initialData?._borrower || initialData?.borrower_id)) {
+            const apply = (b: any) => {
+                handleSelectIndividualBorrower(b);
+                // Keep guarantors from AddLoan prefill if already present
+                if (Array.isArray(initialData?.guarantors) && initialData.guarantors.length > 0) {
+                    const mapped = initialData.guarantors
+                        .map((g: any) => ({
+                            name: g.name || g.full_name || "",
+                            phone: g.phone || g.phone_number || "",
+                            nin: g.nin || g.id_number || "",
+                            address: g.address || "",
+                            id: g.id,
+                        }))
+                        .filter((g: any) => g.name || g.phone)
+                        .slice(0, 2);
+                    if (mapped.length) {
+                        setGuarantors(mapped);
+                        form.setValue("guarantors", mapped);
+                    }
+                }
+            };
+            if (initialData._borrower) {
+                apply(initialData._borrower);
+            } else {
+                api.borrowers.get(initialData.borrower_id).then(apply).catch(() => {});
+            }
         } else if (inferApplicationType(initialData) === "individual" && !initialData?.borrower_id && initialData?.phone_number) {
             // Legacy loans without borrower_id: try match by phone once directory loads
             api.borrowers.getAll(false).then((list: any[]) => {
                 const phone = String(initialData.phone_number || "").replace(/\D/g, "");
                 const match = (list || []).find((b) => String(b.phone_number || "").replace(/\D/g, "") === phone);
                 if (match) {
-                    setSelectedBorrowerForIndividual(match);
-                    form.setValue("borrower_id", match.id);
+                    handleSelectIndividualBorrower(match);
                 } else if (initialData.full_name) {
-                    // Synthetic selection so edit can proceed; create path still uses findOrCreate on backend if needed
                     setSelectedBorrowerForIndividual({
                         id: initialData.borrower_id || "",
                         full_name: initialData.full_name,
@@ -516,7 +540,23 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                 address: initialData.address || "",
             });
         }
-    }, [initialData?.application_type, initialData?.borrower_id, initialData?.group_id, initialData?.loan_product]);
+    }, [initialData?.application_type, initialData?.borrower_id, initialData?.group_id, initialData?.loan_product, initialData?._borrower?.id]);
+
+    // Prefill collateral for existing client / edit when register loads
+    useEffect(() => {
+        if (!availableCollateral.length) return;
+        if (selectedCollateral) return;
+        const prefillId = initialData?._prefillCollateralId;
+        const bid = selectedBorrowerForIndividual?.id || initialData?.borrower_id;
+        let match = prefillId
+            ? availableCollateral.find((c: any) => c.id === prefillId)
+            : null;
+        if (!match && bid) {
+            const owned = availableCollateral.filter((c: any) => c.borrower_id === bid);
+            match = owned.length === 1 ? owned[0] : null;
+        }
+        if (match) handleSelectCollateral(match);
+    }, [availableCollateral, initialData?._prefillCollateralId, selectedBorrowerForIndividual?.id, initialData?.borrower_id, selectedCollateral]);
 
     useEffect(() => {
         if (initialData) return;
@@ -597,13 +637,66 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
 
     const [borrowerAttachments, setBorrowerAttachments] = useState<Record<string, string> | null>(null);
 
+    const applyPriorLoanPrefill = async (borrowerId: string, opts?: { onlyIfEmptyGuarantors?: boolean }) => {
+        if (!borrowerId) return;
+        try {
+            const loans = await api.applications.getByBorrower(borrowerId);
+            const list = Array.isArray(loans) ? [...loans] : [];
+            list.sort((a: any, b: any) => {
+                const ta = new Date(a.approved_at || a.created_at || 0).getTime();
+                const tb = new Date(b.approved_at || b.created_at || 0).getTime();
+                return tb - ta;
+            });
+            const withG = list.find((l: any) => Array.isArray(l.guarantors) && l.guarantors.length > 0);
+            if (withG?.guarantors) {
+                const mapped = withG.guarantors
+                    .map((g: any) => ({
+                        name: g.name || g.full_name || "",
+                        phone: g.phone || g.phone_number || "",
+                        nin: g.nin || g.id_number || "",
+                        address: g.address || "",
+                        id: g.id,
+                    }))
+                    .filter((g: any) => g.name || g.phone)
+                    .slice(0, 2);
+                if (mapped.length > 0) {
+                    if (!opts?.onlyIfEmptyGuarantors || guarantors.length === 0) {
+                        setGuarantors(mapped);
+                        form.setValue("guarantors", mapped);
+                    }
+                }
+            }
+        } catch {
+            /* ignore */
+        }
+    };
+
+    const handleSelectIndividualBorrower = (borrower: any) => {
+        setSelectedBorrowerForIndividual(borrower);
+        setBorrowerAttachments(null);
+        if (!borrower) return;
+        form.setValue("borrower_id", borrower.id || "");
+        form.setValue("application_type", "individual");
+        form.setValue("full_name", borrower.full_name || "");
+        form.setValue("email", sanitizeEmail(borrower.email));
+        form.setValue("phone_number", borrower.phone_number || "");
+        form.setValue("id_number", borrower.id_number || "");
+        if (borrower.date_of_birth) {
+            form.setValue("date_of_birth", String(borrower.date_of_birth).split("T")[0]);
+        }
+        api.borrowers.getAttachments(borrower.id).then((att) => {
+            if (att && Object.keys(att).length > 0) setBorrowerAttachments(att);
+        }).catch(() => {});
+        void applyPriorLoanPrefill(borrower.id, { onlyIfEmptyGuarantors: true });
+    };
+
     const handleSelectGroupLeader = (borrower: any) => {
         setSelectedGroupLeader(borrower);
         setBorrowerAttachments(null);
         if (borrower) {
             const addr = (borrower.address || "").split(", ");
             form.setValue("full_name", borrower.full_name || "");
-            form.setValue("email", borrower.email || "");
+            form.setValue("email", sanitizeEmail(borrower.email));
             form.setValue("phone_number", borrower.phone_number || "");
             form.setValue("id_number", borrower.id_number || "");
             form.setValue("date_of_birth", borrower.date_of_birth ? String(borrower.date_of_birth).split("T")[0] : "");
@@ -1047,16 +1140,24 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                             </button>
                                             <button
                                                 type="button"
-                                                onClick={() => field.onChange("group")}
+                                                onClick={() => {
+                                                    if (initialData?._prefillFromExistingClient) return;
+                                                    field.onChange("group");
+                                                }}
+                                                disabled={!!initialData?._prefillFromExistingClient}
                                                 className={`flex min-h-[40px] min-w-0 w-full max-w-full flex-col items-center gap-1.5 rounded-lg border-2 p-2.5 transition-all touch-manipulation sm:gap-2 sm:p-4 ${
                                                     field.value === "group"
                                                         ? "border-primary bg-primary/10"
                                                         : "border-muted hover:border-muted-foreground/30"
-                                                }`}
+                                                } ${initialData?._prefillFromExistingClient ? "opacity-50 cursor-not-allowed" : ""}`}
                                             >
                                                 <Users className="h-6 w-6 shrink-0 text-muted-foreground sm:h-7 sm:w-7" />
                                                 <span className="text-sm font-semibold">Group</span>
-                                                <span className="text-center text-[11px] text-muted-foreground leading-tight sm:text-xs">Group loan with multiple members</span>
+                                                <span className="text-center text-[11px] text-muted-foreground leading-tight sm:text-xs">
+                                                    {initialData?._prefillFromExistingClient
+                                                        ? "Locked — adding loan for one client"
+                                                        : "Group loan with multiple members"}
+                                                </span>
                                             </button>
                                         </div>
                                     </FormControl>
@@ -1640,12 +1741,16 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                 </p>
                             </CardHeader>
                             <CardContent className="pt-0">
-                                <Popover open={individualBorrowerOpen} onOpenChange={setIndividualBorrowerOpen}>
+                                <Popover open={individualBorrowerOpen} onOpenChange={(open) => {
+                                    if (initialData?._prefillFromExistingClient) return;
+                                    setIndividualBorrowerOpen(open);
+                                }}>
                                     <PopoverTrigger asChild>
                                         <Button
                                             variant="outline"
                                             role="combobox"
                                             aria-expanded={individualBorrowerOpen}
+                                            disabled={!!initialData?._prefillFromExistingClient}
                                             className="h-10 w-full justify-between px-3 text-sm font-normal hover:bg-muted/50"
                                         >
                                             {selectedBorrowerForIndividual ? (
@@ -1684,8 +1789,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                                             key={b.id}
                                                             value={`${b.full_name} ${b.phone_number} ${b.email || ""}`}
                                                             onSelect={() => {
-                                                                setSelectedBorrowerForIndividual(b);
-                                                                form.setValue("borrower_id", b.id);
+                                                                handleSelectIndividualBorrower(b);
                                                                 setIndividualBorrowerOpen(false);
                                                             }}
                                                             className="py-3"
