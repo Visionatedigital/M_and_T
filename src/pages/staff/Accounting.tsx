@@ -1,5 +1,5 @@
 // Accounting & reports — uses Card/Table only (no Alert UI component)
-import React, { useEffect, useState, useCallback, Fragment, useMemo } from "react";
+import React, { useEffect, useState, useCallback, Fragment, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "@/services/api";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { printElementAsDocument } from "@/lib/printDocument";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell, Area, AreaChart,
@@ -24,7 +25,7 @@ import {
 import {
   TrendingUp, TrendingDown, Plus, Pencil, Trash2, RefreshCw, ArrowUpRight, ArrowDownRight,
   BookOpen, ChevronLeft, ChevronRight, FileText, Wallet, Receipt, AlertTriangle,
-  PiggyBank, Scale, Download, Smartphone, Landmark, MoveRight, MoveLeft,
+  PiggyBank, Scale, Download, Printer, Smartphone, Landmark, MoveRight, MoveLeft,
   BarChart3, Users, FileSpreadsheet, Loader2, Calendar as CalendarIcon, Search, Filter, Sparkles
 } from "lucide-react";
 
@@ -56,7 +57,7 @@ const EXPENSE_CATEGORIES = [
 ];
 const REVENUE_CATEGORIES = [
   "Interest Income", "Principal Recovery", "Processing Fees", "Late Payment Penalties", "Commission Income",
-  "Fee Income (Valuation/Tracking)", "Other Income",
+  "Fee Income (Valuation/Tracking)", "Share Capital", "Other Income",
 ];
 const PAYMENT_METHODS = ["cash", "mobile_money", "bank_transfer"];
 const PIE_COLORS = ["#1e3a5f", "#2563eb", "#0ea5e9", "#38bdf8", "#7dd3fc", "#bae6fd", "#c7843a", "#d97706", "#f59e0b", "#fbbf24", "#fcd34d", "#fef08a"];
@@ -161,6 +162,7 @@ const Accounting = () => {
   const [trialBalance, setTrialBalance] = useState<any>(null);
   const [cashBookData, setCashBookData] = useState<any>(null);
   const [filterAccount, setFilterAccount] = useState("all");
+  const [cashBookSearch, setCashBookSearch] = useState("");
   const [reportLoading, setReportLoading] = useState<string | null>(null);
   const [agingData, setAgingData] = useState<any[]>([]);
   const [comprehensiveIncomeData, setComprehensiveIncomeData] = useState<any>(null);
@@ -233,6 +235,44 @@ const Accounting = () => {
     payment_method: "cash",
   });
 
+  // Print targets: only the statement card, not sidebar / chrome
+  const plPrintRef = useRef<HTMLDivElement>(null);
+  const portfolioPrintRef = useRef<HTMLDivElement>(null);
+  const incomePrintRef = useRef<HTMLDivElement>(null);
+  const balancePrintRef = useRef<HTMLDivElement>(null);
+  const cashflowPrintRef = useRef<HTMLDivElement>(null);
+  const trialPrintRef = useRef<HTMLDivElement>(null);
+  const comprehensivePrintRef = useRef<HTMLDivElement>(null);
+  const financialPositionPrintRef = useRef<HTMLDivElement>(null);
+  const cashflowStmtPrintRef = useRef<HTMLDivElement>(null);
+  const equityPrintRef = useRef<HTMLDivElement>(null);
+  const analysisPrintRef = useRef<HTMLDivElement>(null);
+  const cashbookPrintRef = useRef<HTMLDivElement>(null);
+  const agingPrintRef = useRef<HTMLDivElement>(null);
+
+  const printReport = (
+    ref: React.RefObject<HTMLDivElement | null>,
+    title: string,
+    options?: { maxTableRows?: number; orientation?: "portrait" | "landscape" },
+  ) => {
+    if (!ref.current) {
+      toast({
+        title: "Nothing to print yet",
+        description: "Load or refresh this tab first, then try Print again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const landscape =
+      options?.orientation === "landscape" ||
+      /cashbook|portfolio|aging|comprehensive income|financial position/i.test(title);
+    printElementAsDocument(ref.current, title, {
+      maxTableRows: options?.maxTableRows ?? 0,
+      stripCharts: true,
+      orientation: options?.orientation ?? (landscape ? "landscape" : "portrait"),
+    });
+  };
+
   const filteredEntries = useMemo(() => {
     const q = entrySearch.toLowerCase().trim();
     if (!q) return entries;
@@ -301,6 +341,7 @@ const Accounting = () => {
           entry_type: 'revenue',
           category: 'Fee Income (Valuation/Tracking)',
           description: `${form.fee_type} (Gross Charge)${form.description ? ' - ' + form.description : ''}`,
+          narration: `${form.fee_type} (Gross Charge)${form.description ? ' - ' + form.description : ''}`,
           amount: spec.charge,
           entry_date: form.entry_date,
           payment_method: form.payment_method
@@ -311,6 +352,7 @@ const Accounting = () => {
           entry_type: 'expense',
           category: 'Direct Fee Costs',
           description: `${form.fee_type} (Vendor Cost)${form.description ? ' - ' + form.description : ''}`,
+          narration: `${form.fee_type} (Vendor Cost)${form.description ? ' - ' + form.description : ''}`,
           amount: spec.cost,
           entry_date: form.entry_date,
           payment_method: form.payment_method
@@ -333,10 +375,20 @@ const Accounting = () => {
     }
     setSubmitting(true);
     try {
-      await api.accounting.createEntry({ ...form, amount: parseFloat(form.amount) });
-      toast({ title: "Entry recorded successfully ✓" });
+      await api.accounting.createEntry({
+        ...form,
+        description: form.description || form.narration || null,
+        narration: form.narration || form.description || null,
+        amount: parseFloat(form.amount),
+      });
+      toast({
+        title: "Entry recorded successfully ✓",
+        description: `Saved to cash book (${(form.payment_method || "cash").replace(/_/g, " ")}). Use All Accounts or that channel to see it.`,
+      });
       setDialogOpen(false);
       setForm({ entry_type: "expense", category: "", description: "", narration: "", amount: "", entry_date: new Date().toISOString().split("T")[0], payment_method: "cash", fee_type: "" });
+      // Ensure cashbook is not stuck on another channel (e.g. Mobile Money hides Cash salary)
+      setFilterAccount("all");
       setRefreshKey(k => k + 1);
     } catch (err: any) {
       toast({ title: err.message || "Failed to save entry", variant: "destructive" });
@@ -421,7 +473,7 @@ const Accounting = () => {
 
   useEffect(() => {
     if (activeTab && activeTab !== "pl") loadReport(activeTab);
-  }, [activeTab, loadReport]);
+  }, [activeTab, loadReport, refreshKey]);
 
   // ─── Export AI/Excel from Reports ─────────────────────────
   const handleAiExport = async () => {
@@ -829,23 +881,23 @@ const Accounting = () => {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full">
+      <div className="flex min-h-screen w-full min-w-0 overflow-x-hidden">
         <StaffSidebar />
-        <div className="flex-1 flex flex-col">
+        <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
           <StaffHeader />
-          <main className="flex-1 p-6 bg-slate-50">
-            <div className="max-w-7xl mx-auto space-y-6">
+          <main className="min-w-0 flex-1 overflow-x-clip bg-slate-50 p-3 sm:p-6">
+            <div className="mx-auto w-full min-w-0 max-w-7xl space-y-6">
 
               {/* ── Page Header ── */}
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
                   <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
                     <BookOpen className="h-6 w-6 text-blue-800" />
                     Accounting
                   </h1>
                   <p className="text-sm text-slate-500 mt-0.5">Financial statements, reports & journal entries</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2 shrink-0">
                   <Button
                     variant="outline"
                     size="sm"
@@ -933,16 +985,18 @@ const Accounting = () => {
                             </SelectContent>
                           </Select>
                         </div>
-                        {/* Description */}
+                        {/* Description / Narration (merged — stored on both columns for cash book compatibility) */}
                         <div>
-                          <Label>Description (optional)</Label>
-                          <Input placeholder="Notes about this entry" value={form.description}
-                            onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
-                        </div>
-                        <div>
-                          <Label>Narration (optional)</Label>
-                          <Input placeholder="Remarks for cash book / reports" value={form.narration}
-                            onChange={e => setForm(f => ({ ...f, narration: e.target.value }))} />
+                          <Label>Description / Narration (optional)</Label>
+                          <Input
+                            placeholder="Notes for cash book and reports"
+                            value={form.description}
+                            onChange={e => setForm(f => ({
+                              ...f,
+                              description: e.target.value,
+                              narration: e.target.value,
+                            }))}
+                          />
                         </div>
                         <div className="flex gap-2 pt-2">
                           <Button type="button" variant="outline" className="flex-1" onClick={() => setDialogOpen(false)}>Cancel</Button>
@@ -1015,18 +1069,15 @@ const Accounting = () => {
                           </Select>
                         </div>
                         <div>
-                          <Label>Description (optional)</Label>
+                          <Label>Description / Narration (optional)</Label>
                           <Input
+                            placeholder="Notes for cash book and reports"
                             value={editForm.description}
-                            onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
-                          />
-                        </div>
-                        <div>
-                          <Label>Narration (optional)</Label>
-                          <Input
-                            placeholder="Remarks for cash book / reports"
-                            value={editForm.narration}
-                            onChange={(e) => setEditForm((f) => ({ ...f, narration: e.target.value }))}
+                            onChange={(e) => setEditForm((f) => ({
+                              ...f,
+                              description: e.target.value,
+                              narration: e.target.value,
+                            }))}
                           />
                         </div>
                         <div className="flex gap-2 pt-2">
@@ -1044,14 +1095,14 @@ const Accounting = () => {
               </div>
 
               {/* ── Report Tabs ── */}
-              <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-                  <TabsList
-                    className={cn(
-                      "max-w-full flex-nowrap gap-1 overflow-x-auto overflow-y-hidden bg-slate-100 p-1 [scrollbar-width:thin] touch-pan-x",
-                      "h-auto min-h-11 justify-start",
-                    )}
-                  >
+              <Tabs value={activeTab} onValueChange={handleTabChange} className="min-w-0 space-y-4">
+                <div className="flex min-w-0 w-full flex-col gap-3">
+                  <div className="min-w-0 w-full overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+                    <TabsList
+                      className={cn(
+                        "inline-flex h-auto min-h-11 w-max max-w-none flex-nowrap justify-start gap-1 bg-slate-100 p-1",
+                      )}
+                    >
                     <TabsTrigger value="pl" className="shrink-0 text-xs">
                       Financial Overview
                     </TabsTrigger>
@@ -1091,9 +1142,10 @@ const Accounting = () => {
                     <TabsTrigger value="trial" className="shrink-0 text-xs">
                       Trial Balance
                     </TabsTrigger>
-                  </TabsList>
+                    </TabsList>
+                  </div>
                   {activeTab !== "pl" && (
-                    <div className="flex gap-2 items-center">
+                    <div className="flex flex-wrap gap-2 items-center">
                       <Input type="date" value={reportFrom} onChange={e => setReportFrom(e.target.value)}
                         className="h-8 text-xs w-36" placeholder="From" />
                       <Input type="date" value={reportTo} onChange={e => setReportTo(e.target.value)}
@@ -1108,61 +1160,68 @@ const Accounting = () => {
                 </div>
 
                 <TabsContent value="pl" className="space-y-6 mt-4">
-                  {/* ── Summary Cards ── */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    {/* This Month Revenue */}
-                    <Card className="border-l-4 border-l-emerald-500 shadow-sm">
+                  <div ref={plPrintRef} className="space-y-6">
+                  <div className="flex items-center justify-between gap-3" data-print-hide>
+                    <div>
+                      <h2 className="text-lg font-bold text-slate-900">Financial Overview</h2>
+                      <p className="text-xs text-slate-500">Summary cards, journal entries, and key metrics</p>
+                    </div>
+                    <Button variant="outline" size="sm" className="h-9 text-xs gap-1 shrink-0"
+                      onClick={() => printReport(plPrintRef, "Financial Overview", { maxTableRows: 40 })}>
+                      <Printer className="h-3.5 w-3.5" /> Print
+                    </Button>
+                  </div>
+                  {/* ── Summary metrics (print: stacked lines, no boxes) ── */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 print:grid-cols-1">
+                    <Card className="border-l-4 border-l-emerald-500 shadow-sm kpi-print-row">
                       <CardHeader className="pb-1 pt-4 px-4">
-                        <CardTitle className="text-xs uppercase tracking-wider text-slate-500">Revenue (Month)</CardTitle>
+                        <CardTitle className="text-xs uppercase tracking-wider text-slate-500 kpi-label">Revenue (Month)</CardTitle>
                       </CardHeader>
                       <CardContent className="px-4 pb-4">
-                        <div className="text-xl font-bold text-slate-900">{fmt(currentMonth?.revenue || 0)}</div>
-                        <div className="text-xs text-emerald-600 flex items-center gap-0.5 mt-0.5">
+                        <div className="text-xl font-bold text-slate-900 kpi-value">{fmt(currentMonth?.revenue || 0)}</div>
+                        <div className="text-xs text-emerald-600 flex items-center gap-0.5 mt-0.5 kpi-hint">
                           <ArrowUpRight className="h-3 w-3" /> Income this month
                         </div>
                       </CardContent>
                     </Card>
 
-                    {/* This Month Expenses */}
-                    <Card className="border-l-4 border-l-red-500 shadow-sm">
+                    <Card className="border-l-4 border-l-red-500 shadow-sm kpi-print-row">
                       <CardHeader className="pb-1 pt-4 px-4">
-                        <CardTitle className="text-xs uppercase tracking-wider text-slate-500">Expenses (Month)</CardTitle>
+                        <CardTitle className="text-xs uppercase tracking-wider text-slate-500 kpi-label">Expenses (Month)</CardTitle>
                       </CardHeader>
                       <CardContent className="px-4 pb-4">
-                        <div className="text-xl font-bold text-slate-900">{fmt(currentMonth?.expenses || 0)}</div>
-                        <div className="text-xs text-red-600 flex items-center gap-0.5 mt-0.5">
+                        <div className="text-xl font-bold text-slate-900 kpi-value">{fmt(currentMonth?.expenses || 0)}</div>
+                        <div className="text-xs text-red-600 flex items-center gap-0.5 mt-0.5 kpi-hint">
                           <ArrowDownRight className="h-3 w-3" /> Costs this month
                         </div>
                       </CardContent>
                     </Card>
 
-                    {/* Net Profit */}
-                    <Card className={`border-l-4 ${(currentMonth?.netProfit || 0) >= 0 ? 'border-l-blue-600' : 'border-l-orange-500'} shadow-sm`}>
+                    <Card className={`border-l-4 ${(currentMonth?.netProfit || 0) >= 0 ? 'border-l-blue-600' : 'border-l-orange-500'} shadow-sm kpi-print-row`}>
                       <CardHeader className="pb-1 pt-4 px-4">
-                        <CardTitle className="text-xs uppercase tracking-wider text-slate-500">Net Profit (Month)</CardTitle>
+                        <CardTitle className="text-xs uppercase tracking-wider text-slate-500 kpi-label">Net Profit (Month)</CardTitle>
                       </CardHeader>
                       <CardContent className="px-4 pb-4">
-                        <div className={`text-xl font-bold ${(currentMonth?.netProfit || 0) >= 0 ? 'text-blue-800' : 'text-orange-600'}`}>
+                        <div className={`text-xl font-bold kpi-value ${(currentMonth?.netProfit || 0) >= 0 ? 'text-blue-800' : 'text-orange-600'}`}>
                           {fmt(Math.abs(currentMonth?.netProfit || 0))}
                           <span className="text-sm font-normal ml-1">{(currentMonth?.netProfit || 0) >= 0 ? 'profit' : 'loss'}</span>
                         </div>
-                        <div className={`text-xs flex items-center gap-0.5 mt-0.5 ${profitTrend >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                        <div className={`text-xs flex items-center gap-0.5 mt-0.5 kpi-hint ${profitTrend >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                           {profitTrend >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                           {Math.abs(profitTrend).toFixed(1)}% vs last month
                         </div>
                       </CardContent>
                     </Card>
 
-                    {/* YTD Net Profit */}
-                    <Card className={`border-l-4 ${ytd.netProfit >= 0 ? 'border-l-amber-500' : 'border-l-orange-600'} shadow-sm`}>
+                    <Card className={`border-l-4 ${ytd.netProfit >= 0 ? 'border-l-amber-500' : 'border-l-orange-600'} shadow-sm kpi-print-row`}>
                       <CardHeader className="pb-1 pt-4 px-4">
-                        <CardTitle className="text-xs uppercase tracking-wider text-slate-500">YTD Net Profit</CardTitle>
+                        <CardTitle className="text-xs uppercase tracking-wider text-slate-500 kpi-label">YTD Net Profit</CardTitle>
                       </CardHeader>
                       <CardContent className="px-4 pb-4">
-                        <div className={`text-xl font-bold ${ytd.netProfit >= 0 ? 'text-amber-700' : 'text-orange-600'}`}>
+                        <div className={`text-xl font-bold kpi-value ${ytd.netProfit >= 0 ? 'text-amber-700' : 'text-orange-600'}`}>
                           {fmt(Math.abs(ytd.netProfit))}
                         </div>
-                        <div className="text-xs text-slate-500 mt-0.5">
+                        <div className="text-xs text-slate-500 mt-0.5 kpi-hint">
                           {new Date().getFullYear()} year-to-date
                         </div>
                       </CardContent>
@@ -1170,7 +1229,7 @@ const Accounting = () => {
                   </div>
 
                   {/* ── Charts Row ── */}
-                  <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-5 gap-4" data-print-hide>
                     {/* P&L Bar Chart — takes 3/5 width */}
                     <Card className="lg:col-span-3 shadow-sm">
                       <CardHeader>
@@ -1243,7 +1302,7 @@ const Accounting = () => {
                   </div>
 
                   {/* ── Net Profit Trend ── */}
-                  <Card className="shadow-sm">
+                  <Card className="shadow-sm" data-print-hide>
                     <CardHeader>
                       <CardTitle className="text-base">Net Profit Trend</CardTitle>
                       <CardDescription>Month-over-month profitability</CardDescription>
@@ -1329,7 +1388,7 @@ const Accounting = () => {
                               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Narration</th>
                               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Method</th>
                               <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Amount</th>
-                              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[88px]">Actions</th>
+                              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[88px]" data-print-hide>Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
@@ -1341,12 +1400,9 @@ const Accounting = () => {
                               <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
                                 <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{formatDate(entry.entry_date)}</td>
                                 <td className="px-4 py-3">
-                                  <Badge variant={entry.entry_type === "revenue" ? "default" : "secondary"}
-                                    className={entry.entry_type === "revenue"
-                                      ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100"
-                                      : "bg-red-100 text-red-800 hover:bg-red-100"}>
+                                  <span className={`text-xs font-semibold capitalize ${entry.entry_type === "revenue" ? "text-emerald-700" : "text-red-700"}`}>
                                     {entry.entry_type}
-                                  </Badge>
+                                  </span>
                                 </td>
                                 <td className="px-4 py-3 text-slate-700">{entry.category}</td>
                                 <td className="px-4 py-3 text-slate-500 max-w-[200px] truncate">{entry.description || "—"}</td>
@@ -1355,7 +1411,7 @@ const Accounting = () => {
                                 <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${entry.entry_type === "revenue" ? "text-emerald-700" : "text-red-700"}`}>
                                   {entry.entry_type === "revenue" ? "+" : "−"} UGX {parseInt(entry.amount).toLocaleString()}
                                 </td>
-                                <td className="px-4 py-3 text-right">
+                                <td className="px-4 py-3 text-right" data-print-hide>
                                   <div className="flex items-center justify-end gap-1">
                                     <Button
                                       variant="ghost"
@@ -1386,7 +1442,7 @@ const Accounting = () => {
                       </div>
 
                       {/* Pagination */}
-                      <div className="flex items-center justify-between px-4 py-3 border-t">
+                      <div className="flex items-center justify-between px-4 py-3 border-t" data-print-hide>
                         <div className="text-xs text-slate-500">
                           Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, totalEntries)} of {totalEntries}
                         </div>
@@ -1401,10 +1457,12 @@ const Accounting = () => {
                       </div>
                     </CardContent>
                   </Card>
+                  </div>
                 </TabsContent>
 
                 {/* ── Loan Portfolio ── */}
                 <TabsContent value="portfolio" className="mt-4 space-y-4">
+                  <div ref={portfolioPrintRef} className="space-y-4">
                   <div className="flex items-center justify-between bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-2">
                     <div className="flex items-center gap-6">
                       <div className="p-3 bg-blue-50 rounded-xl">
@@ -1415,12 +1473,15 @@ const Accounting = () => {
                         <p className="text-xs text-slate-500 font-medium tracking-tight">Active loans and outstanding balances</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2" data-print-hide>
                       <Button variant="outline" size="sm" onClick={() => loadReport("portfolio")} className="h-9 text-xs gap-1 border-slate-200">
                         <RefreshCw className={`h-3 w-3 ${reportLoading === "portfolio" ? "animate-spin" : ""}`} /> Refresh
                       </Button>
                       <Button variant="outline" size="sm" onClick={exportLoanPortfolio} className="h-9 text-xs gap-1 border-slate-200 hover:bg-slate-50 shadow-sm">
                         <Download className="h-3 w-3" /> Export Excel
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => printReport(portfolioPrintRef, "Loan Portfolio")} className="h-9 text-xs gap-1 border-slate-200">
+                        <Printer className="h-3 w-3" /> Print
                       </Button>
                     </div>
                   </div>
@@ -1447,18 +1508,16 @@ const Accounting = () => {
                               <TableRow key={i} className="hover:bg-slate-50">
                                 <TableCell className="font-medium p-3">{l.client_name}</TableCell>
                                 <TableCell className="p-3">{l.loan_product}</TableCell>
-                                <TableCell className="text-right tabular-nums p-3">{fmt(l.principal || 0)}</TableCell>
-                                <TableCell className="text-right tabular-nums p-3">{fmt(l.interest || 0)}</TableCell>
-                                <TableCell className="text-right font-bold tabular-nums text-blue-700 p-3">{fmt(l.total_outstanding || 0)}</TableCell>
+                                <TableCell className="text-right tabular-nums p-3">{(l.principal || 0).toLocaleString()}</TableCell>
+                                <TableCell className="text-right tabular-nums p-3">{(l.interest || 0).toLocaleString()}</TableCell>
+                                <TableCell className="text-right font-bold tabular-nums text-blue-700 p-3">{(l.total_outstanding || 0).toLocaleString()}</TableCell>
                                 <TableCell className="text-right tabular-nums p-3">
-                                  <Badge variant={l.days_overdue > 0 ? "destructive" : "outline"} className="h-5 px-2 text-[10px]">
+                                  <span className={`text-xs font-semibold ${l.days_overdue > 0 ? "text-red-700" : "text-slate-600"}`}>
                                     {l.days_overdue > 0 ? `${l.days_overdue} days` : "Current"}
-                                  </Badge>
+                                  </span>
                                 </TableCell>
                                 <TableCell className="p-3">
-                                  <Badge variant="secondary" className="h-5 px-2 text-[10px] capitalize">
-                                    {l.status}
-                                  </Badge>
+                                  <span className="text-xs font-medium capitalize text-slate-700">{l.status}</span>
                                 </TableCell>
                               </TableRow>
                             ))}
@@ -1472,6 +1531,7 @@ const Accounting = () => {
                       <p className="text-slate-400 font-bold italic">Click the refresh icon above to load portfolio data.</p>
                     </div>
                   )}
+                  </div>
                 </TabsContent>
 
                 {/* ── Income Statement ── */}
@@ -1479,7 +1539,7 @@ const Accounting = () => {
                   {reportLoading === "income" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : incomeStmt ? (
-                    <Card className="shadow-sm border-slate-200">
+                    <Card ref={incomePrintRef} className="shadow-sm border-slate-200">
                       <CardHeader className="flex flex-row items-center justify-between border-b pb-4">
                         <div>
                           <CardTitle className="flex items-center gap-2 text-xl">
@@ -1490,10 +1550,15 @@ const Accounting = () => {
                             Reporting Period: <span className="font-medium text-slate-700">{formatDate(incomeStmt.period?.start)}</span> to <span className="font-medium text-slate-700">{formatDate(incomeStmt.period?.end)}</span>
                           </CardDescription>
                         </div>
-                        <Button variant="outline" size="sm" onClick={exportIncomeStatement} className="hover:bg-slate-50">
-                          <Download className="h-4 w-4 mr-2" />
-                          Export CSV
-                        </Button>
+                        <div className="flex flex-wrap gap-2 shrink-0" data-print-hide>
+                          <Button variant="outline" size="sm" onClick={exportIncomeStatement} className="hover:bg-slate-50">
+                            <Download className="h-4 w-4 mr-2" />
+                            Export CSV
+                          </Button>
+                          <Button variant="outline" size="sm" className="hover:bg-slate-50" onClick={() => printReport(incomePrintRef, "Profit & Loss Statement")}>
+                            <Printer className="h-4 w-4 mr-2" /> Print
+                          </Button>
+                        </div>
                       </CardHeader>
                       <CardContent className="pt-6">
                         <div className="space-y-8">
@@ -1502,37 +1567,37 @@ const Accounting = () => {
                             <table className="w-full text-sm border-collapse">
                               <thead>
                                 <tr className="border-b text-slate-400 font-medium">
-                                  <th className="text-left py-2 px-4">Particulars</th>
-                                  <th className="text-right py-2 px-4">Amount (UGX)</th>
+                                  <th className="text-left py-3 px-2">Particulars</th>
+                                  <th className="text-right py-3 px-2">Amount (UGX)</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-50">
                                 {incomeStmt.sections?.map((section: any, idx: number) => (
                                   section.isSubtotal ? (
                                     <tr key={idx} className="bg-slate-50/50">
-                                      <td className="py-3 px-4 font-bold text-slate-900 border-t-2 border-slate-200 uppercase tracking-tight">
+                                      <td className="py-4 px-2 font-bold text-slate-900 border-t-2 border-slate-200 uppercase tracking-tight">
                                         {section.title}
                                       </td>
-                                      <td className={`py-3 px-4 text-right font-bold border-t-2 border-slate-200 ${section.total >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                                      <td className={`py-4 px-2 text-right font-bold border-t-2 border-slate-200 tabular-nums ${section.total >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
                                         {section.total.toLocaleString()}
                                       </td>
                                     </tr>
                                   ) : (
                                     <Fragment key={idx}>
-                                      <tr className="bg-blue-50/30">
-                                        <td className="py-2 px-4 font-semibold text-blue-900 uppercase text-xs tracking-wider" colSpan={2}>
+                                      <tr>
+                                        <td className="py-3.5 px-2 font-semibold text-slate-800 uppercase text-xs tracking-wider border-b border-slate-200" colSpan={2}>
                                           {section.title}
                                         </td>
                                       </tr>
                                       {section.categories && Object.entries(section.categories).map(([cat, val]: any) => (
                                         <tr key={cat} className="hover:bg-slate-50">
-                                          <td className="py-1.5 px-8 text-slate-600">{cat}</td>
-                                          <td className="text-right px-4 text-slate-700">{val.toLocaleString()}</td>
+                                          <td className="py-2.5 pl-5 pr-2 text-slate-600">{cat}</td>
+                                          <td className="text-right py-2.5 px-2 text-slate-700 tabular-nums">{val.toLocaleString()}</td>
                                         </tr>
                                       ))}
-                                      <tr className="border-t border-slate-100 font-medium bg-slate-50/30">
-                                        <td className="py-2 px-6 italic text-slate-700">Total {section.title}</td>
-                                        <td className="text-right px-4 font-semibold text-slate-900">{section.total.toLocaleString()}</td>
+                                      <tr className="border-t border-slate-100 font-medium">
+                                        <td className="py-3 pl-4 pr-2 italic text-slate-700">Total {section.title}</td>
+                                        <td className="text-right py-3 px-2 font-semibold text-slate-900 tabular-nums">{section.total.toLocaleString()}</td>
                                       </tr>
                                     </Fragment>
                                   )
@@ -1541,37 +1606,27 @@ const Accounting = () => {
                             </table>
                           </div>
 
-                          {/* Ratios Section */}
-                          <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-inner">
-                            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-widest mb-4 flex items-center gap-2">
-                              <TrendingUp className="h-4 w-4 text-blue-700" />
-                              Financial Ratios (as % of Avg Portfolio)
+                          {/* Ratios — plain lines, no boxed chips */}
+                          <div className="statement-section pt-2 border-t border-slate-200">
+                            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-widest mb-4">
+                              Financial ratios (% of average portfolio)
                             </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                              <div className="space-y-1">
-                                <p className="text-xs text-slate-500 font-medium">Average Portfolio</p>
-                                <p className="text-lg font-bold text-slate-900">UGX {incomeStmt.kpis?.avg_portfolio?.toLocaleString()}</p>
+                            <div className="space-y-4 max-w-xl">
+                              <div className="flex justify-between gap-6 border-b border-slate-100 pb-3">
+                                <span className="text-sm text-slate-600">Average portfolio</span>
+                                <span className="text-sm font-bold text-slate-900 tabular-nums">UGX {incomeStmt.kpis?.avg_portfolio?.toLocaleString()}</span>
                               </div>
-                              <div className="space-y-1">
-                                <p className="text-xs text-slate-500 font-medium">Net Financial Income / Avg Portfolio</p>
-                                <div className="flex items-center gap-2">
-                                  <p className="text-lg font-bold text-emerald-700">{incomeStmt.kpis?.net_financial_income_ratio}%</p>
-                                  <Badge className="bg-emerald-100 text-emerald-800 border-none text-[10px]">KPI</Badge>
-                                </div>
+                              <div className="flex justify-between gap-6 border-b border-slate-100 pb-3">
+                                <span className="text-sm text-slate-600">Net financial income / avg portfolio</span>
+                                <span className="text-sm font-bold text-emerald-700 tabular-nums">{incomeStmt.kpis?.net_financial_income_ratio}%</span>
                               </div>
-                              <div className="space-y-1">
-                                <p className="text-xs text-slate-500 font-medium">Net Operational Income / Avg Portfolio</p>
-                                <div className="flex items-center gap-2">
-                                  <p className="text-lg font-bold text-blue-700">{incomeStmt.kpis?.net_operational_income_ratio}%</p>
-                                  <Badge className="bg-blue-100 text-blue-800 border-none text-[10px]">OSS</Badge>
-                                </div>
+                              <div className="flex justify-between gap-6 border-b border-slate-100 pb-3">
+                                <span className="text-sm text-slate-600">Net operational income / avg portfolio</span>
+                                <span className="text-sm font-bold text-blue-700 tabular-nums">{incomeStmt.kpis?.net_operational_income_ratio}%</span>
                               </div>
-                              <div className="space-y-1">
-                                <p className="text-xs text-slate-500 font-medium">Net Income / Avg Portfolio</p>
-                                <div className="flex items-center gap-2">
-                                  <p className="text-lg font-bold text-amber-700">{incomeStmt.kpis?.net_income_ratio}%</p>
-                                  <Badge className="bg-amber-100 text-amber-800 border-none text-[10px]">ROA</Badge>
-                                </div>
+                              <div className="flex justify-between gap-6 pb-1">
+                                <span className="text-sm text-slate-600">Net income / avg portfolio</span>
+                                <span className="text-sm font-bold text-amber-700 tabular-nums">{incomeStmt.kpis?.net_income_ratio}%</span>
                               </div>
                             </div>
                           </div>
@@ -1588,56 +1643,62 @@ const Accounting = () => {
                   {reportLoading === "balance" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : balanceSheet ? (
-                    <Card>
+                    <Card ref={balancePrintRef}>
                       <CardHeader className="flex flex-row items-center justify-between">
                         <div>
                           <CardTitle className="flex items-center gap-2"><Scale className="h-5 w-5" /> Balance Sheet</CardTitle>
                           <CardDescription>As of {balanceSheet.as_of}</CardDescription>
                         </div>
-                        <Button variant="outline" size="sm" onClick={exportBalanceSheet}>
-                          <Download className="h-4 w-4 mr-2" />
-                          Export CSV
-                        </Button>
+                        <div className="flex flex-wrap gap-2 shrink-0" data-print-hide>
+                          <Button variant="outline" size="sm" onClick={exportBalanceSheet}>
+                            <Download className="h-4 w-4 mr-2" />
+                            Export CSV
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => printReport(balancePrintRef, "Balance Sheet")}>
+                            <Printer className="h-4 w-4 mr-2" /> Print
+                          </Button>
+                        </div>
                       </CardHeader>
                       <CardContent>
-                        <div className="grid md:grid-cols-3 gap-6">
-                          <div>
-                            <h3 className="font-semibold text-slate-700 mb-2">Assets</h3>
+                        <p className="ledger-currency-note text-xs text-slate-500 font-semibold mb-4">Amounts in UGX</p>
+                        <div className="statement-stack space-y-10 max-w-2xl">
+                          <section className="statement-section">
+                            <h3 className="font-semibold text-slate-800 mb-3 text-sm uppercase tracking-wide">Assets</h3>
                             <table className="w-full text-sm">
                               <tbody>
-                                <tr><td className="py-1 pl-2">Cash at Bank</td><td className="text-right">{balanceSheet.assets?.cash_at_bank?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Mobile Money Float</td><td className="text-right">{balanceSheet.assets?.mobile_money_float?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Loans Receivable</td><td className="text-right">{balanceSheet.assets?.loans_receivable?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Accrued Interest</td><td className="text-right">{balanceSheet.assets?.accrued_interest?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Fixed Assets</td><td className="text-right">{balanceSheet.assets?.fixed_assets?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Prepaid Expenses</td><td className="text-right">{balanceSheet.assets?.prepaid_expenses?.toLocaleString() ?? 0}</td></tr>
-                                <tr className="border-t font-semibold"><td className="py-2">Total Assets</td><td className="text-right">{balanceSheet.assets?.total?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Cash at Bank</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.assets?.cash_at_bank?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Mobile Money Float</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.assets?.mobile_money_float?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Loans Receivable</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.assets?.loans_receivable?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Accrued Interest</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.assets?.accrued_interest?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Fixed Assets</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.assets?.fixed_assets?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Prepaid Expenses</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.assets?.prepaid_expenses?.toLocaleString() ?? 0}</td></tr>
+                                <tr className="border-t-2 border-slate-300 font-semibold"><td className="py-3">Total Assets</td><td className="text-right py-3 tabular-nums">{balanceSheet.assets?.total?.toLocaleString() ?? 0}</td></tr>
                               </tbody>
                             </table>
-                          </div>
-                          <div>
-                            <h3 className="font-semibold text-slate-700 mb-2">Liabilities</h3>
+                          </section>
+                          <section className="statement-section">
+                            <h3 className="font-semibold text-slate-800 mb-3 text-sm uppercase tracking-wide">Liabilities</h3>
                             <table className="w-full text-sm">
                               <tbody>
-                                <tr><td className="py-1 pl-2">Client Deposits</td><td className="text-right">{balanceSheet.liabilities?.client_deposits?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Borrowed Funds</td><td className="text-right">{balanceSheet.liabilities?.borrowed_funds?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Payables</td><td className="text-right">{balanceSheet.liabilities?.payables?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Accrued Expenses</td><td className="text-right">{balanceSheet.liabilities?.accrued_expenses?.toLocaleString() ?? 0}</td></tr>
-                                <tr className="border-t font-semibold"><td className="py-2">Total Liabilities</td><td className="text-right">{balanceSheet.liabilities?.total?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Client Deposits</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.liabilities?.client_deposits?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Borrowed Funds</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.liabilities?.borrowed_funds?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Payables</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.liabilities?.payables?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Accrued Expenses</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.liabilities?.accrued_expenses?.toLocaleString() ?? 0}</td></tr>
+                                <tr className="border-t-2 border-slate-300 font-semibold"><td className="py-3">Total Liabilities</td><td className="text-right py-3 tabular-nums">{balanceSheet.liabilities?.total?.toLocaleString() ?? 0}</td></tr>
                               </tbody>
                             </table>
-                          </div>
-                          <div>
-                            <h3 className="font-semibold text-slate-700 mb-2">Equity</h3>
+                          </section>
+                          <section className="statement-section">
+                            <h3 className="font-semibold text-slate-800 mb-3 text-sm uppercase tracking-wide">Equity</h3>
                             <table className="w-full text-sm">
                               <tbody>
-                                <tr><td className="py-1 pl-2">Share Capital</td><td className="text-right">{balanceSheet.equity?.share_capital?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Retained Earnings</td><td className="text-right">{balanceSheet.equity?.retained_earnings?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Current Year Profit</td><td className="text-right">{balanceSheet.equity?.current_year_profit?.toLocaleString() ?? 0}</td></tr>
-                                <tr className="border-t font-semibold"><td className="py-2">Total Equity</td><td className="text-right">{balanceSheet.equity?.total?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Share Capital</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.equity?.share_capital?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Retained Earnings</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.equity?.retained_earnings?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Current Year Profit</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.equity?.current_year_profit?.toLocaleString() ?? 0}</td></tr>
+                                <tr className="border-t-2 border-slate-300 font-semibold"><td className="py-3">Total Equity</td><td className="text-right py-3 tabular-nums">{balanceSheet.equity?.total?.toLocaleString() ?? 0}</td></tr>
                               </tbody>
                             </table>
-                          </div>
+                          </section>
                         </div>
                       </CardContent>
                     </Card>
@@ -1651,54 +1712,65 @@ const Accounting = () => {
                   {reportLoading === "cashflow" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : cashFlow ? (
-                    <Card>
+                    <Card ref={cashflowPrintRef}>
                       <CardHeader className="flex flex-row items-center justify-between">
                         <div>
                           <CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5" /> Cash Flow Statement</CardTitle>
                           <CardDescription>{cashFlow.period?.start} to {cashFlow.period?.end}</CardDescription>
                         </div>
-                        <Button variant="outline" size="sm" onClick={exportCashFlow}>
-                          <Download className="h-4 w-4 mr-2" />
-                          Export CSV
-                        </Button>
+                        <div className="flex flex-wrap gap-2 shrink-0" data-print-hide>
+                          <Button variant="outline" size="sm" onClick={exportCashFlow}>
+                            <Download className="h-4 w-4 mr-2" />
+                            Export CSV
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => printReport(cashflowPrintRef, "Cash Flow Statement")}>
+                            <Printer className="h-4 w-4 mr-2" /> Print
+                          </Button>
+                        </div>
                       </CardHeader>
                       <CardContent>
-                        <div className="space-y-4">
-                          <div>
-                            <h3 className="font-semibold text-blue-700 mb-2">Operating Activities</h3>
+                        <p className="ledger-currency-note text-xs text-slate-500 font-semibold mb-4">Amounts in UGX</p>
+                        <div className="statement-stack space-y-10">
+                          <section className="statement-section">
+                            <h3 className="font-semibold text-slate-800 mb-3 text-sm uppercase tracking-wide">Operating Activities</h3>
                             <table className="w-full text-sm">
                               <tbody>
-                                <tr><td className="py-1 pl-4">Cash from loan repayments</td><td className="text-right text-emerald-600">{(cashFlow.operating?.cash_from_loan_repayments ?? 0).toLocaleString()}</td></tr>
-                                <tr><td className="py-1 pl-4">Interest collected</td><td className="text-right text-emerald-600">{(cashFlow.operating?.interest_collected ?? 0).toLocaleString()}</td></tr>
-                                <tr><td className="py-1 pl-4">Other operating inflows</td><td className="text-right text-emerald-600">{(cashFlow.operating?.other_operating_inflows ?? 0).toLocaleString()}</td></tr>
-                                <tr><td className="py-1 pl-4">Operating expenses paid</td><td className="text-right text-red-600">({(cashFlow.operating?.operating_expenses_paid ?? 0).toLocaleString()})</td></tr>
-                                <tr className="border-t font-semibold"><td className="py-2">Net Operating</td><td className="text-right">{cashFlow.operating?.net?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Cash from loan repayments</td><td className="text-right py-2.5 text-emerald-700 tabular-nums">{(cashFlow.operating?.cash_from_loan_repayments ?? 0).toLocaleString()}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Interest collected</td><td className="text-right py-2.5 text-emerald-700 tabular-nums">{(cashFlow.operating?.interest_collected ?? 0).toLocaleString()}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Other operating inflows</td><td className="text-right py-2.5 text-emerald-700 tabular-nums">{(cashFlow.operating?.other_operating_inflows ?? 0).toLocaleString()}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Operating expenses paid</td><td className="text-right py-2.5 text-red-700 tabular-nums">({(cashFlow.operating?.operating_expenses_paid ?? 0).toLocaleString()})</td></tr>
+                                <tr className="border-t-2 border-slate-300 font-semibold"><td className="py-3">Net Operating</td><td className="text-right py-3 tabular-nums">{cashFlow.operating?.net?.toLocaleString() ?? 0}</td></tr>
                               </tbody>
                             </table>
-                          </div>
-                          <div>
-                            <h3 className="font-semibold text-amber-700 mb-2">Investing Activities</h3>
+                          </section>
+                          <section className="statement-section">
+                            <h3 className="font-semibold text-slate-800 mb-3 text-sm uppercase tracking-wide">Investing Activities</h3>
                             <table className="w-full text-sm">
                               <tbody>
-                                <tr><td className="py-1 pl-4">Inflows</td><td className="text-right">{(cashFlow.investing?.inflows ?? 0).toLocaleString()}</td></tr>
-                                <tr><td className="py-1 pl-4">Outflows (asset purchases)</td><td className="text-right">({(cashFlow.investing?.outflows ?? 0).toLocaleString()})</td></tr>
-                                <tr className="border-t font-semibold"><td className="py-2">Net Investing</td><td className="text-right">{cashFlow.investing?.net?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Inflows</td><td className="text-right py-2.5 tabular-nums">{(cashFlow.investing?.inflows ?? 0).toLocaleString()}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Outflows (asset purchases)</td><td className="text-right py-2.5 tabular-nums">({(cashFlow.investing?.outflows ?? 0).toLocaleString()})</td></tr>
+                                <tr className="border-t-2 border-slate-300 font-semibold"><td className="py-3">Net Investing</td><td className="text-right py-3 tabular-nums">{cashFlow.investing?.net?.toLocaleString() ?? 0}</td></tr>
                               </tbody>
                             </table>
-                          </div>
-                          <div>
-                            <h3 className="font-semibold text-orange-700 mb-2">Financing Activities</h3>
+                          </section>
+                          <section className="statement-section">
+                            <h3 className="font-semibold text-slate-800 mb-3 text-sm uppercase tracking-wide">Financing Activities</h3>
                             <table className="w-full text-sm">
                               <tbody>
-                                <tr><td className="py-1 pl-4">Inflows (capital, loans)</td><td className="text-right">{(cashFlow.financing?.inflows ?? 0).toLocaleString()}</td></tr>
-                                <tr><td className="py-1 pl-4">Outflows</td><td className="text-right">({(cashFlow.financing?.outflows ?? 0).toLocaleString()})</td></tr>
-                                <tr className="border-t font-semibold"><td className="py-2">Net Financing</td><td className="text-right">{cashFlow.financing?.net?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Inflows (capital, loans)</td><td className="text-right py-2.5 tabular-nums">{(cashFlow.financing?.inflows ?? 0).toLocaleString()}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Outflows</td><td className="text-right py-2.5 tabular-nums">({(cashFlow.financing?.outflows ?? 0).toLocaleString()})</td></tr>
+                                <tr className="border-t-2 border-slate-300 font-semibold"><td className="py-3">Net Financing</td><td className="text-right py-3 tabular-nums">{cashFlow.financing?.net?.toLocaleString() ?? 0}</td></tr>
                               </tbody>
                             </table>
-                          </div>
-                          <div className={`p-3 rounded-lg font-bold ${(cashFlow.net_cash_flow ?? 0) >= 0 ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-800"}`}>
-                            Net Cash Flow: UGX {(cashFlow.net_cash_flow ?? 0).toLocaleString()}
-                          </div>
+                          </section>
+                          <section className="statement-section border-t-2 border-slate-800 pt-4">
+                            <div className="flex justify-between items-baseline gap-4 font-bold text-base">
+                              <span>Net Cash Flow</span>
+                              <span className={`tabular-nums ${(cashFlow.net_cash_flow ?? 0) >= 0 ? "text-emerald-800" : "text-red-800"}`}>
+                                {(cashFlow.net_cash_flow ?? 0).toLocaleString()}
+                              </span>
+                            </div>
+                          </section>
                         </div>
                       </CardContent>
                     </Card>
@@ -1712,46 +1784,79 @@ const Accounting = () => {
 
                 {/* ── Cash Book ── */}
                 <TabsContent value="cashbook" className="mt-4 space-y-4">
-                  <div className="flex items-center justify-between bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-2">
-                    <div className="flex items-center gap-6">
-                      <div className="p-3 bg-slate-50 rounded-xl">
-                        <Landmark className="h-6 w-6 text-primary" />
+                  <div className="flex flex-col gap-3 bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-100 mb-2">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-center gap-4 min-w-0">
+                        <div className="p-3 bg-slate-50 rounded-xl shrink-0">
+                          <Landmark className="h-6 w-6 text-primary" />
+                        </div>
+                        <div className="min-w-0">
+                          <h2 className="text-xl font-black text-slate-900">Cashbook</h2>
+                          <p className="text-xs text-slate-500 font-medium tracking-tight">
+                            Daily transaction log — channel filter is separate from the date range
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <h2 className="text-xl font-black text-slate-900">Cashbook</h2>
-                        <p className="text-xs text-slate-500 font-medium tracking-tight">Daily transaction log and running balance</p>
+                      <div className="flex flex-wrap gap-2 items-center" data-print-hide>
+                        <div className="relative">
+                          <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                          <Input
+                            value={cashBookSearch}
+                            onChange={(e) => setCashBookSearch(e.target.value)}
+                            placeholder="Search salary, name…"
+                            className="h-9 w-44 sm:w-56 pl-8 text-xs"
+                          />
+                        </div>
+                        <Select value={filterAccount} onValueChange={setFilterAccount}>
+                          <SelectTrigger className="w-[180px] h-9 text-xs bg-white border-slate-200"><SelectValue placeholder="All Accounts" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Accounts</SelectItem>
+                            <SelectItem value="cash">Cash only</SelectItem>
+                            <SelectItem value="mobile_money">Mobile Money only</SelectItem>
+                            <SelectItem value="bank_transfer">Bank Transfer only</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button variant="outline" size="sm" onClick={exportCashBook} className="h-9 text-xs gap-1 border-slate-200 hover:bg-slate-50 shadow-sm">
+                          <Download className="h-3 w-3" /> Export Excel
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => printReport(cashbookPrintRef, "Cashbook")} className="h-9 text-xs gap-1 border-slate-200">
+                          <Printer className="h-3 w-3" /> Print
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex gap-4 items-center">
-                      <Select value={filterAccount} onValueChange={setFilterAccount}>
-                        <SelectTrigger className="w-[180px] h-9 text-xs bg-white border-slate-200"><SelectValue placeholder="All Accounts" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Accounts</SelectItem>
-                          <SelectItem value="cash">Cash</SelectItem>
-                          <SelectItem value="mobile_money">Mobile Money</SelectItem>
-                          <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Button variant="outline" size="sm" onClick={exportCashBook} className="h-9 text-xs gap-1 border-slate-200 hover:bg-slate-50 shadow-sm">
-                        <Download className="h-3 w-3" /> Export Excel
-                      </Button>
-                    </div>
+                    {filterAccount !== "all" && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-print-hide>
+                        Showing <span className="font-bold">{filterAccount.replace(/_/g, " ")}</span> only.
+                        Cash salary entries are hidden on Mobile Money / Bank. Switch to <button type="button" className="underline font-bold" onClick={() => setFilterAccount("all")}>All Accounts</button> or <button type="button" className="underline font-bold" onClick={() => setFilterAccount("cash")}>Cash</button>.
+                      </div>
+                    )}
                   </div>
 
                   {reportLoading === "cashbook" ? (
                     <div className="flex items-center justify-center py-16"><RefreshCw className="h-8 w-8 text-primary animate-spin" /></div>
                   ) : cashBookData?.transactions ? (
-                    <Card className="shadow-xl border-none overflow-hidden rounded-2xl">
+                    <Card ref={cashbookPrintRef} className="shadow-xl border-none overflow-hidden rounded-2xl">
+                      <div className="px-6 pt-5 pb-0">
+                        <p className="ledger-currency-note text-xs text-slate-500 font-semibold">Amounts in UGX</p>
+                      </div>
                       <div className="overflow-x-auto">
-                        <table className="w-full text-sm border-collapse">
+                        <table className="w-full text-sm border-collapse ledger-print">
+                          <colgroup>
+                            <col className="col-date" />
+                            <col className="col-details" />
+                            <col className="col-amount" />
+                            <col className="col-amount" />
+                            <col className="col-balance" />
+                            <col className="col-narration" />
+                          </colgroup>
                           <thead className="bg-slate-50 border-b border-slate-200">
                             <tr className="border-none">
-                              <th className="text-left py-4 px-6 text-slate-500 font-black text-[10px] uppercase tracking-widest">Date</th>
-                              <th className="text-left py-4 px-6 text-slate-500 font-black text-[10px] uppercase tracking-widest">Details</th>
-                              <th className="text-right py-4 px-6 text-slate-500 font-black text-[10px] uppercase tracking-widest">Debit (+)</th>
-                              <th className="text-right py-4 px-6 text-slate-500 font-black text-[10px] uppercase tracking-widest">Credit (-)</th>
-                              <th className="text-right py-4 px-6 text-slate-500 font-black text-[10px] uppercase tracking-widest">Balance</th>
-                              <th className="text-left py-4 px-6 text-slate-500 font-black text-[10px] uppercase tracking-widest">Narration</th>
+                              <th className="text-left py-4 px-4 text-slate-500 font-black text-[10px] uppercase tracking-widest">Date</th>
+                              <th className="text-left py-4 px-4 text-slate-500 font-black text-[10px] uppercase tracking-widest">Details</th>
+                              <th className="text-right py-4 px-4 text-slate-500 font-black text-[10px] uppercase tracking-widest">Debit</th>
+                              <th className="text-right py-4 px-4 text-slate-500 font-black text-[10px] uppercase tracking-widest">Credit</th>
+                              <th className="text-right py-4 px-4 text-slate-500 font-black text-[10px] uppercase tracking-widest">Balance</th>
+                              <th className="text-left py-4 px-4 text-slate-500 font-black text-[10px] uppercase tracking-widest">Narration</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1766,37 +1871,89 @@ const Accounting = () => {
                                       0,
                                     )
                                   : 0);
+                              const q = cashBookSearch.trim().toLowerCase();
+                              let rows = [...(cashBookData.transactions || [])];
+                              if (q) {
+                                rows = rows.filter((t: any) =>
+                                  [t.description, t.category, t.narration, t.payment_method, String(t.amount)]
+                                    .some((v) => String(v || "").toLowerCase().includes(q)),
+                                );
+                              }
                               return (
                             <>
                             {/* Opening Balance Row */}
                             <tr className="bg-slate-50/80 font-bold border-b border-slate-100">
-                              <td className="py-4 px-6 text-[11px] text-slate-400 font-mono italic">{new Date(reportFrom || cashBookData.period.start).toLocaleDateString('en-GB')}</td>
-                              <td className="py-4 px-6 font-black text-slate-900 uppercase text-xs">OPENING BALANCE B/F</td>
-                              <td colSpan={2} className="py-4 px-6"></td>
-                              <td className="py-4 px-6 text-right font-black text-slate-900 tabular-nums">{fmt(opening)}</td>
-                              <td className="py-4 px-6 text-[10px] text-slate-400 italic">Balance brought forward</td>
+                              <td className="col-date py-4 px-4 text-[11px] text-slate-500 whitespace-nowrap">{new Date(reportFrom || cashBookData.period.start).toLocaleDateString('en-GB')}</td>
+                              <td className="py-4 px-4">
+                                <div className="details-title font-bold text-slate-900 text-xs">Opening balance B/F</div>
+                              </td>
+                              <td className="col-amount py-4 px-4"></td>
+                              <td className="col-amount py-4 px-4"></td>
+                              <td className="col-balance py-4 px-4 text-right font-bold text-slate-900 tabular-nums whitespace-nowrap">{opening.toLocaleString()}</td>
+                              <td className="py-4 px-4 text-[11px] text-slate-500">Brought forward</td>
                             </tr>
                             {(() => {
                               let runningBalance = opening;
-                              const sorted = [...(cashBookData.transactions || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                              const sorted = rows.sort((a: any, b: any) => {
+                                const da = new Date(a.date).getTime() - new Date(b.date).getTime();
+                                if (da !== 0) return da;
+                                return new Date(a.created_at || a.date).getTime() - new Date(b.created_at || b.date).getTime();
+                              });
+                              if (sorted.length === 0) {
+                                return (
+                                  <tr>
+                                    <td colSpan={6} className="py-10 text-center text-slate-400 italic">
+                                      No rows match {filterAccount === "all" ? "this period" : `${filterAccount.replace(/_/g, " ")}`}{q ? ` / “${cashBookSearch}”` : ""}.
+                                      {filterAccount !== "all" ? " Try All Accounts." : ""}
+                                    </td>
+                                  </tr>
+                                );
+                              }
                               return sorted.map((t: any) => {
                                 const isDebit = t.entry_type === 'revenue' || t.entry_type === 'asset' || t.source === 'repayment';
                                 const amount = parseFloat(t.amount);
                                 runningBalance += isDebit ? amount : -amount;
+                                const details = cashBookLineDetails(t.description) || t.category || "—";
+                                const category =
+                                  t.category && String(t.category).toLowerCase() !== String(details).toLowerCase()
+                                    ? String(t.category)
+                                    : "";
+                                const channel = t.payment_method
+                                  ? String(t.payment_method).replace(/_/g, " ")
+                                  : "";
                                 return (
-                                  <tr key={t.id} className="hover:bg-slate-50 transition-colors border-b border-slate-50 group">
-                                    <td className="py-5 px-6 text-[11px] font-bold text-slate-500 font-mono">{new Date(t.date).toLocaleDateString('en-GB')}</td>
-                                    <td className="py-5 px-6">
-                                      <div className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{cashBookLineDetails(t.description)}</div>
-                                      <div className="text-[9px] text-slate-400 mt-0.5 flex items-center gap-1 font-bold">
-                                        <Badge variant="outline" className="h-4 py-0 text-[8px] border-slate-200">ID: {t.id.slice(0, 8)}</Badge>
+                                  <tr key={`${t.source || "row"}-${t.id}`} className="hover:bg-slate-50 transition-colors border-b border-slate-50 group">
+                                    <td className="col-date py-4 px-4 text-[12px] font-medium text-slate-600 whitespace-nowrap">{new Date(t.date).toLocaleDateString('en-GB')}</td>
+                                    <td className="py-4 px-4">
+                                      <div className="details-title font-semibold text-slate-800 text-[12px] leading-snug">
+                                        {details}
                                       </div>
+                                      {category ? (
+                                        <div className="details-meta text-[11px] text-slate-500 mt-1">{category}</div>
+                                      ) : null}
+                                      {channel ? (
+                                        <div className="details-channel text-[11px] text-slate-400 mt-0.5 capitalize">{channel}</div>
+                                      ) : null}
                                     </td>
-                                    <td className="py-5 px-6 text-right">{isDebit ? <span className="font-black text-emerald-600 tabular-nums">{fmt(amount)}</span> : "—"}</td>
-                                    <td className="py-5 px-6 text-right">{!isDebit ? <span className="font-black text-red-500 tabular-nums">({fmt(amount)})</span> : "—"}</td>
-                                    <td className="py-5 px-6 text-right font-black text-slate-900 bg-slate-50/50 tabular-nums">{fmt(runningBalance)}</td>
-                                    <td className="py-5 px-6">
-                                      <div className="text-[10px] text-slate-500 italic">{cashBookLineNarration(t)}</div>
+                                    <td className="col-amount py-4 px-4 text-right whitespace-nowrap">
+                                      {isDebit ? (
+                                        <span className="font-semibold text-emerald-700 tabular-nums">{amount.toLocaleString()}</span>
+                                      ) : (
+                                        <span className="text-slate-300">—</span>
+                                      )}
+                                    </td>
+                                    <td className="col-amount py-4 px-4 text-right whitespace-nowrap">
+                                      {!isDebit ? (
+                                        <span className="font-semibold text-red-600 tabular-nums">({amount.toLocaleString()})</span>
+                                      ) : (
+                                        <span className="text-slate-300">—</span>
+                                      )}
+                                    </td>
+                                    <td className="col-balance py-4 px-4 text-right font-semibold text-slate-900 bg-slate-50/50 tabular-nums whitespace-nowrap">
+                                      {runningBalance.toLocaleString()}
+                                    </td>
+                                    <td className="py-4 px-4">
+                                      <div className="text-[11px] text-slate-500 leading-snug">{cashBookLineNarration(t)}</div>
                                     </td>
                                   </tr>
                                 );
@@ -1822,13 +1979,13 @@ const Accounting = () => {
                   {reportLoading === "financial_analysis" ? (
                     <div className="flex items-center justify-center py-16"><RefreshCw className="h-8 w-8 text-primary animate-spin" /></div>
                   ) : financialAnalysisData ? (
-                    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div ref={analysisPrintRef} className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
                       <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
                         <div className="min-w-0">
                           <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">Financial Risk Assessment</h2>
                           <p className="text-slate-500 text-sm font-medium tracking-tight">Altman Z-Score Model for Private Firms</p>
                         </div>
-                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <div className="flex flex-wrap items-center gap-2 shrink-0" data-print-hide>
                           <Button
                             className="h-10 px-4 font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
                             onClick={() => void handleFinancialAiAnalysis()}
@@ -1840,6 +1997,10 @@ const Accounting = () => {
                           <Button variant="outline" className="h-10 px-4 font-semibold border-slate-200 hover:bg-slate-50" onClick={handleZScoreExport} disabled={isExportingZScore}>
                             {isExportingZScore ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
                             Export Word
+                          </Button>
+                          <Button variant="outline" className="h-10 px-4 font-semibold border-slate-200 hover:bg-slate-50" onClick={() => printReport(analysisPrintRef, "Financial Risk Assessment")}>
+                            <Printer className="h-4 w-4 mr-2" />
+                            Print
                           </Button>
                         </div>
                       </div>
@@ -2017,15 +2178,20 @@ const Accounting = () => {
                   {reportLoading === "trial" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : trialBalance ? (
-                    <Card>
+                    <Card ref={trialPrintRef}>
                       <CardHeader className="flex flex-row items-center justify-between">
                         <div>
                           <CardTitle className="flex items-center gap-2"><PiggyBank className="h-5 w-5" /> Trial Balance</CardTitle>
                           <CardDescription>As of {trialBalance.as_of}</CardDescription>
                         </div>
-                        <Button variant="outline" size="sm" onClick={exportTrialBalance}>
-                          <Download className="h-4 w-4 mr-2" /> Export CSV
-                        </Button>
+                        <div className="flex flex-wrap gap-2 shrink-0" data-print-hide>
+                          <Button variant="outline" size="sm" onClick={exportTrialBalance}>
+                            <Download className="h-4 w-4 mr-2" /> Export CSV
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => printReport(trialPrintRef, "Trial Balance")}>
+                            <Printer className="h-4 w-4 mr-2" /> Print
+                          </Button>
+                        </div>
                       </CardHeader>
                       <CardContent>
                         <table className="w-full text-sm">
@@ -2049,17 +2215,21 @@ const Accounting = () => {
                   {reportLoading === "aging_report" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : (
-                    <Card className="shadow-sm overflow-hidden">
+                    <Card ref={agingPrintRef} className="shadow-sm overflow-hidden">
                       <CardHeader className="bg-slate-50 border-b pb-4">
                         <div className="flex items-center justify-between">
                           <CardTitle className="text-lg flex items-center gap-2">
                             <FileSpreadsheet className="h-5 w-5 text-green-700" />
                             Portfolio Aging Report ({reportFrom && reportTo ? `${formatDate(reportFrom)} - ${formatDate(reportTo)}` : selectedMonth})
                           </CardTitle>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2" data-print-hide>
                             <Button variant="outline" size="sm" className="h-8 text-xs bg-emerald-50 text-emerald-700 border-emerald-200"
                               onClick={exportAgingReport}>
                               <Download className="h-3.5 w-3.5 mr-1" /> Export Excel
+                            </Button>
+                            <Button variant="outline" size="sm" className="h-8 text-xs"
+                              onClick={() => printReport(agingPrintRef, "Portfolio Aging Report")}>
+                              <Printer className="h-3.5 w-3.5 mr-1" /> Print
                             </Button>
                           </div>
                         </div>
@@ -2131,7 +2301,7 @@ const Accounting = () => {
                   {reportLoading === "comprehensive_income" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : comprehensiveIncomeData ? (
-                    <Card className="shadow-sm overflow-hidden">
+                    <Card ref={comprehensivePrintRef} className="shadow-sm overflow-hidden">
                       <CardHeader className="bg-slate-50 border-b flex flex-row items-center justify-between pb-4">
                         <div>
                           <CardTitle className="text-lg flex items-center gap-2">
@@ -2140,7 +2310,7 @@ const Accounting = () => {
                           </CardTitle>
                           <CardDescription>Monthly Matrix (Values in UGX)</CardDescription>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2" data-print-hide>
                           <Button variant="outline" size="sm" className="bg-emerald-50 text-emerald-700 border-emerald-200" onClick={exportComprehensiveIncome}>
                             <Download className="h-3.5 w-3.5 mr-1" /> Export CSV
                           </Button>
@@ -2151,15 +2321,18 @@ const Accounting = () => {
                           }}>
                             <Download className="h-3.5 w-3.5 mr-1" /> Export Word
                           </Button>
+                          <Button variant="outline" size="sm" onClick={() => printReport(comprehensivePrintRef, "Statement of Comprehensive Income")}>
+                            <Printer className="h-3.5 w-3.5 mr-1" /> Print
+                          </Button>
                         </div>
                       </CardHeader>
                       <CardContent className="p-0 overflow-x-auto">
-                        <table className="w-full text-[10px] border-collapse min-w-[1000px]">
+                        <table className="w-full text-xs border-collapse min-w-[1000px]">
                           <thead>
                             <tr className="bg-slate-100 border-b text-slate-600 font-bold uppercase">
-                              <th className="p-2 border text-left min-w-[200px]">Category</th>
+                              <th className="py-3 px-3 border-b text-left min-w-[200px]">Category</th>
                               {(comprehensiveIncomeData.columns || []).map((col: any) => (
-                                <th key={col.key} className="p-2 border text-right">
+                                <th key={col.key} className="py-3 px-2 border-b text-right whitespace-nowrap">
                                   {col.label} {comprehensiveIncomeData.columns.length > 12 ? `'${String(col.year).slice(2)}` : ''}
                                 </th>
                               ))}
@@ -2169,10 +2342,10 @@ const Accounting = () => {
                             {(comprehensiveIncomeData.data || []).map((item: any) => {
                               const isRevenue = item.type === 'revenue' || item.category.includes("Income") || item.category.includes("Revenue");
                               return (
-                                <tr key={item.category} className="hover:bg-slate-50 border-b">
-                                  <td className={`p-2 border font-medium ${isRevenue ? 'text-emerald-800' : 'text-slate-700'}`}>{item.category}</td>
+                                <tr key={item.category} className="hover:bg-slate-50 border-b border-slate-100">
+                                  <td className={`py-2.5 px-3 font-medium ${isRevenue ? 'text-emerald-800' : 'text-slate-700'}`}>{item.category}</td>
                                   {(comprehensiveIncomeData.columns || []).map((col: any) => (
-                                    <td key={col.key} className="p-2 border text-right">
+                                    <td key={col.key} className="py-2.5 px-2 text-right tabular-nums whitespace-nowrap">
                                       {item.months[col.key]?.toLocaleString() || "—"}
                                     </td>
                                   ))}
@@ -2181,8 +2354,8 @@ const Accounting = () => {
                             })}
                           </tbody>
                           <tfoot className="bg-slate-100 font-bold">
-                            <tr className="border-t-2">
-                              <td className="p-2 border uppercase">Net Comprehensive Income</td>
+                            <tr className="border-t-2 border-slate-300">
+                              <td className="py-3 px-3 uppercase">Net Comprehensive Income</td>
                               {(comprehensiveIncomeData.columns || []).map((col: any) => {
                                 let total = 0;
                                 (comprehensiveIncomeData.data || []).forEach((item: any) => {
@@ -2191,7 +2364,7 @@ const Accounting = () => {
                                   else total -= val;
                                 });
                                 return (
-                                  <td key={col.key} className="p-2 border text-right text-indigo-800">
+                                  <td key={col.key} className="py-3 px-2 text-right text-indigo-800 tabular-nums whitespace-nowrap">
                                     {total.toLocaleString()}
                                   </td>
                                 );
@@ -2211,7 +2384,7 @@ const Accounting = () => {
                   {reportLoading === "financial_position" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : financialPositionData ? (
-                    <Card className="shadow-sm overflow-hidden">
+                    <Card ref={financialPositionPrintRef} className="shadow-sm overflow-hidden">
                       <CardHeader className="bg-slate-50 border-b flex flex-row items-center justify-between pb-4">
                         <div>
                           <CardTitle className="text-lg flex items-center gap-2">
@@ -2220,100 +2393,100 @@ const Accounting = () => {
                           </CardTitle>
                           <CardDescription>Monthly Data (Values in UGX)</CardDescription>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2" data-print-hide>
                           <Button variant="outline" size="sm" className="bg-blue-50 text-blue-700 border-blue-200" onClick={exportFinancialPosition}>
                             <Download className="h-3.5 w-3.5 mr-1" /> Export CSV
                           </Button>
                           <Button variant="outline" size="sm" className="bg-indigo-50 text-indigo-700 border-indigo-200" onClick={() => void handleFinancialPositionWordExport()}>
                             <Download className="h-3.5 w-3.5 mr-1" /> Export Word
                           </Button>
+                          <Button variant="outline" size="sm" onClick={() => printReport(financialPositionPrintRef, "Statement of Financial Position")}>
+                            <Printer className="h-3.5 w-3.5 mr-1" /> Print
+                          </Button>
                         </div>
                       </CardHeader>
                       <CardContent className="p-0 overflow-x-auto">
-                        <table className="w-full text-[10px] border-collapse min-w-[1000px]">
+                        <table className="w-full text-xs border-collapse min-w-[1000px]">
                           <thead>
                             <tr className="bg-slate-100 border-b text-slate-600 font-bold uppercase">
-                              <th className="p-2 border text-left min-w-[200px]">Item</th>
+                              <th className="py-3 px-3 border-b text-left min-w-[200px]">Item</th>
                               {(financialPositionData.columns || []).map((col: any) => (
-                                <th key={col.key} className="p-2 border text-right">
+                                <th key={col.key} className="py-3 px-2 border-b text-right whitespace-nowrap">
                                   {col.label} {financialPositionData.columns.length > 12 ? `'${String(col.year).slice(2)}` : ''}
                                 </th>
                               ))}
                             </tr>
                           </thead>
                           <tbody>
-                            {/* Section Heading: Current Assets */}
-                            <tr className="bg-slate-50/50">
-                              <td colSpan={(financialPositionData.columns?.length || 0) + 1} className="p-2 border font-bold text-slate-800 bg-slate-100 italic">Current Assets</td>
+                            <tr className="statement-section">
+                              <td colSpan={(financialPositionData.columns?.length || 0) + 1} className="py-3 px-3 font-bold text-slate-800 bg-slate-50 uppercase tracking-wide text-[11px]">Current Assets</td>
                             </tr>
                             {Object.keys(financialPositionData.data.current_assets).map(cat => (
-                              <tr key={cat} className="hover:bg-slate-50">
-                                <td className="p-2 border pl-4 font-medium text-slate-700">{cat}</td>
+                              <tr key={cat} className="hover:bg-slate-50 border-b border-slate-100">
+                                <td className="py-2.5 pl-5 pr-3 font-medium text-slate-700">{cat}</td>
                                 {(financialPositionData.columns || []).map((col: any) => (
-                                  <td key={col.key} className="p-2 border text-right">
+                                  <td key={col.key} className="py-2.5 px-2 text-right tabular-nums whitespace-nowrap">
                                     {financialPositionData.data.current_assets[cat][col.key]?.toLocaleString() || "0"}
                                   </td>
                                 ))}
                               </tr>
                             ))}
-                            <tr className="bg-slate-100 font-bold">
-                              <td className="p-2 border">TOTAL CURRENT ASSETS</td>
+                            <tr className="bg-slate-50 font-bold border-t border-slate-200">
+                              <td className="py-3 px-3">Total current assets</td>
                               {(financialPositionData.columns || []).map((col: any) => {
                                 let total = 0;
                                 Object.values(financialPositionData.data.current_assets).forEach((months: any) => {
                                   total += months[col.key] || 0;
                                 });
-                                return <td key={col.key} className="p-2 border text-right">{total.toLocaleString()}</td>;
+                                return <td key={col.key} className="py-3 px-2 text-right tabular-nums whitespace-nowrap">{total.toLocaleString()}</td>;
                               })}
                             </tr>
 
-                            {/* Non-Current Assets */}
-                            <tr className="bg-slate-50/50">
-                              <td colSpan={(financialPositionData.columns?.length || 0) + 1} className="p-2 border font-bold text-slate-800 bg-slate-100 italic">Non-Current Assets</td>
+                            <tr className="statement-section">
+                              <td colSpan={(financialPositionData.columns?.length || 0) + 1} className="py-3 px-3 font-bold text-slate-800 bg-slate-50 uppercase tracking-wide text-[11px]">Non-Current Assets</td>
                             </tr>
                             {Object.keys(financialPositionData.data.non_current_assets).map(cat => (
-                              <tr key={cat} className="hover:bg-slate-50">
-                                <td className="p-2 border pl-4 font-medium text-slate-700">{cat}</td>
+                              <tr key={cat} className="hover:bg-slate-50 border-b border-slate-100">
+                                <td className="py-2.5 pl-5 pr-3 font-medium text-slate-700">{cat}</td>
                                 {(financialPositionData.columns || []).map((col: any) => (
-                                  <td key={col.key} className="p-2 border text-right">
+                                  <td key={col.key} className="py-2.5 px-2 text-right tabular-nums whitespace-nowrap">
                                     {financialPositionData.data.non_current_assets[cat][col.key]?.toLocaleString() || "0"}
                                   </td>
                                 ))}
                               </tr>
                             ))}
-                            <tr className="bg-slate-200 font-extrabold text-blue-900 border-t-2">
-                              <td className="p-2 border">TOTAL ASSETS</td>
+                            <tr className="bg-slate-100 font-extrabold text-blue-900 border-t-2 border-slate-300">
+                              <td className="py-3.5 px-3">Total assets</td>
                               {(financialPositionData.columns || []).map((col: any) => {
                                 let curr = 0;
                                 let nonCurr = 0;
                                 Object.values(financialPositionData.data.current_assets).forEach((months: any) => curr += months[col.key] || 0);
                                 Object.values(financialPositionData.data.non_current_assets).forEach((months: any) => nonCurr += months[col.key] || 0);
-                                return <td key={col.key} className="p-2 border text-right">{(curr + nonCurr).toLocaleString()}</td>;
+                                return <td key={col.key} className="py-3.5 px-2 text-right tabular-nums whitespace-nowrap">{(curr + nonCurr).toLocaleString()}</td>;
                               })}
                             </tr>
 
-                            {/* Liabilities & Equity */}
-                            <tr className="bg-slate-100">
-                              <td colSpan={(financialPositionData.columns?.length || 0) + 1} className="p-2 border font-bold text-slate-800 italic uppercase">Equities & Liabilities</td>
+                            <tr className="statement-section">
+                              <td colSpan={(financialPositionData.columns?.length || 0) + 1} className="py-3 px-3 font-bold text-slate-800 bg-slate-50 uppercase tracking-wide text-[11px]">Equities &amp; Liabilities</td>
                             </tr>
                             {Object.keys(financialPositionData.data.current_liabilities).map(cat => (
-                              <tr key={cat} className="hover:bg-slate-50">
-                                <td className="p-2 border pl-4 font-medium text-slate-700">{cat}</td>
+                              <tr key={cat} className="hover:bg-slate-50 border-b border-slate-100">
+                                <td className="py-2.5 pl-5 pr-3 font-medium text-slate-700">{cat}</td>
                                 {(financialPositionData.columns || []).map((col: any) => (
-                                  <td key={col.key} className="p-2 border text-right font-medium">
+                                  <td key={col.key} className="py-2.5 px-2 text-right tabular-nums whitespace-nowrap font-medium">
                                     {financialPositionData.data.current_liabilities[cat][col.key]?.toLocaleString() || "0"}
                                   </td>
                                 ))}
                               </tr>
                             ))}
-                            <tr className="bg-slate-200 font-extrabold text-indigo-900 border-t-2 border-slate-400">
-                              <td className="p-2 border">TOTAL EQUITIES & LIABILITIES</td>
+                            <tr className="bg-slate-100 font-extrabold text-indigo-900 border-t-2 border-slate-400">
+                              <td className="py-3.5 px-3">Total equities &amp; liabilities</td>
                               {(financialPositionData.columns || []).map((col: any) => {
                                 let total = 0;
                                 Object.values(financialPositionData.data.current_liabilities).forEach((months: any) => {
                                   total += months[col.key] || 0;
                                 });
-                                return <td key={col.key} className="p-2 border text-right">{total.toLocaleString()}</td>;
+                                return <td key={col.key} className="py-3.5 px-2 text-right tabular-nums whitespace-nowrap">{total.toLocaleString()}</td>;
                               })}
                             </tr>
                           </tbody>
@@ -2329,47 +2502,57 @@ const Accounting = () => {
                   {reportLoading === "cashflow_statement" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : cashflowStmtData ? (
-                    <Card className="shadow-sm">
+                    <Card ref={cashflowStmtPrintRef} className="shadow-sm">
                       <CardHeader className="bg-slate-50 border-b flex flex-row items-center justify-between">
                         <div>
                           <CardTitle className="text-lg flex items-center gap-2"><Wallet className="h-5 w-5 text-emerald-700" /> Cashflow Statement</CardTitle>
                           <CardDescription>Indirect Method</CardDescription>
                         </div>
-                        <Button variant="outline" size="sm" className="bg-emerald-50 text-emerald-700 border-emerald-200" onClick={exportCashflowStatement}>
-                          <Download className="h-3.5 w-3.5 mr-1" /> Export CSV
-                        </Button>
+                        <div className="flex gap-2" data-print-hide>
+                          <Button variant="outline" size="sm" className="bg-emerald-50 text-emerald-700 border-emerald-200" onClick={exportCashflowStatement}>
+                            <Download className="h-3.5 w-3.5 mr-1" /> Export CSV
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => printReport(cashflowStmtPrintRef, "Cashflow Statement")}>
+                            <Printer className="h-3.5 w-3.5 mr-1" /> Print
+                          </Button>
+                        </div>
                       </CardHeader>
                       <CardContent className="pt-6">
-                        <div className="space-y-6">
-                          <section>
-                            <h3 className="font-bold text-slate-900 border-b pb-1 mb-2">CASH FLOW FROM OPERATING ACTIVITIES</h3>
-                            <div className="space-y-1 text-sm">
-                              <div className="flex justify-between"><span>Profit before tax</span><span className="font-semibold">{cashflowStmtData.operating_activities?.profit_before_tax?.toLocaleString()}</span></div>
-                              <div className="flex justify-between"><span>Adjustment for depreciation</span><span className="font-semibold">{cashflowStmtData.operating_activities?.depreciation?.toLocaleString()}</span></div>
-                              <div className="pl-4 pt-2 font-medium text-slate-500">Working capital changes:</div>
+                        <p className="ledger-currency-note text-xs text-slate-500 font-semibold mb-6">Amounts in UGX</p>
+                        <div className="statement-stack space-y-10">
+                          <section className="statement-section">
+                            <h3 className="font-bold text-slate-900 border-b border-slate-300 pb-2 mb-4 text-sm uppercase tracking-wide">Cash flow from operating activities</h3>
+                            <div className="space-y-3 text-sm">
+                              <div className="flex justify-between gap-6 py-1"><span>Profit before tax</span><span className="font-semibold tabular-nums">{cashflowStmtData.operating_activities?.profit_before_tax?.toLocaleString()}</span></div>
+                              <div className="flex justify-between gap-6 py-1"><span>Adjustment for depreciation</span><span className="font-semibold tabular-nums">{cashflowStmtData.operating_activities?.depreciation?.toLocaleString()}</span></div>
+                              <div className="pt-3 font-medium text-slate-600 text-xs uppercase tracking-wide">Working capital changes</div>
                               {cashflowStmtData.operating_activities?.working_capital_changes?.map((item: any, i: number) => (
-                                <div key={i} className="flex justify-between pl-6"><span>{item.label}</span><span>{item.amount?.toLocaleString()}</span></div>
+                                <div key={i} className="flex justify-between gap-6 pl-4 py-1"><span>{item.label}</span><span className="tabular-nums">{item.amount?.toLocaleString()}</span></div>
                               ))}
                             </div>
                           </section>
-                          <section>
-                            <h3 className="font-bold text-slate-900 border-b pb-1 mb-2">CASH FLOW FROM INVESTING ACTIVITIES</h3>
-                            {cashflowStmtData.investing_activities?.map((item: any, i: number) => (
-                              <div key={i} className="flex justify-between text-sm"><span>{item.label}</span><span>{item.amount?.toLocaleString()}</span></div>
-                            ))}
+                          <section className="statement-section">
+                            <h3 className="font-bold text-slate-900 border-b border-slate-300 pb-2 mb-4 text-sm uppercase tracking-wide">Cash flow from investing activities</h3>
+                            <div className="space-y-3 text-sm">
+                              {cashflowStmtData.investing_activities?.map((item: any, i: number) => (
+                                <div key={i} className="flex justify-between gap-6 py-1"><span>{item.label}</span><span className="tabular-nums">{item.amount?.toLocaleString()}</span></div>
+                              ))}
+                            </div>
                           </section>
-                          <section>
-                            <h3 className="font-bold text-slate-900 border-b pb-1 mb-2">CASH FLOW FROM FINANCING ACTIVITIES</h3>
-                            {(cashflowStmtData.financing_activities || []).map((item: any, i: number) => (
-                              <div key={i} className="flex justify-between text-sm"><span>{item.label}</span><span>{item.amount?.toLocaleString()}</span></div>
-                            ))}
-                            {(cashflowStmtData.financing_activities || []).length === 0 && (
-                              <div className="text-sm text-slate-400 italic">No financing activity in this period</div>
-                            )}
+                          <section className="statement-section">
+                            <h3 className="font-bold text-slate-900 border-b border-slate-300 pb-2 mb-4 text-sm uppercase tracking-wide">Cash flow from financing activities</h3>
+                            <div className="space-y-3 text-sm">
+                              {(cashflowStmtData.financing_activities || []).map((item: any, i: number) => (
+                                <div key={i} className="flex justify-between gap-6 py-1"><span>{item.label}</span><span className="tabular-nums">{item.amount?.toLocaleString()}</span></div>
+                              ))}
+                              {(cashflowStmtData.financing_activities || []).length === 0 && (
+                                <div className="text-sm text-slate-400 italic">No financing activity in this period</div>
+                              )}
+                            </div>
                           </section>
-                          <section className="bg-slate-50 p-4 rounded-lg">
-                            <div className="flex justify-between font-bold"><span>Opening Cash Equivalents</span><span>{cashflowStmtData.cash_equivalents?.opening?.toLocaleString()}</span></div>
-                            <div className="flex justify-between font-bold text-blue-800 mt-2 pt-2 border-t"><span>Closing Cash Equivalents</span><span>{cashflowStmtData.cash_equivalents?.closing?.toLocaleString()}</span></div>
+                          <section className="statement-section border-t-2 border-slate-800 pt-4 space-y-3">
+                            <div className="flex justify-between gap-6 font-semibold text-sm"><span>Opening cash equivalents</span><span className="tabular-nums">{cashflowStmtData.cash_equivalents?.opening?.toLocaleString()}</span></div>
+                            <div className="flex justify-between gap-6 font-bold text-base text-blue-900 pt-2 border-t border-slate-200"><span>Closing cash equivalents</span><span className="tabular-nums">{cashflowStmtData.cash_equivalents?.closing?.toLocaleString()}</span></div>
                           </section>
                         </div>
                       </CardContent>
@@ -2384,63 +2567,63 @@ const Accounting = () => {
                   {reportLoading === "equity_statement" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : equityStatementData ? (
-                    <Card className="shadow-sm max-w-4xl mx-auto border border-slate-200 overflow-hidden">
-                      <CardHeader className="bg-slate-50 border-b flex flex-row items-start justify-between gap-4 py-4 px-4 sm:px-6">
-                        <div className="text-center w-full min-w-0">
-                          <h2 className="text-lg sm:text-xl font-bold uppercase tracking-tight text-[#1F4E79]">M-T Growth Gateway</h2>
+                    <Card ref={equityPrintRef} className="shadow-sm border border-slate-200 overflow-hidden">
+                      <CardHeader className="bg-slate-50 border-b flex flex-row items-start justify-between gap-4 py-5 px-4 sm:px-6">
+                        <div className="w-full min-w-0">
+                          <h2 className="text-lg sm:text-xl font-bold uppercase tracking-tight text-[#1F4E79]" data-print-hide>M-T Growth Gateway</h2>
                           <h3 className="text-base font-semibold text-slate-800 mt-1">Statement of Changes in Equity</h3>
                           <p className="text-sm font-medium text-slate-600 mt-2">
                             <span className="underline decoration-double underline-offset-2">{equityStatementData.periodLabel || "Report period"}</span>
                           </p>
-                          <p className="text-xs text-slate-500 mt-1 normal-case">Figures from accounting entries (revenue − expense for accumulated profits; categories containing &quot;share capital&quot;).</p>
+                          <p className="text-xs text-slate-500 mt-2 normal-case">Figures from accounting entries (revenue − expense for accumulated profits; categories containing &quot;share capital&quot;).</p>
                         </div>
-                        <Button variant="outline" size="sm" className="shrink-0 print:hidden" onClick={() => window.print()}>
-                          <Download className="h-4 w-4 mr-1" /> Print
+                        <Button variant="outline" size="sm" className="shrink-0" data-print-hide onClick={() => printReport(equityPrintRef, "Statement of Changes in Equity")}>
+                          <Printer className="h-4 w-4 mr-1" /> Print
                         </Button>
                       </CardHeader>
                       <CardContent className="p-0 bg-white">
-                        <div className="max-h-[min(72vh,720px)] overflow-y-auto overflow-x-auto">
-                          <table className="w-full min-w-[520px] text-sm">
-                            <thead className="sticky top-0 z-10 bg-white shadow-sm border-b-2 border-slate-200">
+                        <div className="overflow-x-auto">
+                          <table className="w-full min-w-[560px] text-sm">
+                            <thead className="bg-white border-b-2 border-slate-300">
                               <tr className="text-[11px] sm:text-xs uppercase tracking-wide text-slate-700">
-                                <th className="text-left py-3 pl-4 pr-2 font-bold">Description</th>
-                                <th className="text-right py-3 px-3 font-bold whitespace-nowrap">Share capital<br /><span className="font-normal text-slate-500 normal-case">UGX</span></th>
-                                <th className="text-right py-3 pr-4 pl-3 font-bold whitespace-nowrap">Accumulated profits<br /><span className="font-normal text-slate-500 normal-case">UGX</span></th>
+                                <th className="text-left py-4 pl-5 pr-2 font-bold">Description</th>
+                                <th className="text-right py-4 px-4 font-bold whitespace-nowrap">Share capital<br /><span className="font-normal text-slate-500 normal-case">UGX</span></th>
+                                <th className="text-right py-4 pr-5 pl-3 font-bold whitespace-nowrap">Accumulated profits<br /><span className="font-normal text-slate-500 normal-case">UGX</span></th>
                               </tr>
                             </thead>
                             <tbody className="text-slate-900">
                               {(equityStatementData.data || []).map((m: any, idx: number) => (
                                 <Fragment key={`${m.month}-${idx}`}>
-                                  <tr className="bg-slate-100/90">
-                                    <td colSpan={3} className="py-2 pl-4 pr-4 font-bold text-[#1F4E79] text-xs uppercase tracking-wider border-t border-slate-200">
+                                  <tr className="statement-month bg-slate-100/90">
+                                    <td colSpan={3} className="py-3.5 pl-5 pr-5 font-bold text-[#1F4E79] text-xs uppercase tracking-wider border-t border-slate-200">
                                       {m.month}
                                     </td>
                                   </tr>
-                                  <tr className="border-b border-slate-100 hover:bg-slate-50/80">
-                                    <td className="py-2.5 pl-4 pr-2 text-xs sm:text-sm">
+                                  <tr className="border-b border-slate-100">
+                                    <td className="py-3.5 pl-5 pr-2 text-sm">
                                       Opening balance <span className="text-slate-500 font-normal">(as at {m.openingLabel || "—"})</span>
                                     </td>
-                                    <td className="text-right py-2.5 px-3 tabular-nums font-medium">{(m.opening?.shareCap ?? 0).toLocaleString()}</td>
-                                    <td className="text-right py-2.5 pr-4 pl-3 tabular-nums font-medium">{(m.opening?.profit ?? 0).toLocaleString()}</td>
+                                    <td className="text-right py-3.5 px-4 tabular-nums font-medium">{(m.opening?.shareCap ?? 0).toLocaleString()}</td>
+                                    <td className="text-right py-3.5 pr-5 pl-3 tabular-nums font-medium">{(m.opening?.profit ?? 0).toLocaleString()}</td>
                                   </tr>
                                   {(m.movements?.capitalInjected ?? 0) !== 0 && (
-                                    <tr className="border-b border-slate-100 hover:bg-slate-50/80">
-                                      <td className="py-2.5 pl-6 pr-2 text-xs sm:text-sm italic text-slate-700">Share capital movements</td>
-                                      <td className="text-right py-2.5 px-3 tabular-nums border-b border-slate-300">{(m.movements?.capitalInjected ?? 0).toLocaleString()}</td>
-                                      <td className="text-right py-2.5 pr-4 pl-3 tabular-nums text-slate-400">—</td>
+                                    <tr className="border-b border-slate-100">
+                                      <td className="py-3.5 pl-8 pr-2 text-sm italic text-slate-700">Share capital movements</td>
+                                      <td className="text-right py-3.5 px-4 tabular-nums border-b border-slate-300">{(m.movements?.capitalInjected ?? 0).toLocaleString()}</td>
+                                      <td className="text-right py-3.5 pr-5 pl-3 tabular-nums text-slate-400">—</td>
                                     </tr>
                                   )}
-                                  <tr className="border-b border-slate-100 hover:bg-slate-50/80">
-                                    <td className="py-2.5 pl-6 pr-2 text-xs sm:text-sm italic text-slate-700">Net profit before tax ({m.dateLabel || m.month})</td>
-                                    <td className="text-right py-2.5 px-3 tabular-nums text-slate-400">—</td>
-                                    <td className="text-right py-2.5 pr-4 pl-3 tabular-nums border-b border-slate-300">{(m.movements?.periodProfit ?? 0).toLocaleString()}</td>
+                                  <tr className="border-b border-slate-100">
+                                    <td className="py-3.5 pl-8 pr-2 text-sm italic text-slate-700">Net profit before tax ({m.dateLabel || m.month})</td>
+                                    <td className="text-right py-3.5 px-4 tabular-nums text-slate-400">—</td>
+                                    <td className="text-right py-3.5 pr-5 pl-3 tabular-nums border-b border-slate-300">{(m.movements?.periodProfit ?? 0).toLocaleString()}</td>
                                   </tr>
                                   <tr className="bg-slate-50 font-semibold border-b-2 border-slate-300">
-                                    <td className="py-3 pl-4 pr-2 text-xs sm:text-sm">
+                                    <td className="py-4 pl-5 pr-2 text-sm">
                                       Closing balance <span className="text-slate-500 font-normal">(as at {m.closingLabel || "—"})</span>
                                     </td>
-                                    <td className="text-right py-3 px-3 tabular-nums text-[#1F4E79]">{(m.closing?.shareCap ?? 0).toLocaleString()}</td>
-                                    <td className="text-right py-3 pr-4 pl-3 tabular-nums text-[#1F4E79]">{(m.closing?.profit ?? 0).toLocaleString()}</td>
+                                    <td className="text-right py-4 px-4 tabular-nums text-[#1F4E79]">{(m.closing?.shareCap ?? 0).toLocaleString()}</td>
+                                    <td className="text-right py-4 pr-5 pl-3 tabular-nums text-[#1F4E79]">{(m.closing?.profit ?? 0).toLocaleString()}</td>
                                   </tr>
                                 </Fragment>
                               ))}

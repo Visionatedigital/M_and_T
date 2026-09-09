@@ -9,6 +9,8 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 // Overdue alerts - run weekly (default Monday 8:00 AM)
 const OVERDUE_CRON = process.env.OVERDUE_CRON || '0 8 * * 1'; // 8am every Monday
+// Weekly management report email (default Monday 8:30 AM)
+const WEEKLY_REPORT_CRON = process.env.WEEKLY_REPORT_CRON || '30 8 * * 1';
 
 // Fix for Supabase SSL connection issues in packaged app
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
@@ -175,6 +177,25 @@ if (require.main === module) {
                 }
             });
             console.log(`⏰ Overdue alerts scheduled: ${OVERDUE_CRON}`);
+        }
+
+        if (process.env.WEEKLY_REPORT_CRON !== 'false') {
+            cron.schedule(WEEKLY_REPORT_CRON, async () => {
+                try {
+                    const { runWeeklyReportEmail } = require('./services/weeklyReportEmail.cjs');
+                    const result = await runWeeklyReportEmail();
+                    if (result.sent) {
+                        console.log(
+                            `📧 Weekly report ${result.mocked ? '(mock) ' : ''}sent to ${result.recipients.join(', ')} [${result.period}]`
+                        );
+                    } else {
+                        console.warn(`📧 Weekly report not sent: ${result.error || 'unknown'}`);
+                    }
+                } catch (e) {
+                    console.error('Weekly report cron error:', e);
+                }
+            });
+            console.log(`⏰ Weekly report email scheduled: ${WEEKLY_REPORT_CRON}`);
         }
     });
 }

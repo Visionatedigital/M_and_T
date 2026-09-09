@@ -9,10 +9,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Search, Eye, Download, Printer, Filter, Plus, Banknote } from "lucide-react";
+import { Search, Eye, Download, Printer, Filter, Plus, Banknote, Trash2, UserPlus } from "lucide-react";
 import { RecordPaymentDialog, suggestInstallmentAmount } from "@/components/staff/RecordPaymentDialog";
 import { useToast } from "@/hooks/use-toast";
 import { useUserRole } from "@/hooks/useUserRole";
+import { computeLoanDisplayStatus } from "@/lib/loanDisplayStatus";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface Loan {
     id: string;
@@ -29,6 +40,7 @@ interface Loan {
     status: string;
     loan_duration_months?: number;
     group_id?: string | null;
+    borrower_id?: string | null;
 }
 
 interface LoansListProps {
@@ -58,7 +70,7 @@ const emptyLoanFilters: AdvancedLoanFilters = {
 const LoansList = ({ title, description, filterType }: LoansListProps) => {
     const navigate = useNavigate();
     const { toast } = useToast();
-    const { isLoanOfficer, loading: roleLoading } = useUserRole();
+    const { isLoanOfficer, isAdmin, loading: roleLoading } = useUserRole();
     const [isLoading, setIsLoading] = useState(true);
     const [loans, setLoans] = useState<Loan[]>([]);
     const [searchTerm, setSearchTerm] = useState("");
@@ -67,6 +79,8 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
     const [appliedFilters, setAppliedFilters] = useState<AdvancedLoanFilters>(emptyLoanFilters);
     const [payLoan, setPayLoan] = useState<Loan | null>(null);
     const [productOptions, setProductOptions] = useState<string[]>([]);
+    const [deleteTarget, setDeleteTarget] = useState<Loan | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     useEffect(() => {
         loadLoans();
@@ -82,24 +96,29 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
                 const paid = parseFloat(l.amount_paid || 0);
                 const duration = parseInt(l.loan_duration_months || 4, 10) || 4;
                 const released = l.disbursed_at || l.approved_at || l.created_at;
-                const totalDue = principal * 1.3;
+                const ratePct = l.interest_rate != null ? parseFloat(l.interest_rate) : 30;
+                const totalDue = principal * (1 + (Number.isFinite(ratePct) ? ratePct : 30) / 100);
                 const balance = Math.max(0, totalDue - paid);
-                let status = l.status === "disbursed" || l.status === "approved" ? "Current" : String(l.status || "");
-                if (balance <= 0) status = "Fully Paid";
-                else if (released) {
-                    const maturity = new Date(released);
-                    maturity.setMonth(maturity.getMonth() + duration);
-                    if (Date.now() > maturity.getTime() && balance > 0) status = "Past Maturity";
-                }
+                const status = computeLoanDisplayStatus({
+                    loan_amount: l.loan_amount,
+                    amount_paid: l.amount_paid,
+                    loan_duration_months: l.loan_duration_months,
+                    approved_at: l.approved_at,
+                    disbursed_at: l.disbursed_at,
+                    created_at: l.created_at,
+                    group_id: l.group_id,
+                    status: l.status,
+                    interest_rate: l.interest_rate,
+                });
 
                 return {
                     id: l.id,
                     released_date: released,
                     borrower_name: l.full_name || "Unknown",
-                    loan_number: l.loan_number || `L-${String(l.id).substring(0, 6)}`,
+                    loan_number: l.loan_reference || l.loan_number || `L-${String(l.id).substring(0, 6)}`,
                     loan_product: l.loan_product || "",
                     principal,
-                    interest_rate: "30% flat",
+                    interest_rate: `${Number.isFinite(ratePct) ? ratePct : 30}% flat`,
                     total_due: totalDue,
                     paid,
                     balance,
@@ -107,6 +126,7 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
                     status,
                     loan_duration_months: duration,
                     group_id: l.group_id || null,
+                    borrower_id: l.borrower_id || null,
                 };
             });
 
@@ -117,11 +137,12 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
 
             let filteredResults = transformed;
             if (filterType === "due") {
-                filteredResults = transformed.filter((l) => l.balance > 0 && l.status === "Current");
+                filteredResults = transformed.filter((l) => l.balance > 0 && (l.status === "Current" || l.status === "Due Today"));
             } else if (filterType === "missed") {
                 filteredResults = transformed.filter((l) => /missed/i.test(l.status));
             } else if (filterType === "arrears") {
-                filteredResults = transformed.filter((l) => /arrears/i.test(l.status));
+                // Arrears page: behind schedule OR missed (staff expect both under arrears)
+                filteredResults = transformed.filter((l) => /arrears|missed/i.test(l.status));
             } else if (filterType === "approve") {
                 filteredResults = transformed.filter((l) => /pending|under_review/i.test(l.status));
             } else if (filterType === "past-maturity") {
@@ -150,6 +171,36 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
     const clearAdvancedFilters = () => {
         setDraftFilters(emptyLoanFilters);
         setAppliedFilters(emptyLoanFilters);
+    };
+
+    const handleDeleteLoan = async () => {
+        if (!deleteTarget) return;
+        setIsDeleting(true);
+        try {
+            await api.applications.delete(deleteTarget.id);
+            toast({
+                title: "Loan deleted",
+                description: "The loan and related repayments were removed.",
+            });
+            setDeleteTarget(null);
+            loadLoans();
+        } catch (error: any) {
+            toast({
+                title: "Error",
+                description: error.message || "Failed to delete loan",
+                variant: "destructive",
+            });
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
+    const addLoanForBorrower = (loan: Loan) => {
+        if (loan.borrower_id) {
+            navigate(`/staff-dashboard/loans/add?borrower=${encodeURIComponent(loan.borrower_id)}`);
+            return;
+        }
+        navigate("/staff-dashboard/loans/add");
     };
 
     const filteredLoans = loans.filter((l) => {
@@ -197,10 +248,39 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
                                 <div className="flex min-w-0 w-full flex-col gap-2 lg:flex-row lg:flex-wrap lg:justify-end lg:w-auto lg:max-w-none">
                                     {!roleLoading && !isLoanOfficer && (
                                         <>
-                                            <Button variant="outline" size="sm" className="h-9 w-full shrink-0 gap-2 touch-manipulation lg:w-auto lg:min-w-0">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-9 w-full shrink-0 gap-2 touch-manipulation lg:w-auto lg:min-w-0"
+                                                onClick={() => {
+                                                    const headers = ["Released", "Borrower", "Loan#", "Principal", "Paid", "Balance", "Status"];
+                                                    const rows = filteredLoans.map((l) => [
+                                                        l.released_date ? new Date(l.released_date).toLocaleDateString() : "",
+                                                        l.borrower_name,
+                                                        l.loan_number,
+                                                        l.principal,
+                                                        l.paid,
+                                                        l.balance,
+                                                        l.status,
+                                                    ]);
+                                                    const csv = [headers, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+                                                    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                                                    const url = URL.createObjectURL(blob);
+                                                    const a = document.createElement("a");
+                                                    a.href = url;
+                                                    a.download = `${title.replace(/\s+/g, "_").toLowerCase()}.csv`;
+                                                    a.click();
+                                                    URL.revokeObjectURL(url);
+                                                }}
+                                            >
                                                 <Download className="h-4 w-4 shrink-0" /> Export
                                             </Button>
-                                            <Button variant="outline" size="sm" className="h-9 w-full shrink-0 gap-2 touch-manipulation lg:w-auto lg:min-w-0">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-9 w-full shrink-0 gap-2 touch-manipulation lg:w-auto lg:min-w-0 print:hidden"
+                                                onClick={() => window.print()}
+                                            >
                                                 <Printer className="h-4 w-4 shrink-0" /> Print
                                             </Button>
                                         </>
@@ -260,9 +340,11 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
                                                     >
                                                         <option value="">Any Status</option>
                                                         <option value="Current">Current</option>
+                                                        <option value="Due Today">Due Today</option>
+                                                        <option value="Arrears">Arrears</option>
+                                                        <option value="Missed Repayment">Missed Repayment</option>
                                                         <option value="Past Maturity">Past Maturity</option>
                                                         <option value="Fully Paid">Fully Paid</option>
-                                                        <option value="Arrears">Arrears</option>
                                                     </select>
                                                 </div>
                                                 <div className="flex gap-2">
@@ -411,6 +493,27 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
                                                                     <Banknote className="mr-2 h-3.5 w-3.5" />
                                                                     Pay
                                                                 </Button>
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    className="min-h-10 touch-manipulation"
+                                                                    onClick={() => addLoanForBorrower(loan)}
+                                                                    title="Add another loan for this client"
+                                                                >
+                                                                    <UserPlus className="mr-2 h-3.5 w-3.5" />
+                                                                    Add Loan
+                                                                </Button>
+                                                                {isAdmin && (
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        className="min-h-10 touch-manipulation text-destructive border-destructive/40"
+                                                                        onClick={() => setDeleteTarget(loan)}
+                                                                    >
+                                                                        <Trash2 className="mr-2 h-3.5 w-3.5" />
+                                                                        Delete
+                                                                    </Button>
+                                                                )}
                                                             </div>
                                                         </CardContent>
                                                     </Card>
@@ -466,6 +569,24 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
                                                                                 <Banknote className="h-3.5 w-3.5" />
                                                                                 Pay
                                                                             </Button>
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="icon"
+                                                                                title="Add another loan for this client"
+                                                                                onClick={() => addLoanForBorrower(loan)}
+                                                                            >
+                                                                                <UserPlus className="h-4 w-4" />
+                                                                            </Button>
+                                                                            {isAdmin && (
+                                                                                <Button
+                                                                                    variant="ghost"
+                                                                                    size="icon"
+                                                                                    title="Delete loan"
+                                                                                    onClick={() => setDeleteTarget(loan)}
+                                                                                >
+                                                                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                                                                </Button>
+                                                                            )}
                                                                         </div>
                                                                     </TableCell>
                                                                     <TableCell className="text-xs">
@@ -551,6 +672,38 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
                 memberBreakdownName={payLoan?.borrower_name}
                 onSuccess={loadLoans}
             />
+
+            <AlertDialog
+                open={!!deleteTarget}
+                onOpenChange={(open) => {
+                    if (!open && !isDeleting) setDeleteTarget(null);
+                }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete this loan?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This permanently removes the loan
+                            {deleteTarget ? ` for ${deleteTarget.borrower_name}` : ""}
+                            {deleteTarget?.status ? ` (${deleteTarget.status})` : ""}
+                            , plus any repayments and related accounting entries. Use this for duplicates or double entries. This cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={isDeleting}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleDeleteLoan();
+                            }}
+                        >
+                            {isDeleting ? "Deleting…" : "Delete Loan"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </SidebarProvider>
     );
 };

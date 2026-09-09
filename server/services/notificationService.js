@@ -34,16 +34,21 @@ const sendSMS = async (to, message) => {
     }
 };
 
-const sendEmail = async (to, subject, text) => {
+const sendEmail = async (to, subject, text, options = {}) => {
     if (!to || !subject || !text) return;
+    const attachments = Array.isArray(options.attachments) ? options.attachments : [];
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-        console.log(`[MOCK EMAIL] To: ${to}, Subject: ${subject}, Body: ${text}`);
+        console.log(`[MOCK EMAIL] To: ${to}, Subject: ${subject}, Body: ${text.slice(0, 200)}… attachments=${attachments.length}`);
         return { status: 'mocked' };
     }
     try {
         const info = await transporter.sendMail({
-            from: process.env.EMAIL_USER,
-            to, subject, text
+            from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+            to,
+            subject,
+            text,
+            html: options.html || undefined,
+            attachments,
         });
         console.log('Email sent:', info.messageId);
         return info;

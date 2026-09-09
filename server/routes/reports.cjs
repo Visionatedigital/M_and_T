@@ -213,7 +213,7 @@ async function computeFinancialAnalysisZScore(req) {
             WITH portfolio_stats AS (
                 SELECT COALESCE(SUM(loan_amount), 0) as gross_portfolio
                 FROM loan_applications
-                WHERE status IN ('active', 'disbursed')
+                WHERE status IN ('active', 'approved', 'disbursed', 'completed', 'settled')
                 ${isLoanOfficer(role) ? `AND ${sqlOfficerVisibleLoanApps('', '$1')}` : ''}
             ),
             ledger_stats AS (
@@ -741,6 +741,28 @@ router.get('/financial-export-xlsx', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to generate Excel report' });
+    }
+});
+
+/** Admin: send the weekly report email now (same job as the Monday cron). */
+router.post('/send-weekly-report', async (req, res) => {
+    try {
+        const role = req.user?.role;
+        if (role !== 'admin') {
+            return res.status(403).json({ error: 'Only admins can send the weekly report' });
+        }
+        if (req.body?.to) {
+            process.env.WEEKLY_REPORT_TO = String(req.body.to);
+        }
+        const { runWeeklyReportEmail } = require('../services/weeklyReportEmail.cjs');
+        const result = await runWeeklyReportEmail();
+        if (!result.sent) {
+            return res.status(400).json(result);
+        }
+        res.json(result);
+    } catch (err) {
+        console.error('send-weekly-report error:', err);
+        res.status(500).json({ error: err.message || 'Failed to send weekly report' });
     }
 });
 

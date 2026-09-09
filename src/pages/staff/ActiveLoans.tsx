@@ -102,8 +102,8 @@ const ActiveLoans = () => {
     if (searchTerm) {
       filtered = filtered.filter(
         (loan) =>
-          loan.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          loan.loan_product.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (loan.full_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (loan.loan_product || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
           (((loan as any).group_name || (loan as any).groups?.group_name || "").toLowerCase().includes(searchTerm.toLowerCase()))
       );
     }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
@@ -7,10 +7,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Wallet, Landmark, Phone, Search, Filter, Download, Loader2 } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Wallet, Landmark, Phone, Search, Filter, Download, Loader2, Printer } from "lucide-react";
 import { api } from "@/services/api";
 import { useToast } from "@/hooks/use-toast";
+import { printElementAsDocument } from "@/lib/printDocument";
 
 const fmt = (n: number) =>
   n >= 1_000_000 ? `UGX ${(n / 1_000_000).toFixed(1)}M`
@@ -20,14 +21,16 @@ const fmt = (n: number) =>
 const CashBooks = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [dateFrom, setDateFrom] = useState("2025-01-01");
-  const [dateTo, setDateTo] = useState("2025-12-31");
-  const [activeTab, setActiveTab] = useState<"cash" | "bank" | "mobile_money">("cash");
+  const [dateFrom, setDateFrom] = useState(() => `${new Date().getFullYear()}-01-01`);
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().split("T")[0]);
+  const [activeTab, setActiveTab] = useState<"all" | "cash" | "bank" | "mobile_money">("all");
   const [cashBookData, setCashBookData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const printRef = useRef<HTMLDivElement>(null);
 
   const accountMap = {
+    all: undefined as string | undefined,
     cash: "cash",
     bank: "bank_transfer",
     mobile_money: "mobile_money",
@@ -87,15 +90,17 @@ const CashBooks = () => {
     toast({ title: "Cash book exported" });
   };
 
-  const opening = cashBookData?.summaries?.[accountMap[activeTab]]?.opening ?? 0;
-  const closing = cashBookData?.summaries?.[accountMap[activeTab]]?.closing ?? 0;
+  const summaryKey = activeTab === "all" ? "all" : accountMap[activeTab] || "all";
+  const opening = cashBookData?.summaries?.[summaryKey]?.opening ?? 0;
+  const closing = cashBookData?.summaries?.[summaryKey]?.closing ?? 0;
   let transactions = cashBookData?.transactions ?? [];
   if (searchTerm) {
     const term = searchTerm.toLowerCase();
     transactions = transactions.filter(
       (t: any) =>
         (t.description || "").toLowerCase().includes(term) ||
-        (t.category || "").toLowerCase().includes(term)
+        (t.category || "").toLowerCase().includes(term) ||
+        (t.narration || "").toLowerCase().includes(term)
     );
   }
   const sorted = [...transactions].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -131,6 +136,23 @@ const CashBooks = () => {
                       className="w-36"
                     />
                   </div>
+                  <Button variant="outline" className="gap-2" onClick={() => void loadCashBook()} disabled={loading}>
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Filter className="h-4 w-4" />} Refresh
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => {
+                      printElementAsDocument(printRef.current, "Cash Book");
+                      toast({
+                        title: "Print dialog opened",
+                        description: "Only the cash book document is printed (not the sidebar).",
+                      });
+                    }}
+                    disabled={!cashBookData}
+                  >
+                    <Printer className="h-4 w-4" /> Print
+                  </Button>
                   <Button variant="outline" className="gap-2" onClick={exportToCSV} disabled={!cashBookData?.transactions?.length}>
                     <Download className="h-4 w-4" /> Export CSV
                                     </Button>
@@ -138,12 +160,15 @@ const CashBooks = () => {
                             </div>
 
               <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="w-full">
-                                <TabsList className="grid h-auto min-h-12 w-full max-w-full grid-cols-1 gap-1 p-1 sm:max-w-md sm:grid-cols-3 bg-muted/50">
+                                <TabsList className="grid h-auto min-h-12 w-full max-w-full grid-cols-2 gap-1 p-1 sm:max-w-2xl sm:grid-cols-4 bg-muted/50">
+                                    <TabsTrigger value="all" className="gap-2 data-[state=active]:bg-background shadow-none border-none">
+                                        All Accounts
+                                    </TabsTrigger>
                                     <TabsTrigger value="cash" className="gap-2 data-[state=active]:bg-background shadow-none border-none">
-                                        <Wallet className="h-4 w-4" /> Cash Account
+                                        <Wallet className="h-4 w-4" /> Cash
                                     </TabsTrigger>
                                     <TabsTrigger value="bank" className="gap-2 data-[state=active]:bg-background shadow-none border-none">
-                                        <Landmark className="h-4 w-4" /> Bank Account
+                                        <Landmark className="h-4 w-4" /> Bank
                                     </TabsTrigger>
                                     <TabsTrigger value="mobile_money" className="gap-2 data-[state=active]:bg-background shadow-none border-none">
                                         <Phone className="h-4 w-4" /> Mobile Money
@@ -156,7 +181,7 @@ const CashBooks = () => {
                                             <div className="relative w-64">
                                                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                         <Input
-                          placeholder="Search transactions..."
+                          placeholder="Search salary, Katambala…"
                           className="pl-9"
                           value={searchTerm}
                           onChange={(e) => setSearchTerm(e.target.value)}
@@ -167,12 +192,26 @@ const CashBooks = () => {
                       </span>
                                         </div>
                                     </div>
+                                    {activeTab === "mobile_money" && (
+                                      <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                                        Mobile Money only — cash salary payments are under <button type="button" className="underline font-semibold" onClick={() => setActiveTab("cash")}>Cash</button> or <button type="button" className="underline font-semibold" onClick={() => setActiveTab("all")}>All Accounts</button>.
+                                      </p>
+                                    )}
 
-                                    <TabsContent value="cash" className="mt-0">
-                                        <Card className="border-none shadow-sm">
+                                    <Card ref={printRef} className="border-none shadow-sm">
                                             <CardHeader className="bg-muted/10 border-b">
-                                                <CardTitle className="text-lg">Petty Cash Register</CardTitle>
-                                                <CardDescription>Main branch cash box transactions.</CardDescription>
+                                                <CardTitle className="text-lg">
+                                                  {activeTab === "all" ? "All Accounts Ledger" : activeTab === "cash" ? "Petty Cash Register" : activeTab === "bank" ? "Bank Statement (Corporate)" : "Mobile Money (Collections)"}
+                                                </CardTitle>
+                                                <CardDescription>
+                                                  {activeTab === "all"
+                                                    ? "Cash, bank, and mobile money in one list."
+                                                    : activeTab === "cash"
+                                                      ? "Main branch cash box transactions."
+                                                      : activeTab === "bank"
+                                                        ? "Company bank account reconciliation."
+                                                        : "MTN/Airtel collection wallet logs."}
+                                                </CardDescription>
                                             </CardHeader>
                                             <CardContent className="p-0">
                         {loading ? (
@@ -189,7 +228,7 @@ const CashBooks = () => {
                                   <TableHead className="text-right">Debit (+)</TableHead>
                                   <TableHead className="text-right">Credit (-)</TableHead>
                                   <TableHead className="text-right font-bold">Balance</TableHead>
-                                  <TableHead>Narration</TableHead>
+                                  <TableHead>Channel / Category</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
@@ -203,7 +242,7 @@ const CashBooks = () => {
                                 {sorted.length === 0 ? (
                                   <TableRow>
                                     <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                                      No transactions found for this period.
+                                      No transactions found for this period{activeTab !== "all" ? ` on ${activeTab.replace(/_/g, " ")}` : ""}.
                                     </TableCell>
                                   </TableRow>
                                 ) : (
@@ -214,9 +253,12 @@ const CashBooks = () => {
                                       const amount = parseFloat(t.amount);
                                       runningBalance += isDebit ? amount : -amount;
                                       return (
-                                        <TableRow key={t.id} className="hover:bg-muted/30">
+                                        <TableRow key={`${t.source || "row"}-${t.id}`} className="hover:bg-muted/30">
                                           <TableCell className="text-sm">{new Date(t.date).toLocaleDateString("en-GB")}</TableCell>
-                                          <TableCell className="font-medium">{t.description}</TableCell>
+                                          <TableCell className="font-medium">
+                                            <div>{t.description}</div>
+                                            {t.category ? <div className="text-xs text-muted-foreground">{t.category}</div> : null}
+                                          </TableCell>
                                           <TableCell className="text-right text-green-600">
                                             {isDebit ? amount.toLocaleString() : "-"}
                                           </TableCell>
@@ -224,7 +266,9 @@ const CashBooks = () => {
                                             {!isDebit ? amount.toLocaleString() : "-"}
                                           </TableCell>
                                           <TableCell className="text-right font-bold">UGX {runningBalance.toLocaleString()}</TableCell>
-                                          <TableCell className="text-xs text-muted-foreground">{t.category}</TableCell>
+                                          <TableCell className="text-xs text-muted-foreground capitalize">
+                                            {String(t.payment_method || "").replace(/_/g, " ")}
+                                          </TableCell>
                                         </TableRow>
                                       );
                                     });
@@ -241,157 +285,6 @@ const CashBooks = () => {
                         )}
                                             </CardContent>
                                         </Card>
-                                    </TabsContent>
-
-                                    <TabsContent value="bank" className="mt-0">
-                                        <Card className="border-none shadow-sm">
-                                            <CardHeader className="bg-muted/10 border-b">
-                                                <CardTitle className="text-lg">Bank Statement (Corporate)</CardTitle>
-                                                <CardDescription>Company bank account reconciliation.</CardDescription>
-                                            </CardHeader>
-                                            <CardContent className="p-0">
-                        {loading ? (
-                          <div className="flex justify-center py-16">
-                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                          </div>
-                        ) : (
-                          <div className="rounded-md border bg-background overflow-hidden shadow-sm">
-                            <Table>
-                              <TableHeader className="bg-muted/50">
-                                <TableRow>
-                                  <TableHead className="w-[120px]">Date</TableHead>
-                                  <TableHead className="min-w-[200px]">Details</TableHead>
-                                  <TableHead className="text-right">Debit (+)</TableHead>
-                                  <TableHead className="text-right">Credit (-)</TableHead>
-                                  <TableHead className="text-right font-bold">Balance</TableHead>
-                                  <TableHead>Narration</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                <TableRow className="bg-muted/30 font-bold">
-                                  <TableCell>{new Date(dateFrom).toLocaleDateString("en-GB")}</TableCell>
-                                  <TableCell>OPENING BALANCE B/F</TableCell>
-                                  <TableCell colSpan={2} className="text-right"></TableCell>
-                                  <TableCell className="text-right font-bold">{fmt(opening)}</TableCell>
-                                  <TableCell className="text-muted-foreground">Balance brought forward</TableCell>
-                                </TableRow>
-                                {sorted.length === 0 ? (
-                                  <TableRow>
-                                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                                      No transactions found for this period.
-                                    </TableCell>
-                                  </TableRow>
-                                ) : (
-                                  (() => {
-                                    let runningBalance = opening;
-                                    return sorted.map((t: any) => {
-                                      const isDebit = t.entry_type === "revenue" || t.source === "repayment";
-                                      const amount = parseFloat(t.amount);
-                                      runningBalance += isDebit ? amount : -amount;
-                                      return (
-                                        <TableRow key={t.id} className="hover:bg-muted/30">
-                                          <TableCell className="text-sm">{new Date(t.date).toLocaleDateString("en-GB")}</TableCell>
-                                          <TableCell className="font-medium">{t.description}</TableCell>
-                                          <TableCell className="text-right text-green-600">
-                                            {isDebit ? amount.toLocaleString() : "-"}
-                                          </TableCell>
-                                          <TableCell className="text-right text-red-600">
-                                            {!isDebit ? amount.toLocaleString() : "-"}
-                                          </TableCell>
-                                          <TableCell className="text-right font-bold">UGX {runningBalance.toLocaleString()}</TableCell>
-                                          <TableCell className="text-xs text-muted-foreground">{t.category}</TableCell>
-                                        </TableRow>
-                                      );
-                                    });
-                                  })()
-                                )}
-                                <TableRow className="bg-muted/20 font-bold border-t-2">
-                                  <TableCell colSpan={4} className="text-right py-4">CLOSING BALANCE:</TableCell>
-                                  <TableCell className="text-right py-4 text-primary text-lg">{fmt(closing)}</TableCell>
-                                  <TableCell></TableCell>
-                                </TableRow>
-                              </TableBody>
-                            </Table>
-                          </div>
-                        )}
-                                            </CardContent>
-                                        </Card>
-                                    </TabsContent>
-
-                                    <TabsContent value="mobile_money" className="mt-0">
-                                        <Card className="border-none shadow-sm">
-                                            <CardHeader className="bg-muted/10 border-b">
-                                                <CardTitle className="text-lg">Mobile Money (Collections)</CardTitle>
-                                                <CardDescription>MTN/Airtel collection wallet logs.</CardDescription>
-                                            </CardHeader>
-                                            <CardContent className="p-0">
-                        {loading ? (
-                          <div className="flex justify-center py-16">
-                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                          </div>
-                        ) : (
-                          <div className="rounded-md border bg-background overflow-hidden shadow-sm">
-                            <Table>
-                              <TableHeader className="bg-muted/50">
-                                <TableRow>
-                                  <TableHead className="w-[120px]">Date</TableHead>
-                                  <TableHead className="min-w-[200px]">Details</TableHead>
-                                  <TableHead className="text-right">Debit (+)</TableHead>
-                                  <TableHead className="text-right">Credit (-)</TableHead>
-                                  <TableHead className="text-right font-bold">Balance</TableHead>
-                                  <TableHead>Narration</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                <TableRow className="bg-muted/30 font-bold">
-                                  <TableCell>{new Date(dateFrom).toLocaleDateString("en-GB")}</TableCell>
-                                  <TableCell>OPENING BALANCE B/F</TableCell>
-                                  <TableCell colSpan={2} className="text-right"></TableCell>
-                                  <TableCell className="text-right font-bold">{fmt(opening)}</TableCell>
-                                  <TableCell className="text-muted-foreground">Balance brought forward</TableCell>
-                                </TableRow>
-                                {sorted.length === 0 ? (
-                                  <TableRow>
-                                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                                      No transactions found for this period.
-                                    </TableCell>
-                                  </TableRow>
-                                ) : (
-                                  (() => {
-                                    let runningBalance = opening;
-                                    return sorted.map((t: any) => {
-                                      const isDebit = t.entry_type === "revenue" || t.source === "repayment";
-                                      const amount = parseFloat(t.amount);
-                                      runningBalance += isDebit ? amount : -amount;
-                                      return (
-                                        <TableRow key={t.id} className="hover:bg-muted/30">
-                                          <TableCell className="text-sm">{new Date(t.date).toLocaleDateString("en-GB")}</TableCell>
-                                          <TableCell className="font-medium">{t.description}</TableCell>
-                                          <TableCell className="text-right text-green-600">
-                                            {isDebit ? amount.toLocaleString() : "-"}
-                                          </TableCell>
-                                          <TableCell className="text-right text-red-600">
-                                            {!isDebit ? amount.toLocaleString() : "-"}
-                                          </TableCell>
-                                          <TableCell className="text-right font-bold">UGX {runningBalance.toLocaleString()}</TableCell>
-                                          <TableCell className="text-xs text-muted-foreground">{t.category}</TableCell>
-                                        </TableRow>
-                                      );
-                                    });
-                                  })()
-                                )}
-                                <TableRow className="bg-muted/20 font-bold border-t-2">
-                                  <TableCell colSpan={4} className="text-right py-4">CLOSING BALANCE:</TableCell>
-                                  <TableCell className="text-right py-4 text-primary text-lg">{fmt(closing)}</TableCell>
-                                  <TableCell></TableCell>
-                                </TableRow>
-                              </TableBody>
-                            </Table>
-                          </div>
-                        )}
-                                            </CardContent>
-                                        </Card>
-                                    </TabsContent>
                                 </div>
                             </Tabs>
                         </div>

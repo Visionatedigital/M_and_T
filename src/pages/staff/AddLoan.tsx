@@ -10,6 +10,21 @@ import { ArrowLeft, Calculator, Info } from "lucide-react";
 import { useUserRole } from "@/hooks/useUserRole";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
+function mapGuarantorsFromLoan(raw: any): Array<{ name: string; phone: string; nin?: string; address?: string; id?: string }> {
+    if (!raw) return [];
+    const list = Array.isArray(raw) ? raw : [];
+    return list
+        .map((g: any) => ({
+            name: g.name || g.full_name || "",
+            phone: g.phone || g.phone_number || "",
+            nin: g.nin || g.id_number || "",
+            address: g.address || "",
+            id: g.id,
+        }))
+        .filter((g) => g.name || g.phone)
+        .slice(0, 2);
+}
+
 const AddLoan = () => {
     const navigate = useNavigate();
     const { isLoanOfficer, loading: roleLoading } = useUserRole();
@@ -22,29 +37,68 @@ const AddLoan = () => {
         const fetchBorrower = async () => {
             if (!preselectedBorrowerId) return;
             try {
-                const borrower = await api.borrowers.get(preselectedBorrowerId);
-                // Map borrower data to form schema
+                const [borrower, priorLoans, availableCollateral] = await Promise.all([
+                    api.borrowers.get(preselectedBorrowerId),
+                    api.applications.getByBorrower(preselectedBorrowerId).catch(() => []),
+                    api.collateral.getAll(true).catch(() => []),
+                ]);
+
                 let firstName = "";
                 let lastMiddleName = "";
                 if (borrower.full_name) {
-                    const parts = borrower.full_name.split(' ');
+                    const parts = String(borrower.full_name).split(" ");
                     firstName = parts[0] || "";
-                    lastMiddleName = parts.slice(1).join(' ') || "";
+                    lastMiddleName = parts.slice(1).join(" ") || "";
                 }
+
+                const loans = Array.isArray(priorLoans) ? [...priorLoans] : [];
+                loans.sort((a: any, b: any) => {
+                    const ta = new Date(a.approved_at || a.created_at || 0).getTime();
+                    const tb = new Date(b.approved_at || b.created_at || 0).getTime();
+                    return tb - ta;
+                });
+
+                // Prefer most recent loan that has guarantors
+                const loanWithGuarantors = loans.find((l: any) => mapGuarantorsFromLoan(l.guarantors).length > 0);
+                const guarantors = mapGuarantorsFromLoan(loanWithGuarantors?.guarantors);
+
+                const ownedCollateral = (Array.isArray(availableCollateral) ? availableCollateral : []).filter(
+                    (c: any) => c.borrower_id === borrower.id
+                );
+                // Prefer collateral matching last loan security type, else first available
+                const lastSecurityType = loans[0]?.security_type;
+                const preferredCollateral =
+                    (lastSecurityType && ownedCollateral.find((c: any) => c.type === lastSecurityType)) ||
+                    ownedCollateral[0] ||
+                    null;
 
                 setInitialData({
                     borrower_id: borrower.id,
+                    application_type: "individual",
                     first_name: firstName,
                     last_middle_name: lastMiddleName,
+                    full_name: borrower.full_name || "",
                     business_name: borrower.business_name || "",
                     phone_number: borrower.phone_number || "",
                     id_number: borrower.id_number || "",
                     email: borrower.email || "",
                     address: borrower.address || "",
+                    date_of_birth: borrower.date_of_birth || "",
                     unique_number: borrower.unique_number || "",
-                    // Default values for other required fields if any
                     loan_category: "Business",
-                    country: "Uganda"
+                    loan_purpose: "Working capital",
+                    country: "Uganda",
+                    guarantors,
+                    security_type: preferredCollateral?.type || loans[0]?.security_type || "",
+                    security_value:
+                        preferredCollateral?.estimated_value ??
+                        preferredCollateral?.current_value ??
+                        loans[0]?.security_value ??
+                        "",
+                    // Internal hints for LoanApplicationForm hydration
+                    _borrower: borrower,
+                    _prefillCollateralId: preferredCollateral?.id || null,
+                    _prefillFromExistingClient: true,
                 });
             } catch (error) {
                 console.error("Failed to fetch preselected borrower", error);
@@ -79,8 +133,16 @@ const AddLoan = () => {
                                             <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
                                             Back
                                         </Button>
-                                        <h1 className="text-lg font-bold font-mono tracking-tight sm:text-xl">New Loan Application</h1>
+                                        <h1 className="text-lg font-bold font-mono tracking-tight sm:text-xl">
+                                            {preselectedBorrowerId ? "Add Loan for Client" : "New Loan Application"}
+                                        </h1>
                                     </div>
+                                    {preselectedBorrowerId && initialData?.full_name && (
+                                        <p className="text-sm text-muted-foreground">
+                                            Prefilling for <span className="font-medium text-foreground">{initialData.full_name}</span>
+                                            {" "}(individual). Guarantors and collateral from prior loans are loaded when available.
+                                        </p>
+                                    )}
                                     {!roleLoading && isLoanOfficer && (
                                         <Alert className="max-w-full min-w-0 py-2">
                                             <Info className="h-3.5 w-3.5 shrink-0" />
@@ -101,8 +163,8 @@ const AddLoan = () => {
                                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                                 </div>
                             ) : (
-                                <LoanApplicationForm 
-                                    onSuccess={handleSuccess} 
+                                <LoanApplicationForm
+                                    onSuccess={handleSuccess}
                                     onCancel={handleCancel}
                                     initialData={initialData}
                                 />

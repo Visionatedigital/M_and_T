@@ -28,7 +28,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, Pencil } from "lucide-react";
+import { Users, Pencil, Trash2, UserPlus, Loader2 } from "lucide-react";
 import { LoanApplicationForm } from "@/components/loans/LoanApplicationForm";
 import {
   Dialog,
@@ -37,6 +37,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useUserRole } from "@/hooks/useUserRole";
 
 interface LoanDetails {
   id: string;
@@ -61,6 +72,7 @@ interface LoanDetails {
   assigned_officer_id: string | null;
   rejection_reason: string | null;
   loan_reference?: string | null;
+  borrower_id?: string | null;
   // Calculated fields
   principal: number;
   total_amount: number;
@@ -72,7 +84,7 @@ interface LoanDetails {
   monthly_payment: number;
   group_members?: Array<{ name: string; amount?: number; borrower_id?: string }>;
   group_id?: string;
-  loan_product?: string;
+  group_name?: string;
 }
 
 const LoanDetails = () => {
@@ -84,8 +96,11 @@ const LoanDetails = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [loan, setLoan] = useState<LoanDetails | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { isAdmin } = useUserRole();
 
   useEffect(() => {
     if (id) {
@@ -226,6 +241,27 @@ const LoanDetails = () => {
   const progress = (loan.amount_paid / loan.total_amount) * 100;
   const repaymentSchedule = groupMembersWithAmounts.length > 0 ? [] : generateRepaymentSchedule();
 
+  const handleDeleteLoan = async () => {
+    if (!loan) return;
+    setIsDeleting(true);
+    try {
+      await api.applications.delete(loan.id);
+      toast({
+        title: "Loan deleted",
+        description: "The loan and related repayments were removed.",
+      });
+      navigate("/staff-dashboard/loans");
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete loan",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full">
@@ -258,11 +294,30 @@ const LoanDetails = () => {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      if (loan.borrower_id) {
+                        navigate(`/staff-dashboard/loans/add?borrower=${encodeURIComponent(loan.borrower_id)}`);
+                      } else {
+                        navigate("/staff-dashboard/loans/add");
+                      }
+                    }}
+                  >
+                    <UserPlus className="mr-2 h-4 w-4" />
+                    Add Loan
+                  </Button>
                   <Button variant="outline" onClick={() => setIsEditDialogOpen(true)}>
                     <Pencil className="mr-2 h-4 w-4" />
                     Edit Loan
                   </Button>
+                  {isAdmin && (
+                    <Button variant="destructive" onClick={() => setIsDeleteDialogOpen(true)}>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete
+                    </Button>
+                  )}
                   {getStatusBadge(loan.status)}
                 </div>
               </div>
@@ -634,7 +689,12 @@ const LoanDetails = () => {
           </DialogHeader>
           {loan && (
             <LoanApplicationForm
-              initialData={loan}
+              initialData={{
+                ...loan,
+                application_type: loan.group_id || loan.loan_product === "Group Loan" ? "group" : "individual",
+                loan_purpose: loan.loan_purpose || "Working capital",
+                loan_category: (loan as any).loan_category || "Business",
+              }}
               onSuccess={() => {
                 setIsEditDialogOpen(false);
                 loadLoanDetails();
@@ -644,6 +704,39 @@ const LoanDetails = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={(open) => { if (!isDeleting) setIsDeleteDialogOpen(open); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this loan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the loan for {loan.full_name}
+              {loan.status ? ` (status: ${loan.status})` : ""}, plus any repayments and related accounting entries.
+              Use this for duplicates or double entries. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                handleDeleteLoan();
+              }}
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting…
+                </>
+              ) : (
+                "Delete Loan"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SidebarProvider>
   );
 };
