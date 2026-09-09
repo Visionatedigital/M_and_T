@@ -236,6 +236,8 @@ const Accounting = () => {
   });
 
   // Print targets: only the statement card, not sidebar / chrome
+  const plPrintRef = useRef<HTMLDivElement>(null);
+  const portfolioPrintRef = useRef<HTMLDivElement>(null);
   const incomePrintRef = useRef<HTMLDivElement>(null);
   const balancePrintRef = useRef<HTMLDivElement>(null);
   const cashflowPrintRef = useRef<HTMLDivElement>(null);
@@ -245,14 +247,48 @@ const Accounting = () => {
   const cashflowStmtPrintRef = useRef<HTMLDivElement>(null);
   const equityPrintRef = useRef<HTMLDivElement>(null);
   const analysisPrintRef = useRef<HTMLDivElement>(null);
+  const cashbookPrintRef = useRef<HTMLDivElement>(null);
+  const agingPrintRef = useRef<HTMLDivElement>(null);
 
   const printReport = (ref: React.RefObject<HTMLDivElement | null>, title: string) => {
+    if (!ref.current) {
+      toast({
+        title: "Nothing to print yet",
+        description: "Load or refresh this tab first, then try Print again.",
+        variant: "destructive",
+      });
+      return;
+    }
     printElementAsDocument(ref.current, title);
     toast({
       title: "Print dialog opened",
       description:
-        "Only the statement is sent to print (not the sidebar). Pick a printer, or choose Save as PDF if you have no printer installed.",
+        "Only this document is sent to print (not the sidebar). Pick a printer, or Save as PDF.",
     });
+  };
+
+  const printActiveDocument = () => {
+    const map: Record<string, { ref: React.RefObject<HTMLDivElement | null>; title: string }> = {
+      pl: { ref: plPrintRef, title: "Financial Overview" },
+      portfolio: { ref: portfolioPrintRef, title: "Loan Portfolio" },
+      income: { ref: incomePrintRef, title: "Profit & Loss Statement" },
+      balance: { ref: balancePrintRef, title: "Balance Sheet" },
+      cashflow: { ref: cashflowPrintRef, title: "Cash Flow Statement" },
+      cashbook: { ref: cashbookPrintRef, title: "Cashbook" },
+      financial_analysis: { ref: analysisPrintRef, title: "Financial Risk Assessment" },
+      trial: { ref: trialPrintRef, title: "Trial Balance" },
+      aging_report: { ref: agingPrintRef, title: "Portfolio Aging Report" },
+      comprehensive_income: { ref: comprehensivePrintRef, title: "Statement of Comprehensive Income" },
+      financial_position: { ref: financialPositionPrintRef, title: "Statement of Financial Position" },
+      cashflow_statement: { ref: cashflowStmtPrintRef, title: "Cashflow Statement" },
+      equity_statement: { ref: equityPrintRef, title: "Statement of Changes in Equity" },
+    };
+    const target = map[activeTab];
+    if (!target) {
+      toast({ title: "This tab cannot be printed yet", variant: "destructive" });
+      return;
+    }
+    printReport(target.ref, target.title);
   };
 
   const filteredEntries = useMemo(() => {
@@ -1126,7 +1162,7 @@ const Accounting = () => {
                     </TabsTrigger>
                     </TabsList>
                   </div>
-                  {activeTab !== "pl" && (
+                  {activeTab !== "pl" ? (
                     <div className="flex flex-wrap gap-2 items-center">
                       <Input type="date" value={reportFrom} onChange={e => setReportFrom(e.target.value)}
                         className="h-8 text-xs w-36" placeholder="From" />
@@ -1137,11 +1173,23 @@ const Accounting = () => {
                         <RefreshCw className={`h-3 w-3 mr-1 ${reportLoading ? "animate-spin" : ""}`} />
                         Refresh
                       </Button>
+                      <Button variant="outline" size="sm" className="h-8 text-xs" onClick={printActiveDocument}>
+                        <Printer className="h-3 w-3 mr-1" />
+                        Print
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2 items-center">
+                      <Button variant="outline" size="sm" className="h-8 text-xs" onClick={printActiveDocument}>
+                        <Printer className="h-3 w-3 mr-1" />
+                        Print overview
+                      </Button>
                     </div>
                   )}
                 </div>
 
                 <TabsContent value="pl" className="space-y-6 mt-4">
+                  <div ref={plPrintRef} className="space-y-6">
                   {/* ── Summary Cards ── */}
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     {/* This Month Revenue */}
@@ -1435,10 +1483,12 @@ const Accounting = () => {
                       </div>
                     </CardContent>
                   </Card>
+                  </div>
                 </TabsContent>
 
                 {/* ── Loan Portfolio ── */}
                 <TabsContent value="portfolio" className="mt-4 space-y-4">
+                  <div ref={portfolioPrintRef} className="space-y-4">
                   <div className="flex items-center justify-between bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-2">
                     <div className="flex items-center gap-6">
                       <div className="p-3 bg-blue-50 rounded-xl">
@@ -1449,12 +1499,15 @@ const Accounting = () => {
                         <p className="text-xs text-slate-500 font-medium tracking-tight">Active loans and outstanding balances</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2" data-print-hide>
                       <Button variant="outline" size="sm" onClick={() => loadReport("portfolio")} className="h-9 text-xs gap-1 border-slate-200">
                         <RefreshCw className={`h-3 w-3 ${reportLoading === "portfolio" ? "animate-spin" : ""}`} /> Refresh
                       </Button>
                       <Button variant="outline" size="sm" onClick={exportLoanPortfolio} className="h-9 text-xs gap-1 border-slate-200 hover:bg-slate-50 shadow-sm">
                         <Download className="h-3 w-3" /> Export Excel
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => printReport(portfolioPrintRef, "Loan Portfolio")} className="h-9 text-xs gap-1 border-slate-200">
+                        <Printer className="h-3 w-3" /> Print
                       </Button>
                     </div>
                   </div>
@@ -1506,6 +1559,7 @@ const Accounting = () => {
                       <p className="text-slate-400 font-bold italic">Click the refresh icon above to load portfolio data.</p>
                     </div>
                   )}
+                  </div>
                 </TabsContent>
 
                 {/* ── Income Statement ── */}
@@ -1774,7 +1828,7 @@ const Accounting = () => {
                           </p>
                         </div>
                       </div>
-                      <div className="flex flex-wrap gap-2 items-center">
+                      <div className="flex flex-wrap gap-2 items-center" data-print-hide>
                         <div className="relative">
                           <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
                           <Input
@@ -1796,10 +1850,13 @@ const Accounting = () => {
                         <Button variant="outline" size="sm" onClick={exportCashBook} className="h-9 text-xs gap-1 border-slate-200 hover:bg-slate-50 shadow-sm">
                           <Download className="h-3 w-3" /> Export Excel
                         </Button>
+                        <Button variant="outline" size="sm" onClick={() => printReport(cashbookPrintRef, "Cashbook")} className="h-9 text-xs gap-1 border-slate-200">
+                          <Printer className="h-3 w-3" /> Print
+                        </Button>
                       </div>
                     </div>
                     {filterAccount !== "all" && (
-                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-print-hide>
                         Showing <span className="font-bold">{filterAccount.replace(/_/g, " ")}</span> only.
                         Cash salary entries are hidden on Mobile Money / Bank. Switch to <button type="button" className="underline font-bold" onClick={() => setFilterAccount("all")}>All Accounts</button> or <button type="button" className="underline font-bold" onClick={() => setFilterAccount("cash")}>Cash</button>.
                       </div>
@@ -1809,7 +1866,7 @@ const Accounting = () => {
                   {reportLoading === "cashbook" ? (
                     <div className="flex items-center justify-center py-16"><RefreshCw className="h-8 w-8 text-primary animate-spin" /></div>
                   ) : cashBookData?.transactions ? (
-                    <Card className="shadow-xl border-none overflow-hidden rounded-2xl">
+                    <Card ref={cashbookPrintRef} className="shadow-xl border-none overflow-hidden rounded-2xl">
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm border-collapse">
                           <thead className="bg-slate-50 border-b border-slate-200">
@@ -2154,17 +2211,21 @@ const Accounting = () => {
                   {reportLoading === "aging_report" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : (
-                    <Card className="shadow-sm overflow-hidden">
+                    <Card ref={agingPrintRef} className="shadow-sm overflow-hidden">
                       <CardHeader className="bg-slate-50 border-b pb-4">
                         <div className="flex items-center justify-between">
                           <CardTitle className="text-lg flex items-center gap-2">
                             <FileSpreadsheet className="h-5 w-5 text-green-700" />
                             Portfolio Aging Report ({reportFrom && reportTo ? `${formatDate(reportFrom)} - ${formatDate(reportTo)}` : selectedMonth})
                           </CardTitle>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2" data-print-hide>
                             <Button variant="outline" size="sm" className="h-8 text-xs bg-emerald-50 text-emerald-700 border-emerald-200"
                               onClick={exportAgingReport}>
                               <Download className="h-3.5 w-3.5 mr-1" /> Export Excel
+                            </Button>
+                            <Button variant="outline" size="sm" className="h-8 text-xs"
+                              onClick={() => printReport(agingPrintRef, "Portfolio Aging Report")}>
+                              <Printer className="h-3.5 w-3.5 mr-1" /> Print
                             </Button>
                           </div>
                         </div>

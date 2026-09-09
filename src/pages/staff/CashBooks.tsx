@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { StaffSidebar } from "@/components/staff/StaffSidebar";
 import { StaffHeader } from "@/components/staff/StaffHeader";
@@ -7,10 +7,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Wallet, Landmark, Phone, Search, Filter, Download, Loader2 } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Wallet, Landmark, Phone, Search, Filter, Download, Loader2, Printer } from "lucide-react";
 import { api } from "@/services/api";
 import { useToast } from "@/hooks/use-toast";
+import { printElementAsDocument } from "@/lib/printDocument";
 
 const fmt = (n: number) =>
   n >= 1_000_000 ? `UGX ${(n / 1_000_000).toFixed(1)}M`
@@ -26,6 +27,7 @@ const CashBooks = () => {
   const [cashBookData, setCashBookData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const printRef = useRef<HTMLDivElement>(null);
 
   const accountMap = {
     all: undefined as string | undefined,
@@ -137,6 +139,20 @@ const CashBooks = () => {
                   <Button variant="outline" className="gap-2" onClick={() => void loadCashBook()} disabled={loading}>
                     {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Filter className="h-4 w-4" />} Refresh
                   </Button>
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => {
+                      printElementAsDocument(printRef.current, "Cash Book");
+                      toast({
+                        title: "Print dialog opened",
+                        description: "Only the cash book document is printed (not the sidebar).",
+                      });
+                    }}
+                    disabled={!cashBookData}
+                  >
+                    <Printer className="h-4 w-4" /> Print
+                  </Button>
                   <Button variant="outline" className="gap-2" onClick={exportToCSV} disabled={!cashBookData?.transactions?.length}>
                     <Download className="h-4 w-4" /> Export CSV
                                     </Button>
@@ -182,7 +198,7 @@ const CashBooks = () => {
                                       </p>
                                     )}
 
-                                    <Card className="border-none shadow-sm">
+                                    <Card ref={printRef} className="border-none shadow-sm">
                                             <CardHeader className="bg-muted/10 border-b">
                                                 <CardTitle className="text-lg">
                                                   {activeTab === "all" ? "All Accounts Ledger" : activeTab === "cash" ? "Petty Cash Register" : activeTab === "bank" ? "Bank Statement (Corporate)" : "Mobile Money (Collections)"}
