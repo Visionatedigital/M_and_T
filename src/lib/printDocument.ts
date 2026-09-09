@@ -33,60 +33,84 @@ function buildPrintHtml(title: string, bodyHtml: string, note?: string): string 
       background: #fff;
       color: #0f172a;
       font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-      font-size: 10px;
-      line-height: 1.3;
+      font-size: 12.5px;
+      line-height: 1.5;
     }
-    body { padding: 10mm; }
+    body { padding: 14mm 16mm; }
     .print-doc-header {
       border-bottom: 2px solid #1e3a5f;
-      margin: 0 0 8px;
-      padding: 0 0 6px;
+      margin: 0 0 18px;
+      padding: 0 0 12px;
     }
     .print-doc-header .org {
-      font-size: 9px;
-      letter-spacing: 0.08em;
+      font-size: 11px;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
       color: #64748b;
       font-weight: 700;
     }
     .print-doc-header h1 {
-      margin: 2px 0 0;
-      font-size: 15px;
+      margin: 6px 0 0;
+      font-size: 20px;
       color: #1e3a5f;
       font-weight: 700;
+      letter-spacing: -0.01em;
     }
     .print-doc-header .printed-at {
-      margin-top: 2px;
-      font-size: 9px;
+      margin-top: 6px;
+      font-size: 11px;
       color: #94a3b8;
     }
     .print-note {
-      margin: 0 0 8px;
-      padding: 5px 7px;
+      margin: 0 0 16px;
+      padding: 10px 12px;
       background: #fffbeb;
       border: 1px solid #fcd34d;
       color: #92400e;
-      font-size: 9px;
+      font-size: 11px;
+      line-height: 1.45;
     }
     h1, h2, h3, h4 {
-      margin: 0 0 4px;
+      margin: 0 0 8px;
       color: #1e3a5f;
       page-break-after: avoid;
+      line-height: 1.3;
     }
-    h1 { font-size: 13px; }
-    h2 { font-size: 12px; }
-    h3, h4 { font-size: 11px; }
-    p { margin: 0 0 4px; }
+    h1 { font-size: 18px; }
+    h2 { font-size: 15px; margin-top: 4px; }
+    h3, h4 { font-size: 13px; }
+    p { margin: 0 0 8px; }
 
-    /* Kill Tailwind spacing that creates hundreds of blank/tall pages */
+    /*
+      Soften Tailwind spacing for print: keep room to breathe,
+      but don't honor huge py-5 / min-h utilities that explode page count.
+    */
     [class*="p-"], [class*="px-"], [class*="py-"], [class*="pt-"], [class*="pb-"],
-    [class*="pl-"], [class*="pr-"], [class*="m-"], [class*="mx-"], [class*="my-"],
-    [class*="mt-"], [class*="mb-"], [class*="gap-"], [class*="space-y-"], [class*="space-x-"] {
+    [class*="pl-"], [class*="pr-"] {
       padding: 0 !important;
-      margin: 0 !important;
-      gap: 0 !important;
     }
-    [class*="space-y-"] > * + * { margin-top: 4px !important; }
+    [class*="m-"], [class*="mx-"], [class*="my-"], [class*="mt-"], [class*="mb-"] {
+      margin: 0 !important;
+    }
+    [class*="gap-"] { gap: 10px !important; }
+    [class*="space-y-"] > * + * { margin-top: 14px !important; }
+    [class*="space-x-"] > * + * { margin-left: 8px !important; }
+
+    /* Document sections / cards */
+    .print-body > *,
+    [class*="space-y-"] > * {
+      margin-bottom: 0;
+    }
+    [class*="rounded"][class*="border"],
+    .shadow-sm, .shadow-md, .shadow-xl {
+      border: 1px solid #e2e8f0 !important;
+      padding: 14px 16px !important;
+      margin: 0 0 16px !important;
+      background: #fff !important;
+      box-shadow: none !important;
+      border-radius: 4px !important;
+    }
+
     [class*="min-h-"], [class*="h-"] {
       height: auto !important;
       min-height: 0 !important;
@@ -102,31 +126,39 @@ function buildPrintHtml(title: string, bodyHtml: string, note?: string): string 
       width: 100% !important;
       border-collapse: collapse;
       table-layout: auto;
-      margin: 4px 0 6px;
-      font-size: 8.5px;
+      margin: 10px 0 16px;
+      font-size: 11.5px;
+      line-height: 1.4;
     }
     thead { display: table-header-group; }
-    tr { page-break-inside: auto; }
+    tr { page-break-inside: avoid; }
     th, td {
-      padding: 2px 4px !important;
+      padding: 8px 10px !important;
       border-bottom: 1px solid #e2e8f0;
       vertical-align: top;
       word-break: break-word;
     }
     th {
       text-align: left;
-      font-size: 7.5px;
+      font-size: 10px;
       text-transform: uppercase;
-      letter-spacing: 0.02em;
+      letter-spacing: 0.04em;
       color: #64748b;
       font-weight: 700;
       background: #f8fafc;
+      padding-top: 10px !important;
+      padding-bottom: 10px !important;
     }
+    tbody tr:nth-child(even) td { background: #fafbfc; }
 
     .text-right, [class*="text-right"] { text-align: right !important; }
     .text-center, [class*="text-center"] { text-align: center !important; }
     .font-bold, .font-semibold, .font-black, .font-extrabold { font-weight: 700 !important; }
     .tabular-nums { font-variant-numeric: tabular-nums; }
+    .text-xl, .text-2xl, .text-lg { font-size: 16px !important; line-height: 1.35 !important; }
+    .text-base { font-size: 13px !important; }
+    .text-sm { font-size: 12px !important; }
+    .text-xs, .text-\\[10px\\], .text-\\[11px\\], .text-\\[9px\\] { font-size: 11px !important; }
 
     .bg-slate-50, .bg-slate-100, .bg-slate-100\\/90, .bg-muted\\/30, .bg-muted\\/10,
     .bg-slate-50\\/50, .bg-slate-50\\/80 { background: #f8fafc !important; }
@@ -134,6 +166,7 @@ function buildPrintHtml(title: string, bodyHtml: string, note?: string): string 
     .text-red-500, .text-red-600, .text-red-700 { color: #dc2626 !important; }
     .text-blue-700, .text-blue-800, .text-\\[\\#1F4E79\\] { color: #1e3a5f !important; }
     .text-slate-400, .text-slate-500, .text-muted-foreground { color: #64748b !important; }
+    .text-slate-700, .text-slate-800, .text-slate-900 { color: #0f172a !important; }
 
     button, [data-print-hide], input, select, textarea, [role="combobox"],
     .recharts-responsive-container, .recharts-wrapper, [class*="recharts"],
@@ -145,18 +178,24 @@ function buildPrintHtml(title: string, bodyHtml: string, note?: string): string 
       overflow: visible !important;
       max-height: none !important;
     }
-    .rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md, .rounded-full { border-radius: 0 !important; }
+    .rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md, .rounded-full { border-radius: 4px !important; }
     .shadow-sm, .shadow-md, .shadow-xl, [class*="shadow"] { box-shadow: none !important; }
 
-    .grid { display: grid !important; gap: 4px !important; margin-bottom: 6px; }
+    .grid { display: grid !important; gap: 12px !important; margin-bottom: 16px; }
     .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
     .grid-cols-3, .md\\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
     .grid-cols-4, .lg\\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
-    .flex { display: flex !important; flex-wrap: wrap; gap: 2px !important; }
+    .flex { display: flex !important; flex-wrap: wrap; gap: 8px !important; align-items: baseline; }
+
+    /* KPI / metric tiles */
+    .grid > [class*="border-l"], .grid > .border-l-4 {
+      padding: 12px 14px !important;
+      margin: 0 !important;
+    }
 
     @media print {
       body { padding: 0; }
-      @page { margin: 8mm; size: portrait; }
+      @page { margin: 12mm; size: portrait; }
     }
   </style>
 </head>
@@ -167,7 +206,9 @@ function buildPrintHtml(title: string, bodyHtml: string, note?: string): string 
     <div class="printed-at">Printed ${escapeHtml(new Date().toLocaleString("en-GB"))}</div>
   </header>
   ${noteHtml}
+  <div class="print-body">
   ${bodyHtml}
+  </div>
 </body>
 </html>`;
 }
