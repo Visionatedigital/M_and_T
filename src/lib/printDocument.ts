@@ -43,11 +43,11 @@ function buildPrintHtml(
       font-size: 13px;
       line-height: 1.55;
     }
-    body { padding: 12mm 14mm; }
+    body { padding: 14mm 16mm; }
     .print-doc-header {
       border-bottom: 2px solid #1e3a5f;
-      margin: 0 0 20px;
-      padding: 0 0 12px;
+      margin: 0 0 28px;
+      padding: 0 0 14px;
     }
     .print-doc-header .org {
       font-size: 11px;
@@ -91,18 +91,107 @@ function buildPrintHtml(
     [class*="m-"], [class*="mx-"], [class*="my-"], [class*="mt-"], [class*="mb-"] {
       margin: 0 !important;
     }
-    [class*="gap-"] { gap: 12px !important; }
-    [class*="space-y-"] > * + * { margin-top: 16px !important; }
-    [class*="space-x-"] > * + * { margin-left: 10px !important; }
+    [class*="gap-"] { gap: 18px !important; }
+    [class*="space-y-"] > * + * { margin-top: 22px !important; }
+    [class*="space-x-"] > * + * { margin-left: 12px !important; }
 
+    /* Flatten cards / KPI boxes — sit on the page, no nested containers */
     [class*="rounded"][class*="border"],
-    .shadow-sm, .shadow-md, .shadow-xl {
-      border: 1px solid #e2e8f0 !important;
-      padding: 16px 18px !important;
-      margin: 0 0 18px !important;
-      background: #fff !important;
+    [class*="border-l-"],
+    .shadow-sm, .shadow-md, .shadow-xl, .shadow-inner,
+    [class*="shadow"] {
+      border: none !important;
+      border-left: none !important;
+      padding: 0 0 20px !important;
+      margin: 0 0 22px !important;
+      background: transparent !important;
       box-shadow: none !important;
-      border-radius: 4px !important;
+      border-radius: 0 !important;
+    }
+
+    /* Badges / chips → plain text (no pills in tables) */
+    [class*="rounded-full"],
+    [class*="badge"],
+    span[class*="bg-emerald-100"],
+    span[class*="bg-red-100"],
+    span[class*="bg-blue-100"],
+    span[class*="bg-amber-100"],
+    span[class*="bg-indigo-"] {
+      display: inline !important;
+      border: none !important;
+      background: transparent !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      font-size: 12px !important;
+      font-weight: 600 !important;
+      line-height: inherit !important;
+      height: auto !important;
+      text-transform: capitalize;
+    }
+
+    /* Stack statement / KPI grids vertically on the page */
+    .grid,
+    .grid-cols-2, .grid-cols-3, .grid-cols-4,
+    .md\\:grid-cols-3, .md\\:grid-cols-4,
+    .lg\\:grid-cols-4, .lg\\:grid-cols-5,
+    .sm\\:grid-cols-3, .xl\\:grid-cols-12 {
+      display: block !important;
+    }
+    .grid > *,
+    [class*="grid-cols-"] > * {
+      display: block !important;
+      width: 100% !important;
+      margin: 0 0 18px !important;
+      padding: 0 0 14px !important;
+      border: none !important;
+      border-bottom: 1px solid #e2e8f0 !important;
+      background: transparent !important;
+    }
+
+    .statement-stack > .statement-section,
+    .statement-section {
+      display: block !important;
+      width: 100% !important;
+      margin: 0 0 28px !important;
+      padding: 0 0 8px !important;
+      page-break-inside: avoid;
+    }
+    .statement-section h3 {
+      font-size: 14px;
+      margin: 0 0 12px;
+      padding-bottom: 6px;
+      border-bottom: 1.5px solid #1e3a5f;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .statement-month {
+      margin: 0 0 20px !important;
+      padding: 0 0 8px !important;
+      page-break-inside: avoid;
+    }
+    .kpi-print-row {
+      display: block !important;
+      margin: 0 0 24px !important;
+    }
+    .kpi-print-row .kpi-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #64748b;
+      font-weight: 700;
+      margin: 0 0 4px;
+    }
+    .kpi-print-row .kpi-value {
+      font-size: 18px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .kpi-print-row .kpi-hint {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 2px;
     }
 
     [class*="min-h-"], [class*="h-"] {
@@ -119,10 +208,10 @@ function buildPrintHtml(
     table {
       width: 100% !important;
       border-collapse: collapse;
-      table-layout: fixed;
-      margin: 8px 0 16px;
-      font-size: 12px;
-      line-height: 1.45;
+      table-layout: auto;
+      margin: 8px 0 20px;
+      font-size: 12.5px;
+      line-height: 1.5;
     }
     thead { display: table-header-group; }
     tr { page-break-inside: avoid; }
@@ -148,6 +237,7 @@ function buildPrintHtml(
     tbody tr:nth-child(even) td { background: #fafbfc; }
 
     /* Ledger / cashbook column rhythm */
+    table.ledger-print { table-layout: fixed !important; }
     table.ledger-print col.col-date { width: 10%; }
     table.ledger-print col.col-details { width: 34%; }
     table.ledger-print col.col-amount { width: 13%; }
@@ -227,23 +317,18 @@ function buildPrintHtml(
       overflow: visible !important;
       max-height: none !important;
     }
-    .rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md, .rounded-full { border-radius: 4px !important; }
+    .rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md, .rounded-full { border-radius: 0 !important; }
     .shadow-sm, .shadow-md, .shadow-xl, [class*="shadow"] { box-shadow: none !important; }
 
-    .grid { display: grid !important; gap: 14px !important; margin-bottom: 18px; }
-    .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-    .grid-cols-3, .md\\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
-    .grid-cols-4, .lg\\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
-    .flex { display: flex !important; flex-wrap: wrap; gap: 10px !important; align-items: baseline; }
-
-    .grid > [class*="border-l"], .grid > .border-l-4 {
-      padding: 12px 14px !important;
-      margin: 0 !important;
-    }
+    /* Keep simple label/value rows; don't force multi-column flex wraps */
+    .flex { display: flex !important; flex-wrap: nowrap; gap: 12px !important; align-items: baseline; justify-content: space-between; }
+    section, .statement-section { margin-bottom: 28px !important; }
+    table th, table td { padding: 11px 12px !important; }
+    table.text-\\[10px\\], table[class*="text-[10px]"] { font-size: 11px !important; }
 
     @media print {
       body { padding: 0; }
-      @page { margin: 12mm; size: ${orientation}; }
+      @page { margin: 14mm; size: ${orientation}; }
     }
   </style>
 </head>

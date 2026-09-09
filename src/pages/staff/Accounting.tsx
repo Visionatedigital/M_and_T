@@ -263,11 +263,13 @@ const Accounting = () => {
       });
       return;
     }
-    const isCashbook = /cashbook/i.test(title);
+    const landscape =
+      options?.orientation === "landscape" ||
+      /cashbook|portfolio|aging|comprehensive income|financial position/i.test(title);
     printElementAsDocument(ref.current, title, {
       maxTableRows: options?.maxTableRows ?? 0,
       stripCharts: true,
-      orientation: options?.orientation ?? (isCashbook ? "landscape" : "portrait"),
+      orientation: options?.orientation ?? (landscape ? "landscape" : "portrait"),
     });
   };
 
@@ -1169,61 +1171,57 @@ const Accounting = () => {
                       <Printer className="h-3.5 w-3.5" /> Print
                     </Button>
                   </div>
-                  {/* ── Summary Cards ── */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    {/* This Month Revenue */}
-                    <Card className="border-l-4 border-l-emerald-500 shadow-sm">
+                  {/* ── Summary metrics (print: stacked lines, no boxes) ── */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 print:grid-cols-1">
+                    <Card className="border-l-4 border-l-emerald-500 shadow-sm kpi-print-row">
                       <CardHeader className="pb-1 pt-4 px-4">
-                        <CardTitle className="text-xs uppercase tracking-wider text-slate-500">Revenue (Month)</CardTitle>
+                        <CardTitle className="text-xs uppercase tracking-wider text-slate-500 kpi-label">Revenue (Month)</CardTitle>
                       </CardHeader>
                       <CardContent className="px-4 pb-4">
-                        <div className="text-xl font-bold text-slate-900">{fmt(currentMonth?.revenue || 0)}</div>
-                        <div className="text-xs text-emerald-600 flex items-center gap-0.5 mt-0.5">
+                        <div className="text-xl font-bold text-slate-900 kpi-value">{fmt(currentMonth?.revenue || 0)}</div>
+                        <div className="text-xs text-emerald-600 flex items-center gap-0.5 mt-0.5 kpi-hint">
                           <ArrowUpRight className="h-3 w-3" /> Income this month
                         </div>
                       </CardContent>
                     </Card>
 
-                    {/* This Month Expenses */}
-                    <Card className="border-l-4 border-l-red-500 shadow-sm">
+                    <Card className="border-l-4 border-l-red-500 shadow-sm kpi-print-row">
                       <CardHeader className="pb-1 pt-4 px-4">
-                        <CardTitle className="text-xs uppercase tracking-wider text-slate-500">Expenses (Month)</CardTitle>
+                        <CardTitle className="text-xs uppercase tracking-wider text-slate-500 kpi-label">Expenses (Month)</CardTitle>
                       </CardHeader>
                       <CardContent className="px-4 pb-4">
-                        <div className="text-xl font-bold text-slate-900">{fmt(currentMonth?.expenses || 0)}</div>
-                        <div className="text-xs text-red-600 flex items-center gap-0.5 mt-0.5">
+                        <div className="text-xl font-bold text-slate-900 kpi-value">{fmt(currentMonth?.expenses || 0)}</div>
+                        <div className="text-xs text-red-600 flex items-center gap-0.5 mt-0.5 kpi-hint">
                           <ArrowDownRight className="h-3 w-3" /> Costs this month
                         </div>
                       </CardContent>
                     </Card>
 
-                    {/* Net Profit */}
-                    <Card className={`border-l-4 ${(currentMonth?.netProfit || 0) >= 0 ? 'border-l-blue-600' : 'border-l-orange-500'} shadow-sm`}>
+                    <Card className={`border-l-4 ${(currentMonth?.netProfit || 0) >= 0 ? 'border-l-blue-600' : 'border-l-orange-500'} shadow-sm kpi-print-row`}>
                       <CardHeader className="pb-1 pt-4 px-4">
-                        <CardTitle className="text-xs uppercase tracking-wider text-slate-500">Net Profit (Month)</CardTitle>
+                        <CardTitle className="text-xs uppercase tracking-wider text-slate-500 kpi-label">Net Profit (Month)</CardTitle>
                       </CardHeader>
                       <CardContent className="px-4 pb-4">
-                        <div className={`text-xl font-bold ${(currentMonth?.netProfit || 0) >= 0 ? 'text-blue-800' : 'text-orange-600'}`}>
+                        <div className={`text-xl font-bold kpi-value ${(currentMonth?.netProfit || 0) >= 0 ? 'text-blue-800' : 'text-orange-600'}`}>
                           {fmt(Math.abs(currentMonth?.netProfit || 0))}
                           <span className="text-sm font-normal ml-1">{(currentMonth?.netProfit || 0) >= 0 ? 'profit' : 'loss'}</span>
                         </div>
-                        <div className={`text-xs flex items-center gap-0.5 mt-0.5 ${profitTrend >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                        <div className={`text-xs flex items-center gap-0.5 mt-0.5 kpi-hint ${profitTrend >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                           {profitTrend >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                           {Math.abs(profitTrend).toFixed(1)}% vs last month
                         </div>
                       </CardContent>
                     </Card>
 
-                    {/* YTD Net Profit */}
-                    <Card className={`border-l-4 ${ytd.netProfit >= 0 ? 'border-l-amber-500' : 'border-l-orange-600'} shadow-sm`}>
+                    <Card className={`border-l-4 ${ytd.netProfit >= 0 ? 'border-l-amber-500' : 'border-l-orange-600'} shadow-sm kpi-print-row`}>
                       <CardHeader className="pb-1 pt-4 px-4">
-                        <CardTitle className="text-xs uppercase tracking-wider text-slate-500">YTD Net Profit</CardTitle>
+                        <CardTitle className="text-xs uppercase tracking-wider text-slate-500 kpi-label">YTD Net Profit</CardTitle>
                       </CardHeader>
                       <CardContent className="px-4 pb-4">
-                        <div className={`text-xl font-bold ${ytd.netProfit >= 0 ? 'text-amber-700' : 'text-orange-600'}`}>
+                        <div className={`text-xl font-bold kpi-value ${ytd.netProfit >= 0 ? 'text-amber-700' : 'text-orange-600'}`}>
                           {fmt(Math.abs(ytd.netProfit))}
                         </div>
-                        <div className="text-xs text-slate-500 mt-0.5">
+                        <div className="text-xs text-slate-500 mt-0.5 kpi-hint">
                           {new Date().getFullYear()} year-to-date
                         </div>
                       </CardContent>
@@ -1390,7 +1388,7 @@ const Accounting = () => {
                               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Narration</th>
                               <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Method</th>
                               <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Amount</th>
-                              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[88px]">Actions</th>
+                              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-[88px]" data-print-hide>Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
@@ -1402,12 +1400,9 @@ const Accounting = () => {
                               <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
                                 <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{formatDate(entry.entry_date)}</td>
                                 <td className="px-4 py-3">
-                                  <Badge variant={entry.entry_type === "revenue" ? "default" : "secondary"}
-                                    className={entry.entry_type === "revenue"
-                                      ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100"
-                                      : "bg-red-100 text-red-800 hover:bg-red-100"}>
+                                  <span className={`text-xs font-semibold capitalize ${entry.entry_type === "revenue" ? "text-emerald-700" : "text-red-700"}`}>
                                     {entry.entry_type}
-                                  </Badge>
+                                  </span>
                                 </td>
                                 <td className="px-4 py-3 text-slate-700">{entry.category}</td>
                                 <td className="px-4 py-3 text-slate-500 max-w-[200px] truncate">{entry.description || "—"}</td>
@@ -1416,7 +1411,7 @@ const Accounting = () => {
                                 <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${entry.entry_type === "revenue" ? "text-emerald-700" : "text-red-700"}`}>
                                   {entry.entry_type === "revenue" ? "+" : "−"} UGX {parseInt(entry.amount).toLocaleString()}
                                 </td>
-                                <td className="px-4 py-3 text-right">
+                                <td className="px-4 py-3 text-right" data-print-hide>
                                   <div className="flex items-center justify-end gap-1">
                                     <Button
                                       variant="ghost"
@@ -1513,18 +1508,16 @@ const Accounting = () => {
                               <TableRow key={i} className="hover:bg-slate-50">
                                 <TableCell className="font-medium p-3">{l.client_name}</TableCell>
                                 <TableCell className="p-3">{l.loan_product}</TableCell>
-                                <TableCell className="text-right tabular-nums p-3">{fmt(l.principal || 0)}</TableCell>
-                                <TableCell className="text-right tabular-nums p-3">{fmt(l.interest || 0)}</TableCell>
-                                <TableCell className="text-right font-bold tabular-nums text-blue-700 p-3">{fmt(l.total_outstanding || 0)}</TableCell>
+                                <TableCell className="text-right tabular-nums p-3">{(l.principal || 0).toLocaleString()}</TableCell>
+                                <TableCell className="text-right tabular-nums p-3">{(l.interest || 0).toLocaleString()}</TableCell>
+                                <TableCell className="text-right font-bold tabular-nums text-blue-700 p-3">{(l.total_outstanding || 0).toLocaleString()}</TableCell>
                                 <TableCell className="text-right tabular-nums p-3">
-                                  <Badge variant={l.days_overdue > 0 ? "destructive" : "outline"} className="h-5 px-2 text-[10px]">
+                                  <span className={`text-xs font-semibold ${l.days_overdue > 0 ? "text-red-700" : "text-slate-600"}`}>
                                     {l.days_overdue > 0 ? `${l.days_overdue} days` : "Current"}
-                                  </Badge>
+                                  </span>
                                 </TableCell>
                                 <TableCell className="p-3">
-                                  <Badge variant="secondary" className="h-5 px-2 text-[10px] capitalize">
-                                    {l.status}
-                                  </Badge>
+                                  <span className="text-xs font-medium capitalize text-slate-700">{l.status}</span>
                                 </TableCell>
                               </TableRow>
                             ))}
@@ -1574,37 +1567,37 @@ const Accounting = () => {
                             <table className="w-full text-sm border-collapse">
                               <thead>
                                 <tr className="border-b text-slate-400 font-medium">
-                                  <th className="text-left py-2 px-4">Particulars</th>
-                                  <th className="text-right py-2 px-4">Amount (UGX)</th>
+                                  <th className="text-left py-3 px-2">Particulars</th>
+                                  <th className="text-right py-3 px-2">Amount (UGX)</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-50">
                                 {incomeStmt.sections?.map((section: any, idx: number) => (
                                   section.isSubtotal ? (
                                     <tr key={idx} className="bg-slate-50/50">
-                                      <td className="py-3 px-4 font-bold text-slate-900 border-t-2 border-slate-200 uppercase tracking-tight">
+                                      <td className="py-4 px-2 font-bold text-slate-900 border-t-2 border-slate-200 uppercase tracking-tight">
                                         {section.title}
                                       </td>
-                                      <td className={`py-3 px-4 text-right font-bold border-t-2 border-slate-200 ${section.total >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                                      <td className={`py-4 px-2 text-right font-bold border-t-2 border-slate-200 tabular-nums ${section.total >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
                                         {section.total.toLocaleString()}
                                       </td>
                                     </tr>
                                   ) : (
                                     <Fragment key={idx}>
-                                      <tr className="bg-blue-50/30">
-                                        <td className="py-2 px-4 font-semibold text-blue-900 uppercase text-xs tracking-wider" colSpan={2}>
+                                      <tr>
+                                        <td className="py-3.5 px-2 font-semibold text-slate-800 uppercase text-xs tracking-wider border-b border-slate-200" colSpan={2}>
                                           {section.title}
                                         </td>
                                       </tr>
                                       {section.categories && Object.entries(section.categories).map(([cat, val]: any) => (
                                         <tr key={cat} className="hover:bg-slate-50">
-                                          <td className="py-1.5 px-8 text-slate-600">{cat}</td>
-                                          <td className="text-right px-4 text-slate-700">{val.toLocaleString()}</td>
+                                          <td className="py-2.5 pl-5 pr-2 text-slate-600">{cat}</td>
+                                          <td className="text-right py-2.5 px-2 text-slate-700 tabular-nums">{val.toLocaleString()}</td>
                                         </tr>
                                       ))}
-                                      <tr className="border-t border-slate-100 font-medium bg-slate-50/30">
-                                        <td className="py-2 px-6 italic text-slate-700">Total {section.title}</td>
-                                        <td className="text-right px-4 font-semibold text-slate-900">{section.total.toLocaleString()}</td>
+                                      <tr className="border-t border-slate-100 font-medium">
+                                        <td className="py-3 pl-4 pr-2 italic text-slate-700">Total {section.title}</td>
+                                        <td className="text-right py-3 px-2 font-semibold text-slate-900 tabular-nums">{section.total.toLocaleString()}</td>
                                       </tr>
                                     </Fragment>
                                   )
@@ -1613,37 +1606,27 @@ const Accounting = () => {
                             </table>
                           </div>
 
-                          {/* Ratios Section */}
-                          <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-inner">
-                            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-widest mb-4 flex items-center gap-2">
-                              <TrendingUp className="h-4 w-4 text-blue-700" />
-                              Financial Ratios (as % of Avg Portfolio)
+                          {/* Ratios — plain lines, no boxed chips */}
+                          <div className="statement-section pt-2 border-t border-slate-200">
+                            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-widest mb-4">
+                              Financial ratios (% of average portfolio)
                             </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                              <div className="space-y-1">
-                                <p className="text-xs text-slate-500 font-medium">Average Portfolio</p>
-                                <p className="text-lg font-bold text-slate-900">UGX {incomeStmt.kpis?.avg_portfolio?.toLocaleString()}</p>
+                            <div className="space-y-4 max-w-xl">
+                              <div className="flex justify-between gap-6 border-b border-slate-100 pb-3">
+                                <span className="text-sm text-slate-600">Average portfolio</span>
+                                <span className="text-sm font-bold text-slate-900 tabular-nums">UGX {incomeStmt.kpis?.avg_portfolio?.toLocaleString()}</span>
                               </div>
-                              <div className="space-y-1">
-                                <p className="text-xs text-slate-500 font-medium">Net Financial Income / Avg Portfolio</p>
-                                <div className="flex items-center gap-2">
-                                  <p className="text-lg font-bold text-emerald-700">{incomeStmt.kpis?.net_financial_income_ratio}%</p>
-                                  <Badge className="bg-emerald-100 text-emerald-800 border-none text-[10px]">KPI</Badge>
-                                </div>
+                              <div className="flex justify-between gap-6 border-b border-slate-100 pb-3">
+                                <span className="text-sm text-slate-600">Net financial income / avg portfolio</span>
+                                <span className="text-sm font-bold text-emerald-700 tabular-nums">{incomeStmt.kpis?.net_financial_income_ratio}%</span>
                               </div>
-                              <div className="space-y-1">
-                                <p className="text-xs text-slate-500 font-medium">Net Operational Income / Avg Portfolio</p>
-                                <div className="flex items-center gap-2">
-                                  <p className="text-lg font-bold text-blue-700">{incomeStmt.kpis?.net_operational_income_ratio}%</p>
-                                  <Badge className="bg-blue-100 text-blue-800 border-none text-[10px]">OSS</Badge>
-                                </div>
+                              <div className="flex justify-between gap-6 border-b border-slate-100 pb-3">
+                                <span className="text-sm text-slate-600">Net operational income / avg portfolio</span>
+                                <span className="text-sm font-bold text-blue-700 tabular-nums">{incomeStmt.kpis?.net_operational_income_ratio}%</span>
                               </div>
-                              <div className="space-y-1">
-                                <p className="text-xs text-slate-500 font-medium">Net Income / Avg Portfolio</p>
-                                <div className="flex items-center gap-2">
-                                  <p className="text-lg font-bold text-amber-700">{incomeStmt.kpis?.net_income_ratio}%</p>
-                                  <Badge className="bg-amber-100 text-amber-800 border-none text-[10px]">ROA</Badge>
-                                </div>
+                              <div className="flex justify-between gap-6 pb-1">
+                                <span className="text-sm text-slate-600">Net income / avg portfolio</span>
+                                <span className="text-sm font-bold text-amber-700 tabular-nums">{incomeStmt.kpis?.net_income_ratio}%</span>
                               </div>
                             </div>
                           </div>
@@ -1677,44 +1660,45 @@ const Accounting = () => {
                         </div>
                       </CardHeader>
                       <CardContent>
-                        <div className="grid md:grid-cols-3 gap-6">
-                          <div>
-                            <h3 className="font-semibold text-slate-700 mb-2">Assets</h3>
+                        <p className="ledger-currency-note text-xs text-slate-500 font-semibold mb-4">Amounts in UGX</p>
+                        <div className="statement-stack space-y-10 max-w-2xl">
+                          <section className="statement-section">
+                            <h3 className="font-semibold text-slate-800 mb-3 text-sm uppercase tracking-wide">Assets</h3>
                             <table className="w-full text-sm">
                               <tbody>
-                                <tr><td className="py-1 pl-2">Cash at Bank</td><td className="text-right">{balanceSheet.assets?.cash_at_bank?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Mobile Money Float</td><td className="text-right">{balanceSheet.assets?.mobile_money_float?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Loans Receivable</td><td className="text-right">{balanceSheet.assets?.loans_receivable?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Accrued Interest</td><td className="text-right">{balanceSheet.assets?.accrued_interest?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Fixed Assets</td><td className="text-right">{balanceSheet.assets?.fixed_assets?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Prepaid Expenses</td><td className="text-right">{balanceSheet.assets?.prepaid_expenses?.toLocaleString() ?? 0}</td></tr>
-                                <tr className="border-t font-semibold"><td className="py-2">Total Assets</td><td className="text-right">{balanceSheet.assets?.total?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Cash at Bank</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.assets?.cash_at_bank?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Mobile Money Float</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.assets?.mobile_money_float?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Loans Receivable</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.assets?.loans_receivable?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Accrued Interest</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.assets?.accrued_interest?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Fixed Assets</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.assets?.fixed_assets?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Prepaid Expenses</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.assets?.prepaid_expenses?.toLocaleString() ?? 0}</td></tr>
+                                <tr className="border-t-2 border-slate-300 font-semibold"><td className="py-3">Total Assets</td><td className="text-right py-3 tabular-nums">{balanceSheet.assets?.total?.toLocaleString() ?? 0}</td></tr>
                               </tbody>
                             </table>
-                          </div>
-                          <div>
-                            <h3 className="font-semibold text-slate-700 mb-2">Liabilities</h3>
+                          </section>
+                          <section className="statement-section">
+                            <h3 className="font-semibold text-slate-800 mb-3 text-sm uppercase tracking-wide">Liabilities</h3>
                             <table className="w-full text-sm">
                               <tbody>
-                                <tr><td className="py-1 pl-2">Client Deposits</td><td className="text-right">{balanceSheet.liabilities?.client_deposits?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Borrowed Funds</td><td className="text-right">{balanceSheet.liabilities?.borrowed_funds?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Payables</td><td className="text-right">{balanceSheet.liabilities?.payables?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Accrued Expenses</td><td className="text-right">{balanceSheet.liabilities?.accrued_expenses?.toLocaleString() ?? 0}</td></tr>
-                                <tr className="border-t font-semibold"><td className="py-2">Total Liabilities</td><td className="text-right">{balanceSheet.liabilities?.total?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Client Deposits</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.liabilities?.client_deposits?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Borrowed Funds</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.liabilities?.borrowed_funds?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Payables</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.liabilities?.payables?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Accrued Expenses</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.liabilities?.accrued_expenses?.toLocaleString() ?? 0}</td></tr>
+                                <tr className="border-t-2 border-slate-300 font-semibold"><td className="py-3">Total Liabilities</td><td className="text-right py-3 tabular-nums">{balanceSheet.liabilities?.total?.toLocaleString() ?? 0}</td></tr>
                               </tbody>
                             </table>
-                          </div>
-                          <div>
-                            <h3 className="font-semibold text-slate-700 mb-2">Equity</h3>
+                          </section>
+                          <section className="statement-section">
+                            <h3 className="font-semibold text-slate-800 mb-3 text-sm uppercase tracking-wide">Equity</h3>
                             <table className="w-full text-sm">
                               <tbody>
-                                <tr><td className="py-1 pl-2">Share Capital</td><td className="text-right">{balanceSheet.equity?.share_capital?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Retained Earnings</td><td className="text-right">{balanceSheet.equity?.retained_earnings?.toLocaleString() ?? 0}</td></tr>
-                                <tr><td className="py-1 pl-2">Current Year Profit</td><td className="text-right">{balanceSheet.equity?.current_year_profit?.toLocaleString() ?? 0}</td></tr>
-                                <tr className="border-t font-semibold"><td className="py-2">Total Equity</td><td className="text-right">{balanceSheet.equity?.total?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Share Capital</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.equity?.share_capital?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Retained Earnings</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.equity?.retained_earnings?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Current Year Profit</td><td className="text-right py-2.5 tabular-nums">{balanceSheet.equity?.current_year_profit?.toLocaleString() ?? 0}</td></tr>
+                                <tr className="border-t-2 border-slate-300 font-semibold"><td className="py-3">Total Equity</td><td className="text-right py-3 tabular-nums">{balanceSheet.equity?.total?.toLocaleString() ?? 0}</td></tr>
                               </tbody>
                             </table>
-                          </div>
+                          </section>
                         </div>
                       </CardContent>
                     </Card>
@@ -1745,42 +1729,48 @@ const Accounting = () => {
                         </div>
                       </CardHeader>
                       <CardContent>
-                        <div className="space-y-4">
-                          <div>
-                            <h3 className="font-semibold text-blue-700 mb-2">Operating Activities</h3>
+                        <p className="ledger-currency-note text-xs text-slate-500 font-semibold mb-4">Amounts in UGX</p>
+                        <div className="statement-stack space-y-10">
+                          <section className="statement-section">
+                            <h3 className="font-semibold text-slate-800 mb-3 text-sm uppercase tracking-wide">Operating Activities</h3>
                             <table className="w-full text-sm">
                               <tbody>
-                                <tr><td className="py-1 pl-4">Cash from loan repayments</td><td className="text-right text-emerald-600">{(cashFlow.operating?.cash_from_loan_repayments ?? 0).toLocaleString()}</td></tr>
-                                <tr><td className="py-1 pl-4">Interest collected</td><td className="text-right text-emerald-600">{(cashFlow.operating?.interest_collected ?? 0).toLocaleString()}</td></tr>
-                                <tr><td className="py-1 pl-4">Other operating inflows</td><td className="text-right text-emerald-600">{(cashFlow.operating?.other_operating_inflows ?? 0).toLocaleString()}</td></tr>
-                                <tr><td className="py-1 pl-4">Operating expenses paid</td><td className="text-right text-red-600">({(cashFlow.operating?.operating_expenses_paid ?? 0).toLocaleString()})</td></tr>
-                                <tr className="border-t font-semibold"><td className="py-2">Net Operating</td><td className="text-right">{cashFlow.operating?.net?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Cash from loan repayments</td><td className="text-right py-2.5 text-emerald-700 tabular-nums">{(cashFlow.operating?.cash_from_loan_repayments ?? 0).toLocaleString()}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Interest collected</td><td className="text-right py-2.5 text-emerald-700 tabular-nums">{(cashFlow.operating?.interest_collected ?? 0).toLocaleString()}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Other operating inflows</td><td className="text-right py-2.5 text-emerald-700 tabular-nums">{(cashFlow.operating?.other_operating_inflows ?? 0).toLocaleString()}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Operating expenses paid</td><td className="text-right py-2.5 text-red-700 tabular-nums">({(cashFlow.operating?.operating_expenses_paid ?? 0).toLocaleString()})</td></tr>
+                                <tr className="border-t-2 border-slate-300 font-semibold"><td className="py-3">Net Operating</td><td className="text-right py-3 tabular-nums">{cashFlow.operating?.net?.toLocaleString() ?? 0}</td></tr>
                               </tbody>
                             </table>
-                          </div>
-                          <div>
-                            <h3 className="font-semibold text-amber-700 mb-2">Investing Activities</h3>
+                          </section>
+                          <section className="statement-section">
+                            <h3 className="font-semibold text-slate-800 mb-3 text-sm uppercase tracking-wide">Investing Activities</h3>
                             <table className="w-full text-sm">
                               <tbody>
-                                <tr><td className="py-1 pl-4">Inflows</td><td className="text-right">{(cashFlow.investing?.inflows ?? 0).toLocaleString()}</td></tr>
-                                <tr><td className="py-1 pl-4">Outflows (asset purchases)</td><td className="text-right">({(cashFlow.investing?.outflows ?? 0).toLocaleString()})</td></tr>
-                                <tr className="border-t font-semibold"><td className="py-2">Net Investing</td><td className="text-right">{cashFlow.investing?.net?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Inflows</td><td className="text-right py-2.5 tabular-nums">{(cashFlow.investing?.inflows ?? 0).toLocaleString()}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Outflows (asset purchases)</td><td className="text-right py-2.5 tabular-nums">({(cashFlow.investing?.outflows ?? 0).toLocaleString()})</td></tr>
+                                <tr className="border-t-2 border-slate-300 font-semibold"><td className="py-3">Net Investing</td><td className="text-right py-3 tabular-nums">{cashFlow.investing?.net?.toLocaleString() ?? 0}</td></tr>
                               </tbody>
                             </table>
-                          </div>
-                          <div>
-                            <h3 className="font-semibold text-orange-700 mb-2">Financing Activities</h3>
+                          </section>
+                          <section className="statement-section">
+                            <h3 className="font-semibold text-slate-800 mb-3 text-sm uppercase tracking-wide">Financing Activities</h3>
                             <table className="w-full text-sm">
                               <tbody>
-                                <tr><td className="py-1 pl-4">Inflows (capital, loans)</td><td className="text-right">{(cashFlow.financing?.inflows ?? 0).toLocaleString()}</td></tr>
-                                <tr><td className="py-1 pl-4">Outflows</td><td className="text-right">({(cashFlow.financing?.outflows ?? 0).toLocaleString()})</td></tr>
-                                <tr className="border-t font-semibold"><td className="py-2">Net Financing</td><td className="text-right">{cashFlow.financing?.net?.toLocaleString() ?? 0}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Inflows (capital, loans)</td><td className="text-right py-2.5 tabular-nums">{(cashFlow.financing?.inflows ?? 0).toLocaleString()}</td></tr>
+                                <tr><td className="py-2.5 pl-1">Outflows</td><td className="text-right py-2.5 tabular-nums">({(cashFlow.financing?.outflows ?? 0).toLocaleString()})</td></tr>
+                                <tr className="border-t-2 border-slate-300 font-semibold"><td className="py-3">Net Financing</td><td className="text-right py-3 tabular-nums">{cashFlow.financing?.net?.toLocaleString() ?? 0}</td></tr>
                               </tbody>
                             </table>
-                          </div>
-                          <div className={`p-3 rounded-lg font-bold ${(cashFlow.net_cash_flow ?? 0) >= 0 ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-800"}`}>
-                            Net Cash Flow: UGX {(cashFlow.net_cash_flow ?? 0).toLocaleString()}
-                          </div>
+                          </section>
+                          <section className="statement-section border-t-2 border-slate-800 pt-4">
+                            <div className="flex justify-between items-baseline gap-4 font-bold text-base">
+                              <span>Net Cash Flow</span>
+                              <span className={`tabular-nums ${(cashFlow.net_cash_flow ?? 0) >= 0 ? "text-emerald-800" : "text-red-800"}`}>
+                                {(cashFlow.net_cash_flow ?? 0).toLocaleString()}
+                              </span>
+                            </div>
+                          </section>
                         </div>
                       </CardContent>
                     </Card>
@@ -2337,12 +2327,12 @@ const Accounting = () => {
                         </div>
                       </CardHeader>
                       <CardContent className="p-0 overflow-x-auto">
-                        <table className="w-full text-[10px] border-collapse min-w-[1000px]">
+                        <table className="w-full text-xs border-collapse min-w-[1000px]">
                           <thead>
                             <tr className="bg-slate-100 border-b text-slate-600 font-bold uppercase">
-                              <th className="p-2 border text-left min-w-[200px]">Category</th>
+                              <th className="py-3 px-3 border-b text-left min-w-[200px]">Category</th>
                               {(comprehensiveIncomeData.columns || []).map((col: any) => (
-                                <th key={col.key} className="p-2 border text-right">
+                                <th key={col.key} className="py-3 px-2 border-b text-right whitespace-nowrap">
                                   {col.label} {comprehensiveIncomeData.columns.length > 12 ? `'${String(col.year).slice(2)}` : ''}
                                 </th>
                               ))}
@@ -2352,10 +2342,10 @@ const Accounting = () => {
                             {(comprehensiveIncomeData.data || []).map((item: any) => {
                               const isRevenue = item.type === 'revenue' || item.category.includes("Income") || item.category.includes("Revenue");
                               return (
-                                <tr key={item.category} className="hover:bg-slate-50 border-b">
-                                  <td className={`p-2 border font-medium ${isRevenue ? 'text-emerald-800' : 'text-slate-700'}`}>{item.category}</td>
+                                <tr key={item.category} className="hover:bg-slate-50 border-b border-slate-100">
+                                  <td className={`py-2.5 px-3 font-medium ${isRevenue ? 'text-emerald-800' : 'text-slate-700'}`}>{item.category}</td>
                                   {(comprehensiveIncomeData.columns || []).map((col: any) => (
-                                    <td key={col.key} className="p-2 border text-right">
+                                    <td key={col.key} className="py-2.5 px-2 text-right tabular-nums whitespace-nowrap">
                                       {item.months[col.key]?.toLocaleString() || "—"}
                                     </td>
                                   ))}
@@ -2364,8 +2354,8 @@ const Accounting = () => {
                             })}
                           </tbody>
                           <tfoot className="bg-slate-100 font-bold">
-                            <tr className="border-t-2">
-                              <td className="p-2 border uppercase">Net Comprehensive Income</td>
+                            <tr className="border-t-2 border-slate-300">
+                              <td className="py-3 px-3 uppercase">Net Comprehensive Income</td>
                               {(comprehensiveIncomeData.columns || []).map((col: any) => {
                                 let total = 0;
                                 (comprehensiveIncomeData.data || []).forEach((item: any) => {
@@ -2374,7 +2364,7 @@ const Accounting = () => {
                                   else total -= val;
                                 });
                                 return (
-                                  <td key={col.key} className="p-2 border text-right text-indigo-800">
+                                  <td key={col.key} className="py-3 px-2 text-right text-indigo-800 tabular-nums whitespace-nowrap">
                                     {total.toLocaleString()}
                                   </td>
                                 );
@@ -2416,90 +2406,87 @@ const Accounting = () => {
                         </div>
                       </CardHeader>
                       <CardContent className="p-0 overflow-x-auto">
-                        <table className="w-full text-[10px] border-collapse min-w-[1000px]">
+                        <table className="w-full text-xs border-collapse min-w-[1000px]">
                           <thead>
                             <tr className="bg-slate-100 border-b text-slate-600 font-bold uppercase">
-                              <th className="p-2 border text-left min-w-[200px]">Item</th>
+                              <th className="py-3 px-3 border-b text-left min-w-[200px]">Item</th>
                               {(financialPositionData.columns || []).map((col: any) => (
-                                <th key={col.key} className="p-2 border text-right">
+                                <th key={col.key} className="py-3 px-2 border-b text-right whitespace-nowrap">
                                   {col.label} {financialPositionData.columns.length > 12 ? `'${String(col.year).slice(2)}` : ''}
                                 </th>
                               ))}
                             </tr>
                           </thead>
                           <tbody>
-                            {/* Section Heading: Current Assets */}
-                            <tr className="bg-slate-50/50">
-                              <td colSpan={(financialPositionData.columns?.length || 0) + 1} className="p-2 border font-bold text-slate-800 bg-slate-100 italic">Current Assets</td>
+                            <tr className="statement-section">
+                              <td colSpan={(financialPositionData.columns?.length || 0) + 1} className="py-3 px-3 font-bold text-slate-800 bg-slate-50 uppercase tracking-wide text-[11px]">Current Assets</td>
                             </tr>
                             {Object.keys(financialPositionData.data.current_assets).map(cat => (
-                              <tr key={cat} className="hover:bg-slate-50">
-                                <td className="p-2 border pl-4 font-medium text-slate-700">{cat}</td>
+                              <tr key={cat} className="hover:bg-slate-50 border-b border-slate-100">
+                                <td className="py-2.5 pl-5 pr-3 font-medium text-slate-700">{cat}</td>
                                 {(financialPositionData.columns || []).map((col: any) => (
-                                  <td key={col.key} className="p-2 border text-right">
+                                  <td key={col.key} className="py-2.5 px-2 text-right tabular-nums whitespace-nowrap">
                                     {financialPositionData.data.current_assets[cat][col.key]?.toLocaleString() || "0"}
                                   </td>
                                 ))}
                               </tr>
                             ))}
-                            <tr className="bg-slate-100 font-bold">
-                              <td className="p-2 border">TOTAL CURRENT ASSETS</td>
+                            <tr className="bg-slate-50 font-bold border-t border-slate-200">
+                              <td className="py-3 px-3">Total current assets</td>
                               {(financialPositionData.columns || []).map((col: any) => {
                                 let total = 0;
                                 Object.values(financialPositionData.data.current_assets).forEach((months: any) => {
                                   total += months[col.key] || 0;
                                 });
-                                return <td key={col.key} className="p-2 border text-right">{total.toLocaleString()}</td>;
+                                return <td key={col.key} className="py-3 px-2 text-right tabular-nums whitespace-nowrap">{total.toLocaleString()}</td>;
                               })}
                             </tr>
 
-                            {/* Non-Current Assets */}
-                            <tr className="bg-slate-50/50">
-                              <td colSpan={(financialPositionData.columns?.length || 0) + 1} className="p-2 border font-bold text-slate-800 bg-slate-100 italic">Non-Current Assets</td>
+                            <tr className="statement-section">
+                              <td colSpan={(financialPositionData.columns?.length || 0) + 1} className="py-3 px-3 font-bold text-slate-800 bg-slate-50 uppercase tracking-wide text-[11px]">Non-Current Assets</td>
                             </tr>
                             {Object.keys(financialPositionData.data.non_current_assets).map(cat => (
-                              <tr key={cat} className="hover:bg-slate-50">
-                                <td className="p-2 border pl-4 font-medium text-slate-700">{cat}</td>
+                              <tr key={cat} className="hover:bg-slate-50 border-b border-slate-100">
+                                <td className="py-2.5 pl-5 pr-3 font-medium text-slate-700">{cat}</td>
                                 {(financialPositionData.columns || []).map((col: any) => (
-                                  <td key={col.key} className="p-2 border text-right">
+                                  <td key={col.key} className="py-2.5 px-2 text-right tabular-nums whitespace-nowrap">
                                     {financialPositionData.data.non_current_assets[cat][col.key]?.toLocaleString() || "0"}
                                   </td>
                                 ))}
                               </tr>
                             ))}
-                            <tr className="bg-slate-200 font-extrabold text-blue-900 border-t-2">
-                              <td className="p-2 border">TOTAL ASSETS</td>
+                            <tr className="bg-slate-100 font-extrabold text-blue-900 border-t-2 border-slate-300">
+                              <td className="py-3.5 px-3">Total assets</td>
                               {(financialPositionData.columns || []).map((col: any) => {
                                 let curr = 0;
                                 let nonCurr = 0;
                                 Object.values(financialPositionData.data.current_assets).forEach((months: any) => curr += months[col.key] || 0);
                                 Object.values(financialPositionData.data.non_current_assets).forEach((months: any) => nonCurr += months[col.key] || 0);
-                                return <td key={col.key} className="p-2 border text-right">{(curr + nonCurr).toLocaleString()}</td>;
+                                return <td key={col.key} className="py-3.5 px-2 text-right tabular-nums whitespace-nowrap">{(curr + nonCurr).toLocaleString()}</td>;
                               })}
                             </tr>
 
-                            {/* Liabilities & Equity */}
-                            <tr className="bg-slate-100">
-                              <td colSpan={(financialPositionData.columns?.length || 0) + 1} className="p-2 border font-bold text-slate-800 italic uppercase">Equities & Liabilities</td>
+                            <tr className="statement-section">
+                              <td colSpan={(financialPositionData.columns?.length || 0) + 1} className="py-3 px-3 font-bold text-slate-800 bg-slate-50 uppercase tracking-wide text-[11px]">Equities &amp; Liabilities</td>
                             </tr>
                             {Object.keys(financialPositionData.data.current_liabilities).map(cat => (
-                              <tr key={cat} className="hover:bg-slate-50">
-                                <td className="p-2 border pl-4 font-medium text-slate-700">{cat}</td>
+                              <tr key={cat} className="hover:bg-slate-50 border-b border-slate-100">
+                                <td className="py-2.5 pl-5 pr-3 font-medium text-slate-700">{cat}</td>
                                 {(financialPositionData.columns || []).map((col: any) => (
-                                  <td key={col.key} className="p-2 border text-right font-medium">
+                                  <td key={col.key} className="py-2.5 px-2 text-right tabular-nums whitespace-nowrap font-medium">
                                     {financialPositionData.data.current_liabilities[cat][col.key]?.toLocaleString() || "0"}
                                   </td>
                                 ))}
                               </tr>
                             ))}
-                            <tr className="bg-slate-200 font-extrabold text-indigo-900 border-t-2 border-slate-400">
-                              <td className="p-2 border">TOTAL EQUITIES & LIABILITIES</td>
+                            <tr className="bg-slate-100 font-extrabold text-indigo-900 border-t-2 border-slate-400">
+                              <td className="py-3.5 px-3">Total equities &amp; liabilities</td>
                               {(financialPositionData.columns || []).map((col: any) => {
                                 let total = 0;
                                 Object.values(financialPositionData.data.current_liabilities).forEach((months: any) => {
                                   total += months[col.key] || 0;
                                 });
-                                return <td key={col.key} className="p-2 border text-right">{total.toLocaleString()}</td>;
+                                return <td key={col.key} className="py-3.5 px-2 text-right tabular-nums whitespace-nowrap">{total.toLocaleString()}</td>;
                               })}
                             </tr>
                           </tbody>
@@ -2531,36 +2518,41 @@ const Accounting = () => {
                         </div>
                       </CardHeader>
                       <CardContent className="pt-6">
-                        <div className="space-y-6">
-                          <section>
-                            <h3 className="font-bold text-slate-900 border-b pb-1 mb-2">CASH FLOW FROM OPERATING ACTIVITIES</h3>
-                            <div className="space-y-1 text-sm">
-                              <div className="flex justify-between"><span>Profit before tax</span><span className="font-semibold">{cashflowStmtData.operating_activities?.profit_before_tax?.toLocaleString()}</span></div>
-                              <div className="flex justify-between"><span>Adjustment for depreciation</span><span className="font-semibold">{cashflowStmtData.operating_activities?.depreciation?.toLocaleString()}</span></div>
-                              <div className="pl-4 pt-2 font-medium text-slate-500">Working capital changes:</div>
+                        <p className="ledger-currency-note text-xs text-slate-500 font-semibold mb-6">Amounts in UGX</p>
+                        <div className="statement-stack space-y-10">
+                          <section className="statement-section">
+                            <h3 className="font-bold text-slate-900 border-b border-slate-300 pb-2 mb-4 text-sm uppercase tracking-wide">Cash flow from operating activities</h3>
+                            <div className="space-y-3 text-sm">
+                              <div className="flex justify-between gap-6 py-1"><span>Profit before tax</span><span className="font-semibold tabular-nums">{cashflowStmtData.operating_activities?.profit_before_tax?.toLocaleString()}</span></div>
+                              <div className="flex justify-between gap-6 py-1"><span>Adjustment for depreciation</span><span className="font-semibold tabular-nums">{cashflowStmtData.operating_activities?.depreciation?.toLocaleString()}</span></div>
+                              <div className="pt-3 font-medium text-slate-600 text-xs uppercase tracking-wide">Working capital changes</div>
                               {cashflowStmtData.operating_activities?.working_capital_changes?.map((item: any, i: number) => (
-                                <div key={i} className="flex justify-between pl-6"><span>{item.label}</span><span>{item.amount?.toLocaleString()}</span></div>
+                                <div key={i} className="flex justify-between gap-6 pl-4 py-1"><span>{item.label}</span><span className="tabular-nums">{item.amount?.toLocaleString()}</span></div>
                               ))}
                             </div>
                           </section>
-                          <section>
-                            <h3 className="font-bold text-slate-900 border-b pb-1 mb-2">CASH FLOW FROM INVESTING ACTIVITIES</h3>
-                            {cashflowStmtData.investing_activities?.map((item: any, i: number) => (
-                              <div key={i} className="flex justify-between text-sm"><span>{item.label}</span><span>{item.amount?.toLocaleString()}</span></div>
-                            ))}
+                          <section className="statement-section">
+                            <h3 className="font-bold text-slate-900 border-b border-slate-300 pb-2 mb-4 text-sm uppercase tracking-wide">Cash flow from investing activities</h3>
+                            <div className="space-y-3 text-sm">
+                              {cashflowStmtData.investing_activities?.map((item: any, i: number) => (
+                                <div key={i} className="flex justify-between gap-6 py-1"><span>{item.label}</span><span className="tabular-nums">{item.amount?.toLocaleString()}</span></div>
+                              ))}
+                            </div>
                           </section>
-                          <section>
-                            <h3 className="font-bold text-slate-900 border-b pb-1 mb-2">CASH FLOW FROM FINANCING ACTIVITIES</h3>
-                            {(cashflowStmtData.financing_activities || []).map((item: any, i: number) => (
-                              <div key={i} className="flex justify-between text-sm"><span>{item.label}</span><span>{item.amount?.toLocaleString()}</span></div>
-                            ))}
-                            {(cashflowStmtData.financing_activities || []).length === 0 && (
-                              <div className="text-sm text-slate-400 italic">No financing activity in this period</div>
-                            )}
+                          <section className="statement-section">
+                            <h3 className="font-bold text-slate-900 border-b border-slate-300 pb-2 mb-4 text-sm uppercase tracking-wide">Cash flow from financing activities</h3>
+                            <div className="space-y-3 text-sm">
+                              {(cashflowStmtData.financing_activities || []).map((item: any, i: number) => (
+                                <div key={i} className="flex justify-between gap-6 py-1"><span>{item.label}</span><span className="tabular-nums">{item.amount?.toLocaleString()}</span></div>
+                              ))}
+                              {(cashflowStmtData.financing_activities || []).length === 0 && (
+                                <div className="text-sm text-slate-400 italic">No financing activity in this period</div>
+                              )}
+                            </div>
                           </section>
-                          <section className="bg-slate-50 p-4 rounded-lg">
-                            <div className="flex justify-between font-bold"><span>Opening Cash Equivalents</span><span>{cashflowStmtData.cash_equivalents?.opening?.toLocaleString()}</span></div>
-                            <div className="flex justify-between font-bold text-blue-800 mt-2 pt-2 border-t"><span>Closing Cash Equivalents</span><span>{cashflowStmtData.cash_equivalents?.closing?.toLocaleString()}</span></div>
+                          <section className="statement-section border-t-2 border-slate-800 pt-4 space-y-3">
+                            <div className="flex justify-between gap-6 font-semibold text-sm"><span>Opening cash equivalents</span><span className="tabular-nums">{cashflowStmtData.cash_equivalents?.opening?.toLocaleString()}</span></div>
+                            <div className="flex justify-between gap-6 font-bold text-base text-blue-900 pt-2 border-t border-slate-200"><span>Closing cash equivalents</span><span className="tabular-nums">{cashflowStmtData.cash_equivalents?.closing?.toLocaleString()}</span></div>
                           </section>
                         </div>
                       </CardContent>
@@ -2575,63 +2567,63 @@ const Accounting = () => {
                   {reportLoading === "equity_statement" ? (
                     <div className="flex items-center justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-800" /></div>
                   ) : equityStatementData ? (
-                    <Card ref={equityPrintRef} className="shadow-sm max-w-4xl mx-auto border border-slate-200 overflow-hidden">
-                      <CardHeader className="bg-slate-50 border-b flex flex-row items-start justify-between gap-4 py-4 px-4 sm:px-6">
-                        <div className="text-center w-full min-w-0">
-                          <h2 className="text-lg sm:text-xl font-bold uppercase tracking-tight text-[#1F4E79]">M-T Growth Gateway</h2>
+                    <Card ref={equityPrintRef} className="shadow-sm border border-slate-200 overflow-hidden">
+                      <CardHeader className="bg-slate-50 border-b flex flex-row items-start justify-between gap-4 py-5 px-4 sm:px-6">
+                        <div className="w-full min-w-0">
+                          <h2 className="text-lg sm:text-xl font-bold uppercase tracking-tight text-[#1F4E79]" data-print-hide>M-T Growth Gateway</h2>
                           <h3 className="text-base font-semibold text-slate-800 mt-1">Statement of Changes in Equity</h3>
                           <p className="text-sm font-medium text-slate-600 mt-2">
                             <span className="underline decoration-double underline-offset-2">{equityStatementData.periodLabel || "Report period"}</span>
                           </p>
-                          <p className="text-xs text-slate-500 mt-1 normal-case">Figures from accounting entries (revenue − expense for accumulated profits; categories containing &quot;share capital&quot;).</p>
+                          <p className="text-xs text-slate-500 mt-2 normal-case">Figures from accounting entries (revenue − expense for accumulated profits; categories containing &quot;share capital&quot;).</p>
                         </div>
                         <Button variant="outline" size="sm" className="shrink-0" data-print-hide onClick={() => printReport(equityPrintRef, "Statement of Changes in Equity")}>
                           <Printer className="h-4 w-4 mr-1" /> Print
                         </Button>
                       </CardHeader>
                       <CardContent className="p-0 bg-white">
-                        <div className="max-h-[min(72vh,720px)] overflow-y-auto overflow-x-auto">
-                          <table className="w-full min-w-[520px] text-sm">
-                            <thead className="sticky top-0 z-10 bg-white shadow-sm border-b-2 border-slate-200">
+                        <div className="overflow-x-auto">
+                          <table className="w-full min-w-[560px] text-sm">
+                            <thead className="bg-white border-b-2 border-slate-300">
                               <tr className="text-[11px] sm:text-xs uppercase tracking-wide text-slate-700">
-                                <th className="text-left py-3 pl-4 pr-2 font-bold">Description</th>
-                                <th className="text-right py-3 px-3 font-bold whitespace-nowrap">Share capital<br /><span className="font-normal text-slate-500 normal-case">UGX</span></th>
-                                <th className="text-right py-3 pr-4 pl-3 font-bold whitespace-nowrap">Accumulated profits<br /><span className="font-normal text-slate-500 normal-case">UGX</span></th>
+                                <th className="text-left py-4 pl-5 pr-2 font-bold">Description</th>
+                                <th className="text-right py-4 px-4 font-bold whitespace-nowrap">Share capital<br /><span className="font-normal text-slate-500 normal-case">UGX</span></th>
+                                <th className="text-right py-4 pr-5 pl-3 font-bold whitespace-nowrap">Accumulated profits<br /><span className="font-normal text-slate-500 normal-case">UGX</span></th>
                               </tr>
                             </thead>
                             <tbody className="text-slate-900">
                               {(equityStatementData.data || []).map((m: any, idx: number) => (
                                 <Fragment key={`${m.month}-${idx}`}>
-                                  <tr className="bg-slate-100/90">
-                                    <td colSpan={3} className="py-2 pl-4 pr-4 font-bold text-[#1F4E79] text-xs uppercase tracking-wider border-t border-slate-200">
+                                  <tr className="statement-month bg-slate-100/90">
+                                    <td colSpan={3} className="py-3.5 pl-5 pr-5 font-bold text-[#1F4E79] text-xs uppercase tracking-wider border-t border-slate-200">
                                       {m.month}
                                     </td>
                                   </tr>
-                                  <tr className="border-b border-slate-100 hover:bg-slate-50/80">
-                                    <td className="py-2.5 pl-4 pr-2 text-xs sm:text-sm">
+                                  <tr className="border-b border-slate-100">
+                                    <td className="py-3.5 pl-5 pr-2 text-sm">
                                       Opening balance <span className="text-slate-500 font-normal">(as at {m.openingLabel || "—"})</span>
                                     </td>
-                                    <td className="text-right py-2.5 px-3 tabular-nums font-medium">{(m.opening?.shareCap ?? 0).toLocaleString()}</td>
-                                    <td className="text-right py-2.5 pr-4 pl-3 tabular-nums font-medium">{(m.opening?.profit ?? 0).toLocaleString()}</td>
+                                    <td className="text-right py-3.5 px-4 tabular-nums font-medium">{(m.opening?.shareCap ?? 0).toLocaleString()}</td>
+                                    <td className="text-right py-3.5 pr-5 pl-3 tabular-nums font-medium">{(m.opening?.profit ?? 0).toLocaleString()}</td>
                                   </tr>
                                   {(m.movements?.capitalInjected ?? 0) !== 0 && (
-                                    <tr className="border-b border-slate-100 hover:bg-slate-50/80">
-                                      <td className="py-2.5 pl-6 pr-2 text-xs sm:text-sm italic text-slate-700">Share capital movements</td>
-                                      <td className="text-right py-2.5 px-3 tabular-nums border-b border-slate-300">{(m.movements?.capitalInjected ?? 0).toLocaleString()}</td>
-                                      <td className="text-right py-2.5 pr-4 pl-3 tabular-nums text-slate-400">—</td>
+                                    <tr className="border-b border-slate-100">
+                                      <td className="py-3.5 pl-8 pr-2 text-sm italic text-slate-700">Share capital movements</td>
+                                      <td className="text-right py-3.5 px-4 tabular-nums border-b border-slate-300">{(m.movements?.capitalInjected ?? 0).toLocaleString()}</td>
+                                      <td className="text-right py-3.5 pr-5 pl-3 tabular-nums text-slate-400">—</td>
                                     </tr>
                                   )}
-                                  <tr className="border-b border-slate-100 hover:bg-slate-50/80">
-                                    <td className="py-2.5 pl-6 pr-2 text-xs sm:text-sm italic text-slate-700">Net profit before tax ({m.dateLabel || m.month})</td>
-                                    <td className="text-right py-2.5 px-3 tabular-nums text-slate-400">—</td>
-                                    <td className="text-right py-2.5 pr-4 pl-3 tabular-nums border-b border-slate-300">{(m.movements?.periodProfit ?? 0).toLocaleString()}</td>
+                                  <tr className="border-b border-slate-100">
+                                    <td className="py-3.5 pl-8 pr-2 text-sm italic text-slate-700">Net profit before tax ({m.dateLabel || m.month})</td>
+                                    <td className="text-right py-3.5 px-4 tabular-nums text-slate-400">—</td>
+                                    <td className="text-right py-3.5 pr-5 pl-3 tabular-nums border-b border-slate-300">{(m.movements?.periodProfit ?? 0).toLocaleString()}</td>
                                   </tr>
                                   <tr className="bg-slate-50 font-semibold border-b-2 border-slate-300">
-                                    <td className="py-3 pl-4 pr-2 text-xs sm:text-sm">
+                                    <td className="py-4 pl-5 pr-2 text-sm">
                                       Closing balance <span className="text-slate-500 font-normal">(as at {m.closingLabel || "—"})</span>
                                     </td>
-                                    <td className="text-right py-3 px-3 tabular-nums text-[#1F4E79]">{(m.closing?.shareCap ?? 0).toLocaleString()}</td>
-                                    <td className="text-right py-3 pr-4 pl-3 tabular-nums text-[#1F4E79]">{(m.closing?.profit ?? 0).toLocaleString()}</td>
+                                    <td className="text-right py-4 px-4 tabular-nums text-[#1F4E79]">{(m.closing?.shareCap ?? 0).toLocaleString()}</td>
+                                    <td className="text-right py-4 pr-5 pl-3 tabular-nums text-[#1F4E79]">{(m.closing?.profit ?? 0).toLocaleString()}</td>
                                   </tr>
                                 </Fragment>
                               ))}
