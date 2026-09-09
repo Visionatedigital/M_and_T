@@ -253,7 +253,7 @@ const Accounting = () => {
   const printReport = (
     ref: React.RefObject<HTMLDivElement | null>,
     title: string,
-    options?: { maxTableRows?: number },
+    options?: { maxTableRows?: number; orientation?: "portrait" | "landscape" },
   ) => {
     if (!ref.current) {
       toast({
@@ -263,14 +263,11 @@ const Accounting = () => {
       });
       return;
     }
-    // Ledgers (cashbook / portfolio / aging) get a row cap so print stays a few pages, not hundreds.
-    const ledgerTitles = /cashbook|portfolio|aging/i;
-    const maxTableRows = options?.maxTableRows ?? (ledgerTitles.test(title) ? 100 : 200);
-    printElementAsDocument(ref.current, title, { maxTableRows, stripCharts: true });
-    toast({
-      title: "Print ready",
-      description:
-        "A short document preview should open (usually a few pages). If you still see hundreds of pages, hard-refresh the site (Ctrl+Shift+R) so the latest version loads.",
+    const isCashbook = /cashbook/i.test(title);
+    printElementAsDocument(ref.current, title, {
+      maxTableRows: options?.maxTableRows ?? 0,
+      stripCharts: true,
+      orientation: options?.orientation ?? (isCashbook ? "landscape" : "portrait"),
     });
   };
 
@@ -1849,16 +1846,27 @@ const Accounting = () => {
                     <div className="flex items-center justify-center py-16"><RefreshCw className="h-8 w-8 text-primary animate-spin" /></div>
                   ) : cashBookData?.transactions ? (
                     <Card ref={cashbookPrintRef} className="shadow-xl border-none overflow-hidden rounded-2xl">
+                      <div className="px-6 pt-5 pb-0">
+                        <p className="ledger-currency-note text-xs text-slate-500 font-semibold">Amounts in UGX</p>
+                      </div>
                       <div className="overflow-x-auto">
-                        <table className="w-full text-sm border-collapse">
+                        <table className="w-full text-sm border-collapse ledger-print">
+                          <colgroup>
+                            <col className="col-date" />
+                            <col className="col-details" />
+                            <col className="col-amount" />
+                            <col className="col-amount" />
+                            <col className="col-balance" />
+                            <col className="col-narration" />
+                          </colgroup>
                           <thead className="bg-slate-50 border-b border-slate-200">
                             <tr className="border-none">
-                              <th className="text-left py-4 px-6 text-slate-500 font-black text-[10px] uppercase tracking-widest">Date</th>
-                              <th className="text-left py-4 px-6 text-slate-500 font-black text-[10px] uppercase tracking-widest">Details</th>
-                              <th className="text-right py-4 px-6 text-slate-500 font-black text-[10px] uppercase tracking-widest">Debit (+)</th>
-                              <th className="text-right py-4 px-6 text-slate-500 font-black text-[10px] uppercase tracking-widest">Credit (-)</th>
-                              <th className="text-right py-4 px-6 text-slate-500 font-black text-[10px] uppercase tracking-widest">Balance</th>
-                              <th className="text-left py-4 px-6 text-slate-500 font-black text-[10px] uppercase tracking-widest">Narration</th>
+                              <th className="text-left py-4 px-4 text-slate-500 font-black text-[10px] uppercase tracking-widest">Date</th>
+                              <th className="text-left py-4 px-4 text-slate-500 font-black text-[10px] uppercase tracking-widest">Details</th>
+                              <th className="text-right py-4 px-4 text-slate-500 font-black text-[10px] uppercase tracking-widest">Debit</th>
+                              <th className="text-right py-4 px-4 text-slate-500 font-black text-[10px] uppercase tracking-widest">Credit</th>
+                              <th className="text-right py-4 px-4 text-slate-500 font-black text-[10px] uppercase tracking-widest">Balance</th>
+                              <th className="text-left py-4 px-4 text-slate-500 font-black text-[10px] uppercase tracking-widest">Narration</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1885,11 +1893,14 @@ const Accounting = () => {
                             <>
                             {/* Opening Balance Row */}
                             <tr className="bg-slate-50/80 font-bold border-b border-slate-100">
-                              <td className="py-4 px-6 text-[11px] text-slate-400 font-mono italic">{new Date(reportFrom || cashBookData.period.start).toLocaleDateString('en-GB')}</td>
-                              <td className="py-4 px-6 font-black text-slate-900 uppercase text-xs">OPENING BALANCE B/F</td>
-                              <td colSpan={2} className="py-4 px-6"></td>
-                              <td className="py-4 px-6 text-right font-black text-slate-900 tabular-nums">{fmt(opening)}</td>
-                              <td className="py-4 px-6 text-[10px] text-slate-400 italic">Balance brought forward</td>
+                              <td className="col-date py-4 px-4 text-[11px] text-slate-500 whitespace-nowrap">{new Date(reportFrom || cashBookData.period.start).toLocaleDateString('en-GB')}</td>
+                              <td className="py-4 px-4">
+                                <div className="details-title font-bold text-slate-900 text-xs">Opening balance B/F</div>
+                              </td>
+                              <td className="col-amount py-4 px-4"></td>
+                              <td className="col-amount py-4 px-4"></td>
+                              <td className="col-balance py-4 px-4 text-right font-bold text-slate-900 tabular-nums whitespace-nowrap">{opening.toLocaleString()}</td>
+                              <td className="py-4 px-4 text-[11px] text-slate-500">Brought forward</td>
                             </tr>
                             {(() => {
                               let runningBalance = opening;
@@ -1912,26 +1923,47 @@ const Accounting = () => {
                                 const isDebit = t.entry_type === 'revenue' || t.entry_type === 'asset' || t.source === 'repayment';
                                 const amount = parseFloat(t.amount);
                                 runningBalance += isDebit ? amount : -amount;
+                                const details = cashBookLineDetails(t.description) || t.category || "—";
+                                const category =
+                                  t.category && String(t.category).toLowerCase() !== String(details).toLowerCase()
+                                    ? String(t.category)
+                                    : "";
+                                const channel = t.payment_method
+                                  ? String(t.payment_method).replace(/_/g, " ")
+                                  : "";
                                 return (
                                   <tr key={`${t.source || "row"}-${t.id}`} className="hover:bg-slate-50 transition-colors border-b border-slate-50 group">
-                                    <td className="py-5 px-6 text-[11px] font-bold text-slate-500 font-mono">{new Date(t.date).toLocaleDateString('en-GB')}</td>
-                                    <td className="py-5 px-6">
-                                      <div className="font-bold text-slate-800 uppercase text-[11px] tracking-tight">{cashBookLineDetails(t.description) || t.category || "—"}</div>
-                                      {t.category ? (
-                                        <div className="text-[9px] text-slate-500 mt-0.5 font-semibold tracking-wide uppercase">{t.category}</div>
-                                      ) : null}
-                                      <div className="text-[9px] text-slate-400 mt-0.5 flex items-center gap-1 font-bold">
-                                        <Badge variant="outline" className="h-4 py-0 text-[8px] border-slate-200">ID: {String(t.id).slice(0, 8)}</Badge>
-                                        {t.payment_method ? (
-                                          <Badge variant="outline" className="h-4 py-0 text-[8px] border-slate-200">{String(t.payment_method).replace(/_/g, " ")}</Badge>
-                                        ) : null}
+                                    <td className="col-date py-4 px-4 text-[12px] font-medium text-slate-600 whitespace-nowrap">{new Date(t.date).toLocaleDateString('en-GB')}</td>
+                                    <td className="py-4 px-4">
+                                      <div className="details-title font-semibold text-slate-800 text-[12px] leading-snug">
+                                        {details}
                                       </div>
+                                      {category ? (
+                                        <div className="details-meta text-[11px] text-slate-500 mt-1">{category}</div>
+                                      ) : null}
+                                      {channel ? (
+                                        <div className="details-channel text-[11px] text-slate-400 mt-0.5 capitalize">{channel}</div>
+                                      ) : null}
                                     </td>
-                                    <td className="py-5 px-6 text-right">{isDebit ? <span className="font-black text-emerald-600 tabular-nums">UGX {amount.toLocaleString()}</span> : "—"}</td>
-                                    <td className="py-5 px-6 text-right">{!isDebit ? <span className="font-black text-red-500 tabular-nums">(UGX {amount.toLocaleString()})</span> : "—"}</td>
-                                    <td className="py-5 px-6 text-right font-black text-slate-900 bg-slate-50/50 tabular-nums">{fmt(runningBalance)}</td>
-                                    <td className="py-5 px-6">
-                                      <div className="text-[10px] text-slate-500 italic">{cashBookLineNarration(t)}</div>
+                                    <td className="col-amount py-4 px-4 text-right whitespace-nowrap">
+                                      {isDebit ? (
+                                        <span className="font-semibold text-emerald-700 tabular-nums">{amount.toLocaleString()}</span>
+                                      ) : (
+                                        <span className="text-slate-300">—</span>
+                                      )}
+                                    </td>
+                                    <td className="col-amount py-4 px-4 text-right whitespace-nowrap">
+                                      {!isDebit ? (
+                                        <span className="font-semibold text-red-600 tabular-nums">({amount.toLocaleString()})</span>
+                                      ) : (
+                                        <span className="text-slate-300">—</span>
+                                      )}
+                                    </td>
+                                    <td className="col-balance py-4 px-4 text-right font-semibold text-slate-900 bg-slate-50/50 tabular-nums whitespace-nowrap">
+                                      {runningBalance.toLocaleString()}
+                                    </td>
+                                    <td className="py-4 px-4">
+                                      <div className="text-[11px] text-slate-500 leading-snug">{cashBookLineNarration(t)}</div>
                                     </td>
                                   </tr>
                                 );

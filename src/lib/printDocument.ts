@@ -1,10 +1,15 @@
 /** Print only a report/document — not the staff sidebar or chrome. */
 
 export type PrintDocumentOptions = {
-  /** Soft cap for table body rows (ledgers). Default 80. */
+  /**
+   * Soft cap for table body rows. Omit or set 0 for no cap.
+   * Default: no cap (full document).
+   */
   maxTableRows?: number;
   /** Drop chart SVGs (Recharts). Default true. */
   stripCharts?: boolean;
+  /** Page orientation. Default portrait. */
+  orientation?: "portrait" | "landscape";
 };
 
 function escapeHtml(s: string): string {
@@ -15,11 +20,13 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function buildPrintHtml(title: string, bodyHtml: string, note?: string): string {
+function buildPrintHtml(
+  title: string,
+  bodyHtml: string,
+  options: { orientation?: "portrait" | "landscape" } = {},
+): string {
   const safeTitle = escapeHtml(title);
-  const noteHtml = note
-    ? `<p class="print-note">${escapeHtml(note)}</p>`
-    : "";
+  const orientation = options.orientation === "landscape" ? "landscape" : "portrait";
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -33,58 +40,49 @@ function buildPrintHtml(title: string, bodyHtml: string, note?: string): string 
       background: #fff;
       color: #0f172a;
       font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-      font-size: 14px;
-      line-height: 1.6;
+      font-size: 13px;
+      line-height: 1.55;
     }
-    body { padding: 16mm 18mm; }
+    body { padding: 12mm 14mm; }
     .print-doc-header {
       border-bottom: 2px solid #1e3a5f;
-      margin: 0 0 28px;
-      padding: 0 0 16px;
+      margin: 0 0 20px;
+      padding: 0 0 12px;
     }
     .print-doc-header .org {
-      font-size: 12px;
+      font-size: 11px;
       letter-spacing: 0.12em;
       text-transform: uppercase;
       color: #64748b;
       font-weight: 700;
     }
     .print-doc-header h1 {
-      margin: 10px 0 0;
-      font-size: 24px;
+      margin: 8px 0 0;
+      font-size: 22px;
       color: #1e3a5f;
       font-weight: 700;
       letter-spacing: -0.01em;
       line-height: 1.25;
     }
     .print-doc-header .printed-at {
-      margin-top: 10px;
-      font-size: 12px;
+      margin-top: 8px;
+      font-size: 11px;
       color: #94a3b8;
     }
-    .print-note {
-      margin: 0 0 24px;
-      padding: 14px 16px;
-      background: #fffbeb;
-      border: 1px solid #fcd34d;
-      color: #92400e;
-      font-size: 12.5px;
-      line-height: 1.5;
-    }
     h1, h2, h3, h4 {
-      margin: 0 0 12px;
+      margin: 0 0 10px;
       color: #1e3a5f;
       page-break-after: avoid;
       line-height: 1.35;
     }
-    h1 { font-size: 20px; }
-    h2 { font-size: 17px; margin-top: 8px; }
-    h3, h4 { font-size: 15px; }
-    p { margin: 0 0 12px; }
+    h1 { font-size: 18px; }
+    h2 { font-size: 15px; margin-top: 6px; }
+    h3, h4 { font-size: 13px; }
+    p { margin: 0 0 10px; }
 
     /*
-      Soften Tailwind spacing for print: give sections room to breathe,
-      but don't honor huge py-5 / min-h utilities that explode page count.
+      Soften Tailwind spacing for print: give sections room,
+      but don't honor huge py / min-h utilities that explode page count.
     */
     [class*="p-"], [class*="px-"], [class*="py-"], [class*="pt-"], [class*="pb-"],
     [class*="pl-"], [class*="pr-"] {
@@ -93,23 +91,18 @@ function buildPrintHtml(title: string, bodyHtml: string, note?: string): string 
     [class*="m-"], [class*="mx-"], [class*="my-"], [class*="mt-"], [class*="mb-"] {
       margin: 0 !important;
     }
-    [class*="gap-"] { gap: 16px !important; }
-    [class*="space-y-"] > * + * { margin-top: 22px !important; }
-    [class*="space-x-"] > * + * { margin-left: 12px !important; }
+    [class*="gap-"] { gap: 12px !important; }
+    [class*="space-y-"] > * + * { margin-top: 16px !important; }
+    [class*="space-x-"] > * + * { margin-left: 10px !important; }
 
-    /* Document sections / cards */
-    .print-body > *,
-    [class*="space-y-"] > * {
-      margin-bottom: 0;
-    }
     [class*="rounded"][class*="border"],
     .shadow-sm, .shadow-md, .shadow-xl {
       border: 1px solid #e2e8f0 !important;
-      padding: 20px 22px !important;
-      margin: 0 0 24px !important;
+      padding: 16px 18px !important;
+      margin: 0 0 18px !important;
       background: #fff !important;
       box-shadow: none !important;
-      border-radius: 6px !important;
+      border-radius: 4px !important;
     }
 
     [class*="min-h-"], [class*="h-"] {
@@ -126,40 +119,95 @@ function buildPrintHtml(title: string, bodyHtml: string, note?: string): string 
     table {
       width: 100% !important;
       border-collapse: collapse;
-      table-layout: auto;
-      margin: 14px 0 24px;
-      font-size: 13px;
-      line-height: 1.5;
+      table-layout: fixed;
+      margin: 8px 0 16px;
+      font-size: 12px;
+      line-height: 1.45;
     }
     thead { display: table-header-group; }
     tr { page-break-inside: avoid; }
     th, td {
-      padding: 12px 14px !important;
+      padding: 10px 12px !important;
       border-bottom: 1px solid #e2e8f0;
       vertical-align: top;
-      word-break: break-word;
+      overflow-wrap: break-word;
+      word-break: normal;
     }
     th {
       text-align: left;
-      font-size: 11.5px;
+      font-size: 10.5px;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.04em;
       color: #64748b;
       font-weight: 700;
       background: #f8fafc;
-      padding-top: 14px !important;
-      padding-bottom: 14px !important;
+      padding-top: 12px !important;
+      padding-bottom: 12px !important;
+      white-space: nowrap;
     }
     tbody tr:nth-child(even) td { background: #fafbfc; }
+
+    /* Ledger / cashbook column rhythm */
+    table.ledger-print col.col-date { width: 10%; }
+    table.ledger-print col.col-details { width: 34%; }
+    table.ledger-print col.col-amount { width: 13%; }
+    table.ledger-print col.col-balance { width: 14%; }
+    table.ledger-print col.col-narration { width: 16%; }
+    table.ledger-print td.col-date,
+    table.ledger-print td.col-amount,
+    table.ledger-print td.col-balance {
+      white-space: nowrap !important;
+      overflow-wrap: normal;
+      word-break: keep-all;
+    }
+    table.ledger-print td.col-amount,
+    table.ledger-print td.col-balance {
+      text-align: right !important;
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+    }
+    table.ledger-print .details-title {
+      font-weight: 700;
+      font-size: 12px;
+      color: #0f172a;
+      text-transform: none;
+      letter-spacing: 0;
+      line-height: 1.35;
+    }
+    table.ledger-print .details-meta {
+      margin-top: 4px;
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 500;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    table.ledger-print .details-channel {
+      margin-top: 2px;
+      font-size: 10.5px;
+      color: #94a3b8;
+      text-transform: capitalize;
+    }
+    .ledger-currency-note {
+      margin: 0 0 10px;
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 600;
+    }
 
     .text-right, [class*="text-right"] { text-align: right !important; }
     .text-center, [class*="text-center"] { text-align: center !important; }
     .font-bold, .font-semibold, .font-black, .font-extrabold { font-weight: 700 !important; }
     .tabular-nums { font-variant-numeric: tabular-nums; }
-    .text-xl, .text-2xl, .text-lg { font-size: 18px !important; line-height: 1.4 !important; }
-    .text-base { font-size: 14.5px !important; }
-    .text-sm { font-size: 13.5px !important; }
-    .text-xs, .text-\\[10px\\], .text-\\[11px\\], .text-\\[9px\\] { font-size: 12.5px !important; }
+    .whitespace-nowrap, [class*="whitespace-nowrap"] {
+      white-space: nowrap !important;
+      word-break: keep-all !important;
+      overflow-wrap: normal !important;
+    }
+    .text-xl, .text-2xl, .text-lg { font-size: 16px !important; line-height: 1.35 !important; }
+    .text-base { font-size: 13px !important; }
+    .text-sm { font-size: 12.5px !important; }
+    .text-xs, .text-\\[10px\\], .text-\\[11px\\], .text-\\[9px\\], .text-\\[8px\\] { font-size: 11.5px !important; }
 
     .bg-slate-50, .bg-slate-100, .bg-slate-100\\/90, .bg-muted\\/30, .bg-muted\\/10,
     .bg-slate-50\\/50, .bg-slate-50\\/80 { background: #f8fafc !important; }
@@ -179,24 +227,23 @@ function buildPrintHtml(title: string, bodyHtml: string, note?: string): string 
       overflow: visible !important;
       max-height: none !important;
     }
-    .rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md, .rounded-full { border-radius: 6px !important; }
+    .rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md, .rounded-full { border-radius: 4px !important; }
     .shadow-sm, .shadow-md, .shadow-xl, [class*="shadow"] { box-shadow: none !important; }
 
-    .grid { display: grid !important; gap: 18px !important; margin-bottom: 24px; }
+    .grid { display: grid !important; gap: 14px !important; margin-bottom: 18px; }
     .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
     .grid-cols-3, .md\\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
     .grid-cols-4, .lg\\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
-    .flex { display: flex !important; flex-wrap: wrap; gap: 12px !important; align-items: baseline; }
+    .flex { display: flex !important; flex-wrap: wrap; gap: 10px !important; align-items: baseline; }
 
-    /* KPI / metric tiles */
     .grid > [class*="border-l"], .grid > .border-l-4 {
-      padding: 16px 18px !important;
+      padding: 12px 14px !important;
       margin: 0 !important;
     }
 
     @media print {
       body { padding: 0; }
-      @page { margin: 16mm; size: portrait; }
+      @page { margin: 12mm; size: ${orientation}; }
     }
   </style>
 </head>
@@ -204,9 +251,8 @@ function buildPrintHtml(title: string, bodyHtml: string, note?: string): string 
   <header class="print-doc-header">
     <div class="org">M-T Growth Gateway</div>
     <h1>${safeTitle}</h1>
-    <div class="printed-at">Printed ${escapeHtml(new Date().toLocaleString("en-GB"))}</div>
+    <div class="printed-at">${escapeHtml(new Date().toLocaleString("en-GB"))}</div>
   </header>
-  ${noteHtml}
   <div class="print-body">
   ${bodyHtml}
   </div>
@@ -214,9 +260,9 @@ function buildPrintHtml(title: string, bodyHtml: string, note?: string): string 
 </html>`;
 }
 
-function prepareClone(element: HTMLElement, options: PrintDocumentOptions): { clone: HTMLElement; note?: string } {
+function prepareClone(element: HTMLElement, options: PrintDocumentOptions): HTMLElement {
   const clone = element.cloneNode(true) as HTMLElement;
-  const maxRows = options.maxTableRows ?? 80;
+  const maxRows = options.maxTableRows ?? 0;
   const stripCharts = options.stripCharts !== false;
 
   clone.querySelectorAll("button, [data-print-hide], input, select, textarea, [role='combobox']").forEach((n) => n.remove());
@@ -230,31 +276,20 @@ function prepareClone(element: HTMLElement, options: PrintDocumentOptions): { cl
     el.style.maxHeight = "none";
   });
 
-  let truncated = 0;
-  clone.querySelectorAll("table").forEach((table) => {
-    const bodies = table.tBodies?.length
-      ? Array.from(table.tBodies)
-      : [table.querySelector("tbody")].filter(Boolean) as HTMLTableSectionElement[];
-    bodies.forEach((tbody) => {
-      const rows = Array.from(tbody.rows);
-      if (rows.length <= maxRows) return;
-      const removeCount = rows.length - maxRows;
-      rows.slice(maxRows).forEach((r) => r.remove());
-      truncated += removeCount;
-      const noteRow = tbody.insertRow(-1);
-      const td = noteRow.insertCell(0);
-      td.colSpan = Math.max(1, rows[0]?.cells.length || 8);
-      td.textContent = `… ${removeCount} more rows omitted. Narrow the date range to print a shorter document.`;
-      td.style.fontStyle = "italic";
-      td.style.color = "#92400e";
+  if (maxRows > 0) {
+    clone.querySelectorAll("table").forEach((table) => {
+      const bodies = table.tBodies?.length
+        ? Array.from(table.tBodies)
+        : ([table.querySelector("tbody")].filter(Boolean) as HTMLTableSectionElement[]);
+      bodies.forEach((tbody) => {
+        const rows = Array.from(tbody.rows);
+        if (rows.length <= maxRows) return;
+        rows.slice(maxRows).forEach((r) => r.remove());
+      });
     });
-  });
+  }
 
-  const note = truncated > 0
-    ? `Large ledger trimmed for printing (${truncated} row(s) omitted). Narrow From/To dates for a full short print.`
-    : undefined;
-
-  return { clone, note };
+  return clone;
 }
 
 function printViaIframe(html: string): void {
@@ -302,30 +337,28 @@ function printViaIframe(html: string): void {
     }
   };
 
-  // Wait a tick for layout; keep short so preview isn't blank for minutes
   setTimeout(trigger, 200);
 }
 
 /**
  * Prints only the given element as a readable document.
  * Uses a hidden iframe (not window.open) so popup blockers cannot
- * fall back to printing the entire staff UI (which caused ~369 blank pages).
+ * fall back to printing the entire staff UI.
  */
 export function printElementAsDocument(
   element: HTMLElement | null | undefined,
   title = "Document",
-  options: PrintDocumentOptions = {}
+  options: PrintDocumentOptions = {},
 ): void {
   if (!element || typeof window === "undefined") return;
 
-  const { clone, note } = prepareClone(element, options);
-  const html = buildPrintHtml(title, clone.outerHTML, note);
+  const clone = prepareClone(element, options);
+  const html = buildPrintHtml(title, clone.outerHTML, { orientation: options.orientation });
 
   try {
     printViaIframe(html);
   } catch (err) {
     console.error("Print failed", err);
-    // Last resort: open blob URL tab (still NOT window.print on the app)
     const blob = new Blob([html], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     const w = window.open(url, "_blank", "noopener,noreferrer");
