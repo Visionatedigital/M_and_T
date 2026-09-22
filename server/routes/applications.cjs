@@ -180,7 +180,6 @@ async function findOrCreateBorrower(member, options = {}) {
 }
 
 async function assignLoanReference(client, borrowerId) {
-    const { resolveMtCode, isMtCode } = require('../lib/mtCode.cjs');
     if (borrowerId) {
         const { rows: borrowerRows } = await client.query(
             `SELECT unique_number FROM borrowers WHERE id = $1`,
