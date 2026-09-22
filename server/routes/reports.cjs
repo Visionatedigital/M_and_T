@@ -1901,6 +1901,7 @@ router.get('/aging-report', async (req, res) => {
             SELECT 
                 l.id, l.full_name as borrower_name, l.approved_at as issue_date, 
                 l.loan_amount as original_amount, l.loan_duration_months,
+                l.loan_reference,
                 COALESCE(NULLIF(lp.base_interest_rate, 0), 30) as rate_raw,
                 l.loan_product as product_name,
                 COALESCE(NULLIF(lp.base_interest_rate, 0), 30) as product_rate
@@ -1961,12 +1962,15 @@ router.get('/aging-report', async (req, res) => {
             const daysInPeriod = Math.min(periodDaysGlobal, daysSinceApproval);
             const interestInPeriod = interestMonthly * (daysInPeriod / 30);
 
+            const mtLoanId = String(loan.loan_reference || '').trim().toUpperCase()
+              || String(loan.id || '').split('-')[0].toUpperCase();
+
             return {
                 index: idx + 1,
                 name: loan.borrower_name,
                 issue_date: issueDate.toLocaleDateString('en-GB'),
                 rate: effectiveRatePercent.toFixed(1) + "%",
-                loan_id: (loan.id || '').split('-')[0].toUpperCase(),
+                loan_id: mtLoanId,
                 days_of_month: periodDaysGlobal,
                 days_in_period: daysInPeriod,
                 original_amount: Math.round(principal),
