@@ -18,18 +18,16 @@ const AddBorrower = () => {
     const navigate = useNavigate();
     const { toast } = useToast();
     const { isAdmin, isLoanOfficer, userId, loading: roleLoading } = useUserRole();
-    const generateUniqueId = () => {
-        return `MNT-${Math.floor(100000 + Math.random() * 900000)}`;
-    };
 
     const [isLoading, setIsLoading] = useState(false);
+    const [loadingUniqueNumber, setLoadingUniqueNumber] = useState(true);
     /** Personal = individual; Business = show business name + full street address + zip */
     const [clientType, setClientType] = useState<"personal" | "business">("personal");
     const [formData, setFormData] = useState({
         first_name: "",
         last_middle_name: "",
         business_name: "",
-        unique_number: generateUniqueId(),
+        unique_number: "",
         gender: "",
         title: "",
         phone_number: "",
@@ -52,6 +50,24 @@ const AddBorrower = () => {
         registered_on: new Date().toISOString().slice(0, 10),
     });
 
+    const allocateMtUniqueNumber = async () => {
+        setLoadingUniqueNumber(true);
+        try {
+            const { unique_number } = await api.borrowers.nextUniqueNumber();
+            setFormData((prev) => ({ ...prev, unique_number }));
+            return unique_number;
+        } catch {
+            toast({
+                title: "Could not allocate ID",
+                description: "MT ID will be assigned automatically when you save.",
+                variant: "destructive",
+            });
+            return "";
+        } finally {
+            setLoadingUniqueNumber(false);
+        }
+    };
+
     const [files, setFiles] = useState<{ [key: string]: File | null }>({
         borrower_photo: null,
         borrower_files: null,
@@ -66,20 +82,40 @@ const AddBorrower = () => {
         if (draftLoadedRef.current) return;
         draftLoadedRef.current = true;
         const d = loadFormDraft<{ formData: typeof formData; clientType?: "personal" | "business" }>(DRAFT_KEYS.ADD_BORROWER);
-        if (!d?.formData) return;
-        suppressDraftSaveRef.current = true;
-        setFormData({
-            ...d.formData,
-            registered_on: d.formData.registered_on || new Date().toISOString().slice(0, 10),
-        });
-        if (d.clientType) setClientType(d.clientType);
-        toast({
-            title: "Draft restored",
-            description: `Continued from ${formatDraftAge(d._savedAt)}. File attachments are not saved in drafts.`,
-        });
-        window.setTimeout(() => {
-            suppressDraftSaveRef.current = false;
-        }, 600);
+        const isMt = (v: string | undefined) => /^MT[0-9]{3}$/i.test(String(v || "").trim());
+
+        (async () => {
+            if (d?.formData) {
+                suppressDraftSaveRef.current = true;
+                const restored = {
+                    ...d.formData,
+                    registered_on: d.formData.registered_on || new Date().toISOString().slice(0, 10),
+                };
+                // Drop legacy MNT-… drafts — allocate a fresh MT### instead
+                if (!isMt(restored.unique_number)) {
+                    setFormData({ ...restored, unique_number: "" });
+                    if (d.clientType) setClientType(d.clientType);
+                    toast({
+                        title: "Draft restored",
+                        description: `Continued from ${formatDraftAge(d._savedAt)}. A new MT ID will be assigned.`,
+                    });
+                    await allocateMtUniqueNumber();
+                } else {
+                    setFormData(restored);
+                    setLoadingUniqueNumber(false);
+                    if (d.clientType) setClientType(d.clientType);
+                    toast({
+                        title: "Draft restored",
+                        description: `Continued from ${formatDraftAge(d._savedAt)}. File attachments are not saved in drafts.`,
+                    });
+                }
+                window.setTimeout(() => {
+                    suppressDraftSaveRef.current = false;
+                }, 600);
+            } else {
+                await allocateMtUniqueNumber();
+            }
+        })();
         // eslint-disable-next-line react-hooks/exhaustive-deps -- restore once on mount
     }, []);
 
@@ -190,7 +226,7 @@ const AddBorrower = () => {
                 full_name: isBusiness
                     ? (personalName || formData.business_name.trim())
                     : personalName,
-                unique_number: formData.unique_number || generateUniqueId(),
+                unique_number: formData.unique_number?.trim() || undefined,
                 borrower_photo: photoUrl,
                 borrower_files: filesUrl,
                 registered_on: formData.registered_on || undefined,
@@ -253,14 +289,14 @@ const AddBorrower = () => {
                                                 variant="outline"
                                                 size="sm"
                                                 className="shrink-0"
-                                                onClick={() => {
+                                                onClick={async () => {
                                                     clearFormDraft(DRAFT_KEYS.ADD_BORROWER);
                                                     setClientType("personal");
                                                     setFormData({
                                                         first_name: "",
                                                         last_middle_name: "",
                                                         business_name: "",
-                                                        unique_number: generateUniqueId(),
+                                                        unique_number: "",
                                                         gender: "",
                                                         title: "",
                                                         phone_number: "",
@@ -279,6 +315,7 @@ const AddBorrower = () => {
                                                         assigned_officer_id: "",
                                                         registered_on: new Date().toISOString().slice(0, 10),
                                                     });
+                                                    await allocateMtUniqueNumber();
                                                     toast({ title: "Draft discarded" });
                                                 }}
                                             >
@@ -345,8 +382,17 @@ const AddBorrower = () => {
                                                 </p>
                                             </div>
                                             <div className="space-y-2">
-                                                <Label htmlFor="unique_number">Unique Number</Label>
-                                                <Input id="unique_number" value={formData.unique_number} onChange={handleChange} placeholder="D001YV0" />
+                                                <Label htmlFor="unique_number">Unique Number (MT ID)</Label>
+                                                <Input
+                                                    id="unique_number"
+                                                    value={formData.unique_number}
+                                                    readOnly
+                                                    placeholder={loadingUniqueNumber ? "Allocating…" : "MT001"}
+                                                    className="font-mono bg-muted/40"
+                                                />
+                                                <p className="text-[10px] text-muted-foreground">
+                                                    Auto-assigned as MT001, MT002, … (same format used for loan / mobile money references).
+                                                </p>
                                             </div>
                                             <div className="space-y-2">
                                                 <Label htmlFor="gender">Gender</Label>

@@ -6,6 +6,7 @@ const { analyzeApplication } = require('../services/aiService.cjs');
 const { isAdmin, isLoanOfficer } = require('../lib/roles.cjs');
 const { sqlOfficerLoanListScope } = require('../lib/officerLoanScope.cjs');
 const { loanApplicationColumns } = require('../lib/loanApplicationSchema.cjs');
+const { resolveMtCode, isMtCode } = require('../lib/mtCode.cjs');
 
 const ALLOWED_PAYMENT_METHODS = ['cash', 'bank_transfer', 'mobile_money'];
 
@@ -179,13 +180,15 @@ async function findOrCreateBorrower(member, options = {}) {
 }
 
 async function assignLoanReference(client, borrowerId) {
+    const { resolveMtCode, isMtCode } = require('../lib/mtCode.cjs');
     if (borrowerId) {
         const { rows: borrowerRows } = await client.query(
             `SELECT unique_number FROM borrowers WHERE id = $1`,
             [borrowerId]
         );
         const code = String(borrowerRows[0]?.unique_number || '').trim().toUpperCase();
-        if (/^MT[0-9]{3}$/.test(code)) {
+        // Reuse borrower's MT### when it is not already used as a loan reference
+        if (isMtCode(code)) {
             const { rows: used } = await client.query(
                 `SELECT 1 FROM loan_applications WHERE upper(loan_reference) = $1 LIMIT 1`,
                 [code]
@@ -193,14 +196,7 @@ async function assignLoanReference(client, borrowerId) {
             if (!used.length) return code;
         }
     }
-
-    const { rows } = await client.query(`
-        SELECT COALESCE(MAX(CAST(substring(loan_reference from 3) AS int)), 0) AS n
-        FROM loan_applications
-        WHERE loan_reference ~ '^MT[0-9]{3}$'
-    `);
-    const next = Number(rows[0]?.n || 0) + 1;
-    return `MT${String(next).padStart(3, '0')}`;
+    return resolveMtCode(client, null);
 }
 
 // Create application

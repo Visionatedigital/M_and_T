@@ -572,6 +572,11 @@ export const api = {
             if (!response.ok) throw new Error('Failed to create borrower');
             return response.json();
         },
+        nextUniqueNumber: async () => {
+            const response = await fetch(`${API_URL}/borrowers/next-unique-number`, { headers: getHeaders() });
+            if (!response.ok) throw new Error('Failed to get next unique number');
+            return response.json() as Promise<{ unique_number: string }>;
+        },
         updateLocation: async (id: string, data: any) => {
             const response = await fetch(`${API_URL}/borrowers/${id}/location`, {
                 method: 'PUT',
