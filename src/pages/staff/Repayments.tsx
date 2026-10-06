@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Receipt, Search, Plus, DollarSign, Calendar, FileSpreadsheet, History, Pencil, Loader2, Users, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useUserRole } from "@/hooks/useUserRole";
+import { suggestInstallmentAmount } from "@/components/staff/RecordPaymentDialog";
 
 const Repayments = () => {
   const location = useLocation();
@@ -102,8 +103,10 @@ const Repayments = () => {
             amount: Math.round(m.weekly || 0).toString()
           })));
         } else {
-          const numInst = loan.group_id ? Math.ceil((loan.loan_duration_months || 4) * 4.33) : (loan.loan_duration_months || 4);
-          const instAmt = (loan.loan_amount * 1.30) / numInst;
+          const instAmt =
+            typeof loan.installmentAmount === "number" && loan.installmentAmount > 0
+              ? loan.installmentAmount
+              : suggestInstallmentAmount(loan);
           setMemberBreakdown([{
             id: loan.id,
             name: loan.full_name,
@@ -257,14 +260,22 @@ const Repayments = () => {
 
         // If this loan has member_schedules (group_members JSONB) with multiple members, add each
         const schedules = curr.member_schedules;
+        let periodInstallmentAdd = curr.installmentAmount ?? 0;
         if (schedules && Array.isArray(schedules) && schedules.length > 0) {
-          const numInst = curr.group_id ? Math.ceil((curr.loan_duration_months || 4) * 4.33) : (curr.loan_duration_months || 4);
           const memberPaidMap = curr.member_paid_map || {};
           const hasMemberPaidMap = Object.keys(memberPaidMap).length > 0;
+          periodInstallmentAdd = 0;
           schedules.forEach((m: any) => {
             const mPrincipal = parseFloat(m.amount) || 0;
-            const mTotal = mPrincipal * 1.30;
-            const mInstallment = m.weekly ?? mTotal / numInst;
+            const mTotal =
+              typeof m.total === "number" && m.total > 0
+                ? m.total
+                : (parseFloat(String(curr.total_amount || 0)) || 0) * (mPrincipal / (parseFloat(String(curr.loan_amount)) || 1));
+            const mInstallment =
+              typeof m.weekly === "number" && m.weekly > 0
+                ? m.weekly
+                : mTotal / Math.max(1, curr.installment_count || 1);
+            periodInstallmentAdd += mInstallment;
             const nameKey = (m.name || '').toString().trim().toLowerCase();
             const memberPaid = hasMemberPaidMap
               ? parseFloat(memberPaidMap[nameKey] || 0)
@@ -282,8 +293,10 @@ const Repayments = () => {
             });
           });
         } else {
-          const numInst = curr.group_id ? Math.ceil((curr.loan_duration_months || 4) * 4.33) : (curr.loan_duration_months || 4);
-          const instAmt = (curr.loan_amount * 1.30) / numInst;
+          const instAmt =
+            typeof curr.installmentAmount === "number" && curr.installmentAmount > 0
+              ? curr.installmentAmount
+              : suggestInstallmentAmount(curr);
           acc[key].members.push({
             id: curr.id,
             name: curr.full_name,
@@ -294,11 +307,12 @@ const Repayments = () => {
             status: curr.status,
             nin: curr.id_number
           });
+          periodInstallmentAdd = instAmt;
         }
 
         acc[key].totalCollection += curr.paidAmount;
         acc[key].totalBalance += curr.balance;
-        acc[key].installmentAmount += curr.installmentAmount;
+        acc[key].installmentAmount += periodInstallmentAdd;
 
         // Group status is the "worst" status among members
         const statusPriority: Record<string, number> = {

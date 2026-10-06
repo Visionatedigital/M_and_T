@@ -187,17 +187,56 @@ export function RecordPaymentDialog({
 
 /** Typical weekly installment for group loans, monthly for individual — matches repayments route logic. */
 export function suggestInstallmentAmount(loan: {
+    installmentAmount?: number;
+    installment_count?: number;
     total_amount?: number;
     loan_amount?: number;
+    loan_duration?: number | string;
     loan_duration_months?: number;
+    duration_unit?: string;
+    repayment_frequency?: string;
     group_id?: string | null;
+    loan_product?: string;
+    interest_rate?: number | string;
+    interest_method?: string;
+    interest_fixed_amount?: number | string;
 }): number {
+    if (typeof loan.installmentAmount === "number" && loan.installmentAmount > 0) {
+        return loan.installmentAmount;
+    }
+    const principal = parseFloat(String(loan.loan_amount || 0)) || 0;
+    const ratePct =
+        loan.interest_rate != null && loan.interest_rate !== ""
+            ? parseFloat(String(loan.interest_rate))
+            : 30;
+    const method = String(loan.interest_method || "flat_rate").toLowerCase();
     const total =
         typeof loan.total_amount === "number" && loan.total_amount > 0
             ? loan.total_amount
-            : (parseFloat(String(loan.loan_amount || 0)) || 0) * 1.3;
-    const months = parseInt(String(loan.loan_duration_months || 4), 10) || 4;
-    const isGroup = !!loan.group_id;
-    const numInst = isGroup ? Math.ceil(months * 4.33) : months;
-    return Math.max(1000, Math.ceil(total / Math.max(1, numInst)));
+            : method === "fixed_fee"
+              ? principal + Math.max(0, parseFloat(String(loan.interest_fixed_amount || 0)) || 0)
+              : principal * (1 + (Number.isFinite(ratePct) ? ratePct : 30) / 100);
+
+    const durationVal = parseFloat(String(loan.loan_duration ?? ""));
+    const unit = String(loan.duration_unit || "months").toLowerCase();
+    let months =
+        Number.isFinite(durationVal) && durationVal > 0
+            ? unit === "weeks"
+                ? durationVal / 4.33
+                : unit === "years"
+                  ? durationVal * 12
+                  : durationVal
+            : parseInt(String(loan.loan_duration_months || 4), 10) || 4;
+
+    const isGroup = !!loan.group_id || /group/i.test(String(loan.loan_product || ""));
+    const freq = String(loan.repayment_frequency || (isGroup ? "weekly" : "monthly")).toLowerCase();
+    const numInst =
+        typeof loan.installment_count === "number" && loan.installment_count > 0
+            ? loan.installment_count
+            : freq === "weekly"
+              ? Math.max(1, Math.ceil(months * 4.33))
+              : freq === "biweekly"
+                ? Math.max(1, Math.ceil(months * 2.165))
+                : Math.max(1, Math.ceil(months));
+    return Math.max(1000, Math.ceil(total / numInst));
 }

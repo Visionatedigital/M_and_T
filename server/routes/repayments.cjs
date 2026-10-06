@@ -5,6 +5,14 @@ const notificationService = require('../services/notificationService');
 const { runOverdueCheck } = require('../services/overdueCheck.cjs');
 const { requireAdmin } = require('../lib/roles.cjs');
 const { sqlOfficerLoanListScope, shouldApplyOfficerLoanScope } = require('../lib/officerLoanScope.cjs');
+const {
+    totalRepayableAmount,
+    installmentCountForLoan,
+    installmentAmountForLoan,
+    nextDueDateForLoan,
+    effectiveDurationMonths,
+    isGroupLoan,
+} = require('../lib/loanInterest.cjs');
 
 const SYSTEM_USER_UUID = '00000000-0000-0000-0000-000000000000';
 
@@ -104,15 +112,13 @@ router.get('/', async (req, res) => {
 
         const processed = loans.map(loan => {
             const principal = parseFloat(loan.loan_amount) || 0;
-            const interest = principal * 0.30;
-            const totalAmount = principal + interest;
+            const totalAmount = totalRepayableAmount(loan);
             const paidAmount = paymentMap[loan.id] || 0;
             const paidByMember = memberPaymentMap[loan.id] || {};
             const balance = Math.max(0, totalAmount - paidAmount);
 
-            const loanDurationMonths = parseInt(loan.loan_duration_months) || 4;
-            const numberOfInstallments = loan.group_id ? Math.ceil(loanDurationMonths * 4.33) : loanDurationMonths;
-            let installmentAmount = totalAmount / numberOfInstallments;
+            const numberOfInstallments = installmentCountForLoan(loan);
+            const installmentAmount = installmentAmountForLoan(loan);
 
             const groupMembers = (loan.group_members && typeof loan.group_members === 'object')
                 ? (Array.isArray(loan.group_members) ? loan.group_members : [])
@@ -121,24 +127,18 @@ router.get('/', async (req, res) => {
             const memberSchedules = membersWithAmounts.length > 0
                 ? membersWithAmounts.map(m => {
                     const mPrincipal = parseFloat(m.amount) || 0;
-                    const mTotal = mPrincipal * 1.30;
+                    const mTotal = totalRepayableAmount({ ...loan, loan_amount: mPrincipal });
                     const mWeekly = mTotal / numberOfInstallments;
                     return { name: m.name || 'Member', amount: mPrincipal, total: mTotal, weekly: mWeekly };
                 })
                 : null;
 
             const approvedDate = new Date(loan.approved_at || loan.created_at);
-            const installmentsPaid = Math.floor(paidAmount / installmentAmount);
+            const { nextDueDate, installmentsPaid } = nextDueDateForLoan(loan, paidAmount);
 
-            let nextDueDate = new Date(approvedDate);
-            if (loan.group_id) {
-                nextDueDate.setDate(nextDueDate.getDate() + ((installmentsPaid + 1) * 7));
-            } else {
-                nextDueDate.setMonth(nextDueDate.getMonth() + installmentsPaid + 1);
-            }
-
+            const loanDurationMonths = effectiveDurationMonths(loan);
             const maturityDate = new Date(approvedDate);
-            maturityDate.setMonth(maturityDate.getMonth() + loanDurationMonths);
+            maturityDate.setMonth(maturityDate.getMonth() + Math.ceil(loanDurationMonths));
 
             const now = new Date();
             const isPastMaturity = now > maturityDate && balance > 0;
@@ -170,6 +170,8 @@ router.get('/', async (req, res) => {
                 client_name: loan.full_name,
                 group_name: groupName,
                 groups: groupName ? { group_name: groupName } : null,
+                total_amount: totalAmount,
+                installment_count: numberOfInstallments,
                 installmentAmount,
                 paidAmount,
                 balance,
@@ -322,21 +324,10 @@ router.post('/', async (req, res) => {
                 );
                 const paidAmount = parseFloat(payments[0]?.paid || 0);
                 const principal = parseFloat(loan.loan_amount) || 0;
-                const totalAmount = principal * 1.30;
-                const loanDurationMonths = parseInt(loan.loan_duration_months) || 4;
-                // Group loan: linked to a group OR product name indicates group (security deposit rules)
-                const isGroup = !!loan.group_id || /group/i.test(String(loan.loan_product || ''));
-                const numberOfInstallments = isGroup ? Math.ceil(loanDurationMonths * 4.33) : loanDurationMonths;
-                const installmentAmount = totalAmount / numberOfInstallments;
-                const installmentsPaid = Math.floor(paidAmount / installmentAmount);
-
-                const approvedDate = new Date(loan.approved_at || loan.created_at);
-                let nextDueDate = new Date(approvedDate);
-                if (isGroup) {
-                    nextDueDate.setDate(nextDueDate.getDate() + ((installmentsPaid + 1) * 7));
-                } else {
-                    nextDueDate.setMonth(nextDueDate.getMonth() + installmentsPaid + 1);
-                }
+                const totalAmount = totalRepayableAmount(loan);
+                const isGroup = isGroupLoan(loan);
+                const installmentAmount = installmentAmountForLoan(loan);
+                const { nextDueDate } = nextDueDateForLoan(loan, paidAmount);
 
                 const paymentDateObj = new Date(effectiveDate);
                 const penaltyDue = Math.max(0, parseFloat(loan.late_payment_penalty) || LATE_PENALTY_AMOUNT);
