@@ -23,9 +23,22 @@ import {
   Clock,
   CheckCircle,
   AlertCircle,
-  Building2
+  Building2,
+  Trash2,
+  Loader2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useUserRole } from "@/hooks/useUserRole";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Users, Pencil } from "lucide-react";
@@ -84,8 +97,11 @@ const LoanDetails = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [loan, setLoan] = useState<LoanDetails | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { isAdmin, loading: roleLoading } = useUserRole();
 
   useEffect(() => {
     if (id) {
@@ -123,6 +139,29 @@ const LoanDetails = () => {
       navigate("/staff-dashboard/loans");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleDeleteLoan = async () => {
+    if (!loan) return;
+    setIsDeleting(true);
+    try {
+      await api.applications.delete(loan.id);
+      toast({
+        title: "Loan deleted",
+        description: "The loan and related repayments were removed. You can add a new loan for this client.",
+      });
+      setIsDeleteDialogOpen(false);
+      navigate("/staff-dashboard/loans");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to delete loan";
+      toast({
+        title: "Error",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -262,11 +301,17 @@ const LoanDetails = () => {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap justify-end">
                   <Button variant="outline" onClick={() => setIsEditDialogOpen(true)}>
                     <Pencil className="mr-2 h-4 w-4" />
                     Edit Loan
                   </Button>
+                  {!roleLoading && isAdmin && (
+                    <Button variant="destructive" onClick={() => setIsDeleteDialogOpen(true)}>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete Loan
+                    </Button>
+                  )}
                   {getStatusBadge(loan.status)}
                 </div>
               </div>
@@ -648,6 +693,40 @@ const LoanDetails = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={(open) => { if (!isDeleting) setIsDeleteDialogOpen(open); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this loan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the loan
+              {loan ? ` for ${loan.full_name}` : ""}
+              {loan?.status ? ` (status: ${loan.status})` : ""}
+              , plus repayments and linked accounting entries. Use after a loan is fully paid or to fix duplicates, then add a new loan on the same client. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeleting}
+              onClick={(e) => {
+                e.preventDefault();
+                handleDeleteLoan();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting…
+                </>
+              ) : (
+                "Delete Loan"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SidebarProvider>
   );
 };
