@@ -80,6 +80,9 @@ interface LoanDetails {
   amount_paid: number;
   remaining_balance: number;
   growth_rate: number;
+  interest_rate?: number;
+  interest_method?: string;
+  interest_fixed_amount?: number;
   months_elapsed: number;
   months_remaining: number;
   monthly_payment: number;
@@ -268,6 +271,12 @@ const LoanDetails = () => {
 
   const progress = (loan.amount_paid / loan.total_amount) * 100;
   const repaymentSchedule = groupMembersWithAmounts.length > 0 ? [] : generateRepaymentSchedule();
+  const interestMethod = String(loan.interest_method || "flat_rate").toLowerCase();
+  const ratePct = Number(loan.interest_rate ?? loan.growth_rate ?? 30);
+  const interestLabel =
+    interestMethod === "fixed_fee"
+      ? `UGX ${Number(loan.interest_fixed_amount || 0).toLocaleString()} fixed fee`
+      : `${ratePct}% (${interestMethod === "reducing_balance" ? "reducing balance" : interestMethod === "interest_only" ? "interest only" : "flat"})`;
 
   return (
     <SidebarProvider>
@@ -467,14 +476,8 @@ const LoanDetails = () => {
                         <span className="font-medium">UGX {loan.monthly_payment.toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Interest Rate:</span>
-                        <span className="font-medium">30% (flat)</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Growth Rate:</span>
-                        <Badge variant="default" className="bg-green-600">
-                          {loan.growth_rate.toFixed(2)}%
-                        </Badge>
+                        <span className="text-muted-foreground">Interest rate:</span>
+                        <span className="font-medium">{interestLabel}</span>
                       </div>
                     </div>
                     <Separator />
