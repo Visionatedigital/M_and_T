@@ -120,6 +120,38 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
+function normalizePhoneDigits(phone: string | undefined | null) {
+    return String(phone || "").replace(/\D/g, "").replace(/^256/, "0");
+}
+
+function resolveEditApplicationType(data: any): "individual" | "group" {
+    if (data?.application_type === "group" || data?.application_type === "individual") {
+        return data.application_type;
+    }
+    if (data?.group_id || data?.loan_product === "Group Loan") return "group";
+    return "individual";
+}
+
+/** Borrower row for the selector when editing — from linked client or loan snapshot. */
+function snapshotBorrowerFromLoan(data: any) {
+    if (!data) return null;
+    const full_name = data.full_name || "";
+    const phone_number = data.phone_number || "";
+    if (!full_name && !phone_number && !data.borrower_id) return null;
+    return {
+        id: data.borrower_id || "",
+        full_name,
+        phone_number,
+        email: data.email || "",
+        id_number: data.id_number || "",
+        date_of_birth: data.date_of_birth,
+        address: data.address,
+        district: data.district,
+        county: data.county,
+        province_state: data.county,
+    };
+}
+
 type LoanFormDraftPayload = {
     formValues: Partial<FormValues>;
     guarantors?: any[];
@@ -246,8 +278,14 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
         return leader?.amount ?? 0;
     });
     const [borrowers, setBorrowers] = useState<any[]>([]);
-    const [selectedBorrowerForIndividual, setSelectedBorrowerForIndividual] = useState<any>(null);
-    const [selectedGroupLeader, setSelectedGroupLeader] = useState<any>(null);
+    const editAppType = initialData ? resolveEditApplicationType(initialData) : "individual";
+    const editBorrowerSnapshot = initialData ? snapshotBorrowerFromLoan(initialData) : null;
+    const [selectedBorrowerForIndividual, setSelectedBorrowerForIndividual] = useState<any>(() =>
+        initialData && editAppType === "individual" ? editBorrowerSnapshot : null
+    );
+    const [selectedGroupLeader, setSelectedGroupLeader] = useState<any>(() =>
+        initialData && editAppType === "group" ? editBorrowerSnapshot : null
+    );
     const [groupLeaderOpen, setGroupLeaderOpen] = useState(false);
     const [individualBorrowerOpen, setIndividualBorrowerOpen] = useState(false);
     const [addMemberOpen, setAddMemberOpen] = useState(false);
@@ -269,7 +307,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
         resolver: zodResolver(formSchema),
         defaultValues: {
             borrower_id: initialData?.borrower_id || "",
-            application_type: (initialData?.application_type as "individual" | "group") || "individual",
+            application_type: initialData ? resolveEditApplicationType(initialData) : "individual",
             loan_product: initialData?.loan_product || "",
             loan_category: initialData?.loan_category || "Business",
             loan_amount: initialData?.loan_amount?.toString() || "",
@@ -445,13 +483,47 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
     }, [memberOwnedCollateral, selectedCollateral]);
 
     useEffect(() => {
-        if (initialData?.application_type === "group" && initialData?.borrower_id) {
-            api.borrowers.get(initialData.borrower_id).then(setSelectedGroupLeader).catch(() => {});
+        if (!initialData) return;
+
+        const appType = resolveEditApplicationType(initialData);
+        const setLeader = appType === "group" ? setSelectedGroupLeader : setSelectedBorrowerForIndividual;
+
+        const applyBorrower = (b: any) => {
+            if (!b?.full_name && !b?.phone_number && !b?.id) return;
+            setLeader(b);
+            if (b.id) form.setValue("borrower_id", b.id);
+        };
+
+        const matchFromDirectory = () => {
+            const snap = snapshotBorrowerFromLoan(initialData);
+            if (!snap || !borrowers.length) return null;
+            const phone = normalizePhoneDigits(snap.phone_number);
+            return borrowers.find((b) => {
+                if (initialData.borrower_id && b.id === initialData.borrower_id) return true;
+                if (phone && normalizePhoneDigits(b.phone_number) === phone) return true;
+                if (snap.full_name && b.full_name?.toLowerCase() === snap.full_name.toLowerCase()) return true;
+                return false;
+            }) || null;
+        };
+
+        if (initialData.borrower_id) {
+            api.borrowers
+                .get(initialData.borrower_id)
+                .then(applyBorrower)
+                .catch(() => {
+                    const matched = matchFromDirectory();
+                    applyBorrower(matched || editBorrowerSnapshot);
+                });
+            return;
         }
-        if (initialData?.application_type === "individual" && initialData?.borrower_id) {
-            api.borrowers.get(initialData.borrower_id).then(setSelectedBorrowerForIndividual).catch(() => {});
+
+        const matched = matchFromDirectory();
+        if (matched) applyBorrower(matched);
+        else {
+            const snap = snapshotBorrowerFromLoan(initialData);
+            if (snap) applyBorrower(snap);
         }
-    }, [initialData?.application_type, initialData?.borrower_id]);
+    }, [initialData?.id, initialData?.borrower_id, initialData?.phone_number, initialData?.full_name, borrowers, form]);
 
     useEffect(() => {
         if (initialData) return;
@@ -1581,7 +1653,9 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                                     Select Borrower
                                 </CardTitle>
                                 <p className="mt-1 text-xs text-muted-foreground">
-                                    Select a registered borrower from the directory. Borrowers are registered first, then attached to loans.
+                                    {initialData
+                                        ? "Borrower on this loan (change only if you need to re-link a different client)."
+                                        : "Select a registered borrower from the directory. Borrowers are registered first, then attached to loans."}
                                 </p>
                             </CardHeader>
                             <CardContent className="pt-0">
