@@ -323,7 +323,7 @@ const StaffDashboard = () => {
               </div>
 
               {/* M-T volume stats row */}
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 <div className="bg-background rounded-lg border p-4 flex items-center gap-4">
                   <div className="p-2 rounded-full bg-blue-50"><FileText className="h-5 w-5 text-blue-600" /></div>
                   <div>
@@ -355,21 +355,11 @@ const StaffDashboard = () => {
                 <div className="bg-background rounded-lg border p-4 flex items-center gap-4">
                   <div className="p-2 rounded-full bg-teal-50"><Coins className="h-5 w-5 text-teal-600" /></div>
                   <div>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Fees & penalties (accounting)</p>
-                    <p className="text-lg font-bold">{formatCurrency(stats.otherIncomeBooked ?? 0)}</p>
-                    <p className="text-[10px] text-muted-foreground leading-snug">
-                      Processing, commission & late penalties logged in Accounting only (excludes generic “Other Income” cashbook lines).
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Other income (fees)</p>
+                    <p className="text-lg font-bold">
+                      {formatCurrency(stats.otherIncomeCombined ?? (stats.otherIncomeBooked ?? 0) + (stats.otherIncomeFromApplications ?? 0))}
                     </p>
-                  </div>
-                </div>
-                <div className="bg-background rounded-lg border p-4 flex items-center gap-4">
-                  <div className="p-2 rounded-full bg-cyan-50"><Wallet className="h-5 w-5 text-cyan-600" /></div>
-                  <div>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Application fees (from loans)</p>
-                    <p className="text-lg font-bold">{formatCurrency(stats.otherIncomeFromApplications ?? 0)}</p>
-                    <p className="text-[10px] text-muted-foreground leading-snug">
-                      Estimated from each application × product fees (application, processing, admission, etc.).
-                    </p>
+                    <p className="text-[10px] text-muted-foreground">Loan fee schedule + penalties in accounting</p>
                   </div>
                 </div>
               </div>

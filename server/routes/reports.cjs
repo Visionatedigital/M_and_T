@@ -471,6 +471,7 @@ router.get('/dashboard-stats', async (req, res) => {
             values,
         );
         const otherIncomeFromApplications = parseFloat(expectedFeeRows[0]?.total || 0);
+        const otherIncomeCombined = otherIncomeBooked + otherIncomeFromApplications;
 
         res.json({
             userName: req.user.full_name || 'Staff',
@@ -490,6 +491,7 @@ router.get('/dashboard-stats', async (req, res) => {
                 avgGrowthRate: 0,
                 otherIncomeBooked,
                 otherIncomeFromApplications,
+                otherIncomeCombined,
             },
             activities: activityRows
         });
