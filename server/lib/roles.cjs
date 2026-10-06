@@ -7,7 +7,8 @@ function normalizeRole(role) {
 }
 
 function isAdmin(role) {
-    return normalizeRole(role) === 'admin';
+    const r = normalizeRole(role);
+    return r === 'admin' || r === 'administrator' || r === 'super_admin';
 }
 
 function isLoanOfficer(role) {

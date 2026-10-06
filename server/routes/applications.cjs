@@ -6,6 +6,12 @@ const { analyzeApplication } = require('../services/aiService.cjs');
 const { isAdmin, isLoanOfficer } = require('../lib/roles.cjs');
 const { sqlOfficerLoanListScope } = require('../lib/officerLoanScope.cjs');
 const { loanApplicationColumns } = require('../lib/loanApplicationSchema.cjs');
+const { nextMtCode, isMtCode, normalizeMtCode } = require('../lib/mtCode.cjs');
+const {
+    parseInterestRatePercent,
+    interestRateDecimal,
+    totalRepayableAmount,
+} = require('../lib/loanInterest.cjs');
 
 const ALLOWED_PAYMENT_METHODS = ['cash', 'bank_transfer', 'mobile_money'];
 
@@ -112,8 +118,8 @@ router.get('/active', async (req, res) => {
         const processed = rows.map(loan => {
             const groupName = loan.groups_group_name || loan.group_name || null;
             const principal = parseFloat(loan.loan_amount) || 0;
-            const interestRate = 0.30;
-            const totalAmount = principal * (1 + interestRate);
+            const interestRate = interestRateDecimal(loan);
+            const totalAmount = totalRepayableAmount(loan);
             const approvedDate = new Date(loan.approved_at || loan.created_at);
             const now = new Date();
             const monthsElapsed = Math.floor((now.getTime() - approvedDate.getTime()) / (1000 * 60 * 60 * 24 * 30));
@@ -184,8 +190,8 @@ async function assignLoanReference(client, borrowerId) {
             `SELECT unique_number FROM borrowers WHERE id = $1`,
             [borrowerId]
         );
-        const code = String(borrowerRows[0]?.unique_number || '').trim().toUpperCase();
-        if (/^MT[0-9]{3}$/.test(code)) {
+        const code = normalizeMtCode(borrowerRows[0]?.unique_number);
+        if (isMtCode(code)) {
             const { rows: used } = await client.query(
                 `SELECT 1 FROM loan_applications WHERE upper(loan_reference) = $1 LIMIT 1`,
                 [code]
@@ -194,13 +200,22 @@ async function assignLoanReference(client, borrowerId) {
         }
     }
 
-    const { rows } = await client.query(`
-        SELECT COALESCE(MAX(CAST(substring(loan_reference from 3) AS int)), 0) AS n
-        FROM loan_applications
-        WHERE loan_reference ~ '^MT[0-9]{3}$'
-    `);
-    const next = Number(rows[0]?.n || 0) + 1;
-    return `MT${String(next).padStart(3, '0')}`;
+    const code = await nextMtCode(client);
+    if (borrowerId) {
+        await client.query(
+            `
+            UPDATE borrowers
+            SET unique_number = $1, updated_at = NOW()
+            WHERE id = $2
+              AND (
+                unique_number IS NULL OR trim(unique_number) = ''
+                OR upper(unique_number) ~ '^MNT'
+              )
+            `,
+            [code, borrowerId]
+        );
+    }
+    return code;
 }
 
 // Create application
@@ -427,8 +442,9 @@ router.get('/:id', async (req, res) => {
         if (rows.length === 0) return res.status(404).json({ error: 'Application not found' });
         const loan = rows[0];
         const principal = parseFloat(loan.loan_amount) || 0;
-        const interestRate = 0.30;
-        const totalAmount = principal * (1 + interestRate);
+        const ratePct = parseInterestRatePercent(loan);
+        const interestRate = ratePct / 100;
+        const totalAmount = totalRepayableAmount(loan);
         const approvedDate = new Date(loan.approved_at || loan.created_at);
         const now = new Date();
         const monthsElapsed = Math.floor((now.getTime() - approvedDate.getTime()) / (1000 * 60 * 60 * 24 * 30));
@@ -446,7 +462,8 @@ router.get('/:id', async (req, res) => {
             total_amount: totalAmount,
             amount_paid: amountPaid,
             remaining_balance: remainingBalance,
-            growth_rate: interestRate * 100,
+            growth_rate: ratePct,
+            interest_rate: ratePct,
             months_elapsed: monthsElapsed,
             months_remaining: monthsRemaining,
             monthly_payment: monthlyPayment,

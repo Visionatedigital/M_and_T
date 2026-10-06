@@ -560,6 +560,11 @@ export const api = {
             if (!response.ok) throw new Error('Failed to fetch borrower details');
             return response.json();
         },
+        nextUniqueNumber: async (): Promise<{ unique_number: string }> => {
+            const response = await fetch(`${API_URL}/borrowers/next-unique-number`, { headers: getHeaders() });
+            if (!response.ok) throw new Error('Failed to fetch next client ID');
+            return response.json();
+        },
         getAttachments: async (id: string) => {
             const response = await fetch(`${API_URL}/borrowers/${id}/attachments`, { headers: getHeaders() });
             if (!response.ok) throw new Error('Failed to fetch borrower attachments');

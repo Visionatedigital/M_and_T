@@ -1,13 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db.cjs');
-const { requireAdmin } = require('../lib/roles.cjs');
+const { requireStaff } = require('../lib/roles.cjs');
 const { buildAssistantSnapshot } = require('../services/assistantSnapshot.cjs');
 const { buildStaffSystemPrompt } = require('../services/staffAssistantPrompt.cjs');
 const { staffAssistantChat } = require('../services/aiService.cjs');
 
-/** AI assistant and DB-backed tools — administrators only */
-router.use(requireAdmin);
+/** AI assistant and DB-backed tools — all staff (admins see full portfolio; officers scoped). */
+router.use(requireStaff);
 
 router.get('/conversations', async (req, res) => {
     try {

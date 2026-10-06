@@ -36,10 +36,13 @@ import {
 
 // Schema for Guarantor
 const guarantorSchema = z.object({
-    name: z.string().min(1, "Name is required"),
-    phone: z.string().min(1, "Phone number is required"),
+    name: z.string().optional(),
+    phone: z.string().optional(),
     nin: z.string().optional(),
     address: z.string().optional(),
+}).refine((g) => !g.name && !g.phone ? true : !!(g.name && g.phone), {
+    message: "Guarantor name and phone are required when adding a guarantor",
+    path: ["phone"],
 });
 
 // Schema for Loan Application
@@ -583,9 +586,12 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
                 return;
             }
 
+            const individualBorrowerId =
+                selectedBorrowerForIndividual?.id || initialData?.borrower_id || values.borrower_id;
+
             // Individual applications require a selected borrower
             if (values.application_type === "individual") {
-                if (!selectedBorrowerForIndividual?.id) {
+                if (!individualBorrowerId) {
                     toast({ title: "Validation Error", description: "Please select a borrower from the directory.", variant: "destructive" });
                     return;
                 }
@@ -665,7 +671,21 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
             const durationUnit = values.duration_unit || "months";
             const loanDurationMonths = durationUnit === "weeks" ? durationVal / 4.33 : durationUnit === "years" ? durationVal * 12 : durationVal;
 
-            const borrowerData = values.application_type === "individual" ? selectedBorrowerForIndividual : selectedGroupLeader;
+            const borrowerData =
+                values.application_type === "individual"
+                    ? (selectedBorrowerForIndividual || (initialData?.borrower_id ? {
+                        id: initialData.borrower_id,
+                        full_name: initialData.full_name,
+                        email: initialData.email,
+                        phone_number: initialData.phone_number,
+                        id_number: initialData.id_number,
+                        date_of_birth: initialData.date_of_birth,
+                        address: initialData.address,
+                        district: initialData.district,
+                        county: initialData.county,
+                        province_state: initialData.county,
+                    } : null))
+                    : selectedGroupLeader;
             const addr = (borrowerData?.address || "").split(", ");
             const fullName = borrowerData?.full_name || values.full_name || "";
             const emailVal = (borrowerData?.email || values.email || "").trim();
@@ -680,7 +700,7 @@ export function LoanApplicationForm({ onSuccess, onCancel, initialData }: LoanAp
 
             const applicationData = {
                 user_id: user.id,
-                borrower_id: values.application_type === "group" ? selectedGroupLeader?.id : selectedBorrowerForIndividual?.id,
+                borrower_id: values.application_type === "group" ? selectedGroupLeader?.id : individualBorrowerId,
                 full_name: fullName,
                 email: emailVal,
                 phone_number: phoneVal,

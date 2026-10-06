@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/services/api";
 
-export type UserRole = 'admin' | 'loan_officer' | 'client' | null;
+export type UserRole = 'admin' | 'administrator' | 'super_admin' | 'loan_officer' | 'client' | null;
 
 export const useUserRole = () => {
     const [role, setRole] = useState<UserRole>(null);
@@ -37,7 +37,7 @@ export const useUserRole = () => {
         role,
         userId,
         loading,
-        isAdmin: role === 'admin',
+        isAdmin: role === 'admin' || role === 'administrator' || role === 'super_admin',
         isLoanOfficer: role === 'loan_officer',
     };
 };

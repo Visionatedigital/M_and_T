@@ -146,8 +146,12 @@ const LoanDetails = () => {
   const generateRepaymentSchedule = (memberPrincipal?: number) => {
     if (!loan) return [];
     const principal = memberPrincipal ?? loan.principal;
-    const interestRate = 0.30;
-    const totalAmount = principal * (1 + interestRate);
+    const ratePct = Number(loan.interest_rate);
+    const interestRate = Number.isFinite(ratePct) && ratePct >= 0 ? ratePct / 100 : 0.3;
+    const method = String(loan.interest_method || "flat_rate").toLowerCase();
+    const totalAmount = method === "fixed_fee"
+      ? principal + (parseFloat(String(loan.interest_fixed_amount)) || 0)
+      : principal * (1 + interestRate);
     const approvedDate = new Date(loan.approved_at || loan.created_at);
     const months = loan.loan_duration_months || 4;
 

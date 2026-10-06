@@ -82,7 +82,12 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
                 const paid = parseFloat(l.amount_paid || 0);
                 const duration = parseInt(l.loan_duration_months || 4, 10) || 4;
                 const released = l.disbursed_at || l.approved_at || l.created_at;
-                const totalDue = principal * 1.3;
+                const ratePct = Number(l.interest_rate);
+                const rate = Number.isFinite(ratePct) && ratePct >= 0 ? ratePct / 100 : 0.3;
+                const method = String(l.interest_method || "flat_rate").toLowerCase();
+                const totalDue = method === "fixed_fee"
+                    ? principal + (parseFloat(l.interest_fixed_amount) || 0)
+                    : principal * (1 + rate);
                 const balance = Math.max(0, totalDue - paid);
                 let status = l.status === "disbursed" || l.status === "approved" ? "Current" : String(l.status || "");
                 if (balance <= 0) status = "Fully Paid";
@@ -96,10 +101,12 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
                     id: l.id,
                     released_date: released,
                     borrower_name: l.full_name || "Unknown",
-                    loan_number: l.loan_number || `L-${String(l.id).substring(0, 6)}`,
+                    loan_number: l.loan_reference || l.loan_number || `L-${String(l.id).substring(0, 6)}`,
                     loan_product: l.loan_product || "",
                     principal,
-                    interest_rate: "30% flat",
+                    interest_rate: method === "fixed_fee"
+                        ? "Fixed fee"
+                        : `${Number.isFinite(ratePct) ? ratePct : 30}% flat`,
                     total_due: totalDue,
                     paid,
                     balance,

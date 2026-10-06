@@ -426,6 +426,49 @@ router.get('/dashboard-stats', async (req, res) => {
         `;
         const { rows: activityRows } = await db.query(activityQuery, values);
 
+        const feeIncomeCategories = [
+            'Processing Fees',
+            'Fee Income (Valuation/Tracking)',
+            'Other Income',
+            'Commission Income',
+            'Late Payment Penalties',
+        ];
+        const { rows: bookedFeeRows } = await db.query(
+            `
+            SELECT COALESCE(SUM(amount), 0) AS total
+            FROM accounting_entries
+            WHERE entry_type = 'income'
+              AND category = ANY($1::text[])
+            `,
+            [feeIncomeCategories],
+        );
+        const otherIncomeBooked = parseFloat(bookedFeeRows[0]?.total || 0);
+
+        const expectedFeeScope = isLoanOfficer(role)
+            ? `AND ${sqlOfficerVisibleLoanApps('la', '$1')}`
+            : '';
+        const { rows: expectedFeeRows } = await db.query(
+            `
+            SELECT COALESCE(SUM(fees), 0) AS total
+            FROM (
+                SELECT
+                    COALESCE(lp.application_fee, 0)
+                    + COALESCE(lp.processing_fee, 0)
+                    + CASE WHEN la.status IN ('approved', 'disbursed', 'completed', 'settled') THEN
+                        COALESCE(lp.admission_fee, 0)
+                        + COALESCE(lp.passbook_fee, 0)
+                        + COALESCE(la.loan_amount, 0) * COALESCE(lp.monitoring_fee_rate, 0) / 100.0
+                      ELSE 0 END AS fees
+                FROM loan_applications la
+                LEFT JOIN loan_products lp ON lp.name = la.loan_product
+                WHERE la.status NOT IN ('rejected', 'cancelled')
+                ${expectedFeeScope}
+            ) t
+            `,
+            values,
+        );
+        const otherIncomeFromApplications = parseFloat(expectedFeeRows[0]?.total || 0);
+
         res.json({
             userName: req.user.full_name || 'Staff',
             stats: {
@@ -441,7 +484,9 @@ router.get('/dashboard-stats', async (req, res) => {
                 collectionRate: collectionRate,
                 recoveryOpenPct: recoveryOpenPct,
                 rateOfReturn: rateOfReturn,
-                avgGrowthRate: 0
+                avgGrowthRate: 0,
+                otherIncomeBooked,
+                otherIncomeFromApplications,
             },
             activities: activityRows
         });
