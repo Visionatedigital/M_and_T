@@ -13,6 +13,8 @@ const {
     totalRepayableAmount,
 } = require('../lib/loanInterest.cjs');
 
+const FULLY_PAID_EPSILON = 0.01;
+
 const ALLOWED_PAYMENT_METHODS = ['cash', 'bank_transfer', 'mobile_money'];
 
 /** YYYY-MM-DD or null — avoids PostgreSQL date errors from bad client input */
@@ -136,12 +138,16 @@ router.get('/active', async (req, res) => {
                 total_amount: totalAmount,
                 amount_paid: amountPaid,
                 remaining_balance: remainingBalance,
+                growth_rate: parseInterestRatePercent(loan),
                 months_elapsed: monthsElapsed,
                 months_remaining: monthsRemaining
             };
         });
 
-        res.json(processed);
+        /** Active portfolio = still carrying a balance (hide 100% paid; new loan on same client stands alone). */
+        const openLoans = processed.filter((loan) => loan.remaining_balance > FULLY_PAID_EPSILON);
+
+        res.json(openLoans);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to fetch active loans' });

@@ -97,7 +97,7 @@ const ActiveLoans = () => {
   };
 
   const filterLoans = () => {
-    let filtered = loans;
+    let filtered = loans.filter((loan) => (loan.remaining_balance ?? 0) > 0.01);
 
     if (searchTerm) {
       filtered = filtered.filter(

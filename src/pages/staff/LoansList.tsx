@@ -122,7 +122,7 @@ const LoansList = ({ title, description, filterType }: LoansListProps) => {
             ).sort();
             setProductOptions(products);
 
-            let filteredResults = transformed;
+            let filteredResults = transformed.filter((l) => l.balance > 0.01);
             if (filterType === "due") {
                 filteredResults = transformed.filter((l) => l.balance > 0 && l.status === "Current");
             } else if (filterType === "missed") {
