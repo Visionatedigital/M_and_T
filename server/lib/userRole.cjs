@@ -21,15 +21,7 @@ function pickPrimaryRole(roleRows) {
 
 async function fetchPrimaryRoleForUser(db, userId) {
   const { rows } = await db.query(
-    `SELECT role FROM user_roles WHERE user_id = $1 ORDER BY
-      CASE lower(trim(role))
-        WHEN 'admin' THEN 0
-        WHEN 'administrator' THEN 0
-        WHEN 'super_admin' THEN 0
-        WHEN 'loan_officer' THEN 1
-        ELSE 2
-      END,
-      role ASC`,
+    'SELECT role::text AS role FROM user_roles WHERE user_id = $1',
     [userId],
   );
   return pickPrimaryRole(rows);
