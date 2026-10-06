@@ -426,11 +426,13 @@ router.get('/dashboard-stats', async (req, res) => {
         `;
         const { rows: activityRows } = await db.query(activityQuery, values);
 
-        /** Ledger uses entry_type revenue | expense (not "income"). */
+        /**
+         * Fee/penalty revenue actually posted in Accounting.
+         * Exclude "Other Income" — historical cashbook imports used it for bank movements, not loan fees.
+         */
         const feeIncomeCategories = [
             'Processing Fees',
             'Fee Income (Valuation/Tracking)',
-            'Other Income',
             'Commission Income',
             'Late Payment Penalties',
         ];

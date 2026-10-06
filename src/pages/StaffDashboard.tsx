@@ -358,7 +358,7 @@ const StaffDashboard = () => {
                     <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Fees & penalties (accounting)</p>
                     <p className="text-lg font-bold">{formatCurrency(stats.otherIncomeBooked ?? 0)}</p>
                     <p className="text-[10px] text-muted-foreground leading-snug">
-                      Cash/revenue posted under fee & penalty categories in Accounting (not loan repayments).
+                      Processing, commission & late penalties logged in Accounting only (excludes generic “Other Income” cashbook lines).
                     </p>
                   </div>
                 </div>
