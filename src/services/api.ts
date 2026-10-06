@@ -288,10 +288,13 @@ export const api = {
             if (!r.ok) throw new Error('Failed to fetch report stats');
             return r.json();
         }),
-        getDashboardStats: () => fetch(`${API_URL}/reports/dashboard-stats`, { headers: getHeaders() }).then(r => {
-            if (!r.ok) throw new Error('Failed to fetch dashboard stats');
-            return r.json();
-        }),
+        getDashboardStats: (params?: { period?: string }) => {
+            const qs = params?.period ? `?period=${encodeURIComponent(params.period)}` : '';
+            return fetch(`${API_URL}/reports/dashboard-stats${qs}`, { headers: getHeaders() }).then(r => {
+                if (!r.ok) throw new Error('Failed to fetch dashboard stats');
+                return r.json();
+            });
+        },
         getChartData: (params?: { months?: number }) => {
             const qs = params?.months ? `?months=${params.months}` : '';
             return fetch(`${API_URL}/reports/chart-data${qs}`, { headers: getHeaders() }).then(r => {

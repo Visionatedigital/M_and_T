@@ -65,6 +65,38 @@ function installmentAmountForLoan(loan) {
   return total / count;
 }
 
+function remainingBalanceParts(loan, paidAmount) {
+  const principal = parseFloat(loan?.loan_amount) || 0;
+  const total = totalRepayableAmount(loan);
+  const paid = parseFloat(paidAmount) || 0;
+  const remaining = Math.max(0, total - paid);
+  if (remaining <= 0 || total <= 0) {
+    return { remaining: 0, remainingPrincipal: 0, remainingInterest: 0 };
+  }
+  const remainingPrincipal = principal * (remaining / total);
+  const remainingInterest = Math.max(0, remaining - remainingPrincipal);
+  return { remaining, remainingPrincipal, remainingInterest };
+}
+
+/** Sum of installment amounts with due dates falling in [periodStart, periodEnd]. */
+function expectedDueInPeriod(loan, periodStart, periodEnd) {
+  const approved = new Date(loan.approved_at || loan.created_at);
+  if (!Number.isFinite(approved.getTime()) || approved > periodEnd) return 0;
+  const instAmt = installmentAmountForLoan(loan);
+  if (instAmt <= 0) return 0;
+  const freq = repaymentFrequencyForLoan(loan);
+  let totalDue = 0;
+  for (let i = 1; i <= 600; i += 1) {
+    const due = new Date(approved);
+    if (freq === 'weekly') due.setDate(due.getDate() + i * 7);
+    else if (freq === 'biweekly') due.setDate(due.getDate() + i * 14);
+    else due.setMonth(due.getMonth() + i);
+    if (due > periodEnd) break;
+    if (due >= periodStart) totalDue += instAmt;
+  }
+  return totalDue;
+}
+
 function nextDueDateForLoan(loan, paidAmount) {
   const installmentAmount = installmentAmountForLoan(loan);
   const installmentsPaid =
@@ -82,6 +114,27 @@ function nextDueDateForLoan(loan, paidAmount) {
   return { nextDueDate, installmentAmount, installmentsPaid };
 }
 
+/** @param {string} period 1m | 3m | 6m | 12m */
+function dashboardPeriodRange(period) {
+  const monthsBack = { '1m': 1, '3m': 3, '6m': 6, '12m': 12 }[String(period || '6m').toLowerCase()] || 6;
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+  const start = new Date(end.getFullYear(), end.getMonth() - (monthsBack - 1), 1);
+  start.setHours(0, 0, 0, 0);
+  const labels = {
+    '1m': 'Last 1 month',
+    '3m': 'Last 3 months',
+    '6m': 'Last 6 months',
+    '12m': 'Last 12 months',
+  };
+  return {
+    monthsBack,
+    start,
+    end,
+    label: labels[String(period || '6m').toLowerCase()] || labels['6m'],
+  };
+}
+
 module.exports = {
   DEFAULT_FLAT_RATE_PCT,
   parseInterestRatePercent,
@@ -93,4 +146,7 @@ module.exports = {
   installmentCountForLoan,
   installmentAmountForLoan,
   nextDueDateForLoan,
+  remainingBalanceParts,
+  expectedDueInPeriod,
+  dashboardPeriodRange,
 };

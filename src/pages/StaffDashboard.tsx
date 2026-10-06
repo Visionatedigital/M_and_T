@@ -33,12 +33,20 @@ const StaffDashboard = () => {
   const [chartData, setChartData] = useState<any[]>([]);
   const [activities, setActivities] = useState<Record<string, any>[]>([]);
   const [timeFilter, setTimeFilter] = useState("6m");
+  const [periodLabel, setPeriodLabel] = useState("Last 6 months");
   const [expandedChart, setExpandedChart] = useState<{ type: 'bar' | 'line' | 'composed'; title: string; data: any; props?: any } | null>(null);
   const navigate = useNavigate();
   const { role, loading: roleLoading } = useUserRole();
 
+  const periodMonths = useMemo(() => {
+    const map: Record<string, number> = { "1m": 1, "3m": 3, "6m": 6, "12m": 12 };
+    return map[timeFilter] ?? 6;
+  }, [timeFilter]);
+
   useEffect(() => {
+    let cancelled = false;
     const loadDashboardData = async () => {
+      setIsLoading(true);
       try {
         const user = await api.auth.getMe();
         if (!user) {
@@ -46,29 +54,34 @@ const StaffDashboard = () => {
           return;
         }
         const [dataRes, chartRes] = await Promise.all([
-          api.reports.getDashboardStats(),
-          api.reports.getChartData({ months: 12 })
+          api.reports.getDashboardStats({ period: timeFilter }),
+          api.reports.getChartData({ months: periodMonths }),
         ]);
+        if (cancelled) return;
         setUserName(dataRes.userName);
         setStats(dataRes.stats);
+        setPeriodLabel(dataRes.periodLabel || "Selected period");
         setActivities(dataRes.activities || []);
         setChartData(chartRes || []);
       } catch (error) {
         console.error("Error fetching dashboard data:", error);
         navigate("/staff-login");
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
     loadDashboardData();
-  }, [navigate]);
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate, timeFilter, periodMonths]);
 
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('en-UG', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount || 0);
 
   const totalOutstanding = stats?.outstandingPortfolio || 0;
-  const outstandingPrincipal = totalOutstanding * 0.85;
-  const outstandingInterest = totalOutstanding * 0.13;
+  const outstandingPrincipal = stats?.outstandingPrincipal ?? totalOutstanding;
+  const outstandingInterest = stats?.outstandingInterest ?? 0;
 
   const hasPortfolio = !!stats && (
     (stats.totalApplications ?? 0) > 0 ||
@@ -254,7 +267,10 @@ const StaffDashboard = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <h1 className="text-2xl font-bold tracking-tight text-slate-900">Hello {userName || "there"}! 👋</h1>
-                  <p className="text-sm text-slate-500 mt-1">Overview of lending portfolio and financial performance</p>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Overview of lending portfolio and financial performance
+                    <span className="text-slate-400"> · {periodLabel}</span>
+                  </p>
                 </div>
                 <Select value={timeFilter} onValueChange={setTimeFilter}>
                   <SelectTrigger className="w-[160px] bg-white">
@@ -311,14 +327,14 @@ const StaffDashboard = () => {
                 <Card className="bg-white shadow-sm border border-l-[3px] border-l-green-500">
                   <CardContent className="p-4 flex flex-col h-full justify-center">
                     <p className="text-[11px] font-semibold text-slate-500 mb-1">Rate of Recovery (All)</p>
-                    <p className="text-[10px] text-slate-400 mb-2 leading-tight">% of due amount paid for all loans</p>
+                    <p className="text-[10px] text-slate-400 mb-2 leading-tight">Collections vs installments due ({periodLabel.toLowerCase()})</p>
                     <p className="text-2xl font-bold text-slate-800">{Number(stats.collectionRate ?? 0).toFixed(2)}%</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-white shadow-sm border border-l-[3px] border-l-blue-500">
                   <CardContent className="p-4 flex flex-col h-full justify-center">
                     <p className="text-[11px] font-semibold text-slate-500 mb-1">Rate of Recovery (Open)</p>
-                    <p className="text-[10px] text-slate-400 mb-2 leading-tight">% of due paid for open loans</p>
+                    <p className="text-[10px] text-slate-400 mb-2 leading-tight">Open-book collections vs due ({periodLabel.toLowerCase()})</p>
                     <p className="text-2xl font-bold text-slate-800">{Number(stats.recoveryOpenPct ?? 0).toFixed(2)}%</p>
                   </CardContent>
                 </Card>
@@ -361,7 +377,7 @@ const StaffDashboard = () => {
                     <p className="text-lg font-bold">
                       {formatCurrency(stats.otherIncomeCombined ?? (stats.otherIncomeBooked ?? 0) + (stats.otherIncomeFromApplications ?? 0))}
                     </p>
-                    <p className="text-[10px] text-muted-foreground">Loan fee schedule + penalties in accounting</p>
+                    <p className="text-[10px] text-muted-foreground">Fees in {periodLabel.toLowerCase()}</p>
                   </div>
                 </div>
               </div>
