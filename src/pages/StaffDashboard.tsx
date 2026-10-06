@@ -169,6 +169,7 @@ const StaffDashboard = () => {
 
   const getFilteredData = (dataArray: any[]) => {
     let limit = dataArray.length;
+    if (timeFilter === '1m') limit = 1;
     if (timeFilter === '3m') limit = 3;
     if (timeFilter === '6m') limit = 6;
     if (timeFilter === '12m') limit = 12;
@@ -256,10 +257,11 @@ const StaffDashboard = () => {
                   <p className="text-sm text-slate-500 mt-1">Overview of lending portfolio and financial performance</p>
                 </div>
                 <Select value={timeFilter} onValueChange={setTimeFilter}>
-                  <SelectTrigger className="w-[140px] bg-white">
+                  <SelectTrigger className="w-[160px] bg-white">
                     <SelectValue placeholder="Period" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="1m">Last 1 Month</SelectItem>
                     <SelectItem value="3m">Last 3 Months</SelectItem>
                     <SelectItem value="6m">Last 6 Months</SelectItem>
                     <SelectItem value="12m">Last 12 Months</SelectItem>
