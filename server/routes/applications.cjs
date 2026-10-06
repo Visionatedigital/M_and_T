@@ -407,10 +407,15 @@ router.post('/', async (req, res) => {
             cols.push('loan_reference');
             values.push(await assignLoanReference(db, borrower_id));
         }
-        const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
-        const query = `INSERT INTO loan_applications (${cols.join(', ')}) VALUES (${placeholders}) RETURNING *`;
+        const insertPairs = cols
+            .map((col, i) => ({ col, val: values[i] }))
+            .filter(({ col }) => laCols.has(col));
+        const insertCols = insertPairs.map((x) => x.col);
+        const insertVals = insertPairs.map((x) => x.val);
+        const placeholders = insertVals.map((_, i) => `$${i + 1}`).join(', ');
+        const query = `INSERT INTO loan_applications (${insertCols.join(', ')}) VALUES (${placeholders}) RETURNING *`;
 
-        const { rows } = await db.query(query, values);
+        const { rows } = await db.query(query, insertVals);
         await db.query('COMMIT');
 
         try {
@@ -658,45 +663,81 @@ router.put('/:id', async (req, res) => {
         })).filter(g => g.name || g.phone) : null;
         const guarantorsJson = guarantorsNormalized ? JSON.stringify(guarantorsNormalized) : null;
 
-        let extraSql = '';
-        const values = [
-            body.full_name, body.email, body.phone_number, body.id_number,
-            body.loan_product, body.loan_amount, body.loan_duration_months, body.loan_purpose,
-            body.branch_name, body.loan_type, body.loan_category, body.group_id || null, body.group_name || null,
-            groupMembersJson,
-            guarantorsJson,
-            body.district, body.division, body.county, body.village, body.parish,
-            body.business_location, body.security_type || null, body.security_value ? parseFloat(body.security_value) : null,
-            body.repayment_frequency || null, body.interest_method || null, body.interest_rate != null ? parseFloat(body.interest_rate) : null, body.interest_fixed_amount != null ? parseFloat(body.interest_fixed_amount) : null, body.duration_unit || null,
-            body.attachment_national_id ?? null,
-            body.attachment_lc1_letter ?? null,
-            body.attachment_recommendation_letter ?? null,
-            body.attachment_passport_photo ?? null,
-            body.attachment_income_statement ?? null,
-            body.attachment_uploaded_at ?? null,
-        ];
-        let p = values.length + 1;
+        const laCols = await loanApplicationColumns();
+        const setParts = [];
+        const values = [];
+        let p = 1;
+
+        const setCol = (col, val) => {
+            if (!laCols.has(col)) return;
+            setParts.push(`${col} = $${p}`);
+            values.push(val);
+            p += 1;
+        };
+        const setColCoalesce = (col, val) => {
+            if (!laCols.has(col)) return;
+            setParts.push(`${col} = COALESCE($${p}, ${col})`);
+            values.push(val);
+            p += 1;
+        };
+
+        setCol('full_name', body.full_name);
+        setCol('email', body.email);
+        setCol('phone_number', body.phone_number);
+        setCol('id_number', body.id_number);
+        setCol('loan_product', body.loan_product);
+        setCol('loan_amount', body.loan_amount);
+        setCol('loan_duration_months', body.loan_duration_months);
+        setCol('loan_purpose', body.loan_purpose);
+        setCol('branch_name', body.branch_name);
+        setCol('loan_type', body.loan_type);
+        setCol('loan_category', body.loan_category);
+        setCol('group_id', body.group_id || null);
+        setCol('group_name', body.group_name || null);
+        setColCoalesce('group_members', groupMembersJson);
+        setColCoalesce('guarantors', guarantorsJson);
+        setCol('district', body.district);
+        setCol('division', body.division);
+        setCol('county', body.county);
+        setCol('village', body.village);
+        setCol('parish', body.parish);
+        setCol('business_location', body.business_location);
+        setCol('security_type', body.security_type || null);
+        setCol('security_value', body.security_value ? parseFloat(body.security_value) : null);
+        setColCoalesce('repayment_frequency', body.repayment_frequency || null);
+        setColCoalesce('interest_method', body.interest_method || null);
+        setColCoalesce('interest_rate', body.interest_rate != null ? parseFloat(body.interest_rate) : null);
+        setColCoalesce('interest_fixed_amount', body.interest_fixed_amount != null ? parseFloat(body.interest_fixed_amount) : null);
+        setColCoalesce('duration_unit', body.duration_unit || null);
+        setCol('attachment_national_id', body.attachment_national_id ?? null);
+        setCol('attachment_lc1_letter', body.attachment_lc1_letter ?? null);
+        setCol('attachment_recommendation_letter', body.attachment_recommendation_letter ?? null);
+        setCol('attachment_passport_photo', body.attachment_passport_photo ?? null);
+        setCol('attachment_income_statement', body.attachment_income_statement ?? null);
+        setCol('attachment_uploaded_at', body.attachment_uploaded_at ?? null);
+
         const todayPut = new Date().toISOString().slice(0, 10);
         if (isAdmin(req.user?.role)) {
             const c = normalizeDateOnlyInput(body.application_date || body.created_at);
-            if (c) {
+            if (c && laCols.has('created_at')) {
                 if (c > todayPut) {
                     return res.status(400).json({ error: 'Application date cannot be in the future.' });
                 }
-                extraSql += `, created_at = $${p}::date::timestamptz`;
+                setParts.push(`created_at = $${p}::date::timestamptz`);
                 values.push(c);
                 p += 1;
             }
             const ap = normalizeDateOnlyInput(body.approved_at);
-            if (body.approved_at !== undefined && ap) {
+            if (body.approved_at !== undefined && ap && laCols.has('approved_at')) {
                 if (ap > todayPut) {
                     return res.status(400).json({ error: 'Approval date cannot be in the future.' });
                 }
-                extraSql += `, approved_at = $${p}::date::timestamptz`;
+                setParts.push(`approved_at = $${p}::date::timestamptz`);
                 values.push(ap);
                 p += 1;
             }
         }
+
         const paidRes = await db.query(
             'SELECT COALESCE(SUM(amount), 0)::numeric AS paid FROM repayments WHERE loan_application_id = $1',
             [id]
@@ -704,10 +745,18 @@ router.put('/:id', async (req, res) => {
         const amountPaid = parseFloat(paidRes.rows[0]?.paid || 0);
         const principal = parseFloat(body.loan_amount);
         const ratePct = body.interest_rate != null ? parseFloat(body.interest_rate) : 30;
-        if (!Number.isNaN(principal) && principal >= 0) {
-            extraSql += `, outstanding_balance = $${p}`;
+        if (!Number.isNaN(principal) && principal >= 0 && laCols.has('outstanding_balance')) {
+            setParts.push(`outstanding_balance = $${p}`);
             values.push(Math.max(0, principal * (1 + (Number.isNaN(ratePct) ? 30 : ratePct) / 100) - amountPaid));
             p += 1;
+        }
+
+        if (laCols.has('updated_at')) {
+            setParts.push('updated_at = NOW()');
+        }
+
+        if (setParts.length === 0) {
+            return res.status(400).json({ error: 'No updatable fields for this database schema.' });
         }
 
         values.push(id);
@@ -715,27 +764,7 @@ router.put('/:id', async (req, res) => {
 
         const query = `
             UPDATE loan_applications
-            SET 
-                full_name = $1, email = $2, phone_number = $3, id_number = $4,
-                loan_product = $5, loan_amount = $6, loan_duration_months = $7, loan_purpose = $8,
-                branch_name = $9, loan_type = $10, loan_category = $11, group_id = $12, group_name = $13,
-                group_members = COALESCE($14, group_members),
-                guarantors = COALESCE($15, guarantors),
-                district = $16, division = $17, county = $18, village = $19, parish = $20, 
-                business_location = $21, security_type = $22, security_value = $23,
-                repayment_frequency = COALESCE($24, repayment_frequency),
-                interest_method = COALESCE($25, interest_method),
-                interest_rate = COALESCE($26, interest_rate),
-                interest_fixed_amount = COALESCE($27, interest_fixed_amount),
-                duration_unit = COALESCE($28, duration_unit),
-                attachment_national_id = $29,
-                attachment_lc1_letter = $30,
-                attachment_recommendation_letter = $31,
-                attachment_passport_photo = $32,
-                attachment_income_statement = $33,
-                attachment_uploaded_at = $34,
-                updated_at = NOW()
-                ${extraSql}
+            SET ${setParts.join(', ')}
             WHERE id = $${idParam}
             RETURNING *
         `;
