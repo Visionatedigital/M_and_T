@@ -426,6 +426,7 @@ router.get('/dashboard-stats', async (req, res) => {
         `;
         const { rows: activityRows } = await db.query(activityQuery, values);
 
+        /** Ledger uses entry_type revenue | expense (not "income"). */
         const feeIncomeCategories = [
             'Processing Fees',
             'Fee Income (Valuation/Tracking)',
@@ -437,7 +438,7 @@ router.get('/dashboard-stats', async (req, res) => {
             `
             SELECT COALESCE(SUM(amount), 0) AS total
             FROM accounting_entries
-            WHERE entry_type = 'income'
+            WHERE entry_type = 'revenue'
               AND category = ANY($1::text[])
             `,
             [feeIncomeCategories],
