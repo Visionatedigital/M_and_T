@@ -1,5 +1,20 @@
 'use strict';
 
+const { isLoanOfficer } = require('./roles.cjs');
+
+/**
+ * When false (default for M&T), admins and loan officers share the same portfolio in lists,
+ * dashboards, and reports — e.g. Ziporah sees loans Liz entered. Assignment fields stay for ownership only.
+ * Set env LIMIT_LOANS_TO_OFFICER_PORTFOLIO=true to restore per-officer filtering.
+ */
+function limitLoansToOfficerPortfolio() {
+    return String(process.env.LIMIT_LOANS_TO_OFFICER_PORTFOLIO || '').toLowerCase() === 'true';
+}
+
+function shouldApplyOfficerLoanScope(role) {
+    return isLoanOfficer(role) && limitLoansToOfficerPortfolio();
+}
+
 /**
  * JWT / user payload may use `user_id` or `id` for the auth user UUID.
  * @param {object} ctx Express req or decoded JWT / { user }
@@ -59,4 +74,10 @@ function sqlOfficerLoanListScope(loanAlias, param) {
     )`;
 }
 
-module.exports = { officerUserId, sqlOfficerVisibleLoanApps, sqlOfficerLoanListScope };
+module.exports = {
+    officerUserId,
+    sqlOfficerVisibleLoanApps,
+    sqlOfficerLoanListScope,
+    limitLoansToOfficerPortfolio,
+    shouldApplyOfficerLoanScope,
+};

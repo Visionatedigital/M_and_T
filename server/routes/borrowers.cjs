@@ -9,6 +9,7 @@ const {
   sqlMemberCountSubquery,
   sqlOfficerGroupLoanFilter,
 } = require('../lib/groupMembersSql.cjs');
+const { shouldApplyOfficerLoanScope } = require('../lib/officerLoanScope.cjs');
 
 /** Basic UUID v4 check for assigned_officer_id (avoids PG 22P02 invalid input syntax) */
 function isValidUuid(val) {
@@ -53,7 +54,7 @@ router.get('/', async (req, res) => {
   try {
     if (isGroup) {
       const userId = req.user?.user_id || req.user?.id;
-      const officerScoped = isLoanOfficer(req.user?.role) && userId;
+      const officerScoped = shouldApplyOfficerLoanScope(req.user?.role) && userId;
       const groupParams = officerScoped ? [userId] : [];
       const officerLoanFilter = officerScoped ? sqlOfficerGroupLoanFilter(1) : '';
       const memberCountSql = sqlMemberCountSubquery('g.id', officerScoped ? officerLoanFilter.replace(/\bla\./g, 'la_mc.') : '');
@@ -109,7 +110,7 @@ router.get('/', async (req, res) => {
                 WHERE ur.role::text IN ('admin', 'loan_officer')
             )`;
     const borrowerValues = [];
-    if (isLoanOfficer(req.user?.role) && userId) {
+    if (shouldApplyOfficerLoanScope(req.user?.role) && userId) {
       borrowerWhere = `b.assigned_officer_id = $1`;
       borrowerValues.push(userId);
     }

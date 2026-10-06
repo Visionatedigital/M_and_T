@@ -4,7 +4,7 @@ const db = require('../db.cjs');
 const notificationService = require('../services/notificationService');
 const { analyzeApplication } = require('../services/aiService.cjs');
 const { isAdmin, isLoanOfficer } = require('../lib/roles.cjs');
-const { sqlOfficerLoanListScope } = require('../lib/officerLoanScope.cjs');
+const { sqlOfficerLoanListScope, shouldApplyOfficerLoanScope } = require('../lib/officerLoanScope.cjs');
 const { loanApplicationColumns } = require('../lib/loanApplicationSchema.cjs');
 const { nextMtCode, isMtCode, normalizeMtCode } = require('../lib/mtCode.cjs');
 const {
@@ -38,9 +38,9 @@ const normalizePaymentMethod = (value) => {
 };
 
 const getOfficerScope = (req, alias = 'la', paramIndex = 1) => {
-    const role = String(req.user?.role || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
+    const role = req.user?.role;
     const userId = req.user?.user_id || req.user?.id;
-    if (role !== 'loan_officer' || !userId) {
+    if (!shouldApplyOfficerLoanScope(role) || !userId) {
         return { joinSql: '', whereSql: '', values: [] };
     }
     const p = `$${paramIndex}`;
