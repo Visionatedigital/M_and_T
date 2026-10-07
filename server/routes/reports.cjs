@@ -11,10 +11,27 @@ const {
 } = require('docx');
 const aiService = require('../services/aiService.cjs');
 const { fetchReportStats } = require('../lib/reportStats.cjs');
-const { officerUserId, sqlOfficerVisibleLoanApps } = require('../lib/officerLoanScope.cjs');
+const { officerUserId, sqlOfficerVisibleLoanApps, shouldApplyOfficerLoanScope } = require('../lib/officerLoanScope.cjs');
+const {
+    totalRepayableAmount,
+    remainingBalanceParts,
+    expectedDueInPeriod,
+    dashboardPeriodRange,
+} = require('../lib/loanInterest.cjs');
+
+const BOOKED_LOAN_STATUSES = ['approved', 'disbursed', 'completed', 'settled'];
+const OPEN_LOAN_STATUSES = ['approved', 'disbursed'];
+
+function inDateRange(isoDate, start, end) {
+    if (!isoDate) return false;
+    const d = new Date(isoDate);
+    return d >= start && d <= end;
+}
 
 const normalizeRole = (role) => String(role || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
 const isLoanOfficer = (role) => normalizeRole(role) === 'loan_officer';
+/** Loan list/report SQL scoping (off when staff share one portfolio). */
+const officerLoanScoped = (role) => shouldApplyOfficerLoanScope(role);
 
 /**
  * Logo for Word exports: set REPORT_LOGO_PATH to an absolute path, or use
@@ -214,7 +231,7 @@ async function computeFinancialAnalysisZScore(req) {
                 SELECT COALESCE(SUM(loan_amount), 0) as gross_portfolio
                 FROM loan_applications
                 WHERE status IN ('active', 'disbursed')
-                ${isLoanOfficer(role) ? `AND ${sqlOfficerVisibleLoanApps('', '$1')}` : ''}
+                ${officerLoanScoped(role) ? `AND ${sqlOfficerVisibleLoanApps('', '$1')}` : ''}
             ),
             ledger_stats AS (
                 SELECT
@@ -225,7 +242,7 @@ async function computeFinancialAnalysisZScore(req) {
             )
             SELECT * FROM portfolio_stats, ledger_stats
         `;
-    const values = isLoanOfficer(role) ? [user_id] : [];
+    const values = officerLoanScoped(role) ? [user_id] : [];
     const { rows } = await db.query(financialDataQuery, values);
     const data = rows[0];
 
@@ -285,29 +302,83 @@ router.get('/dashboard-stats', async (req, res) => {
     try {
         const role = req.user?.role;
         const user_id = officerUserId(req);
+        const period = String(req.query.period || '6m').toLowerCase();
+        const { start: periodStart, end: periodEnd, label: periodLabel } = dashboardPeriodRange(period);
 
-        // 1. Core Metrics (Life Time)
         let baseFilter = '';
         let values = [];
-        if (isLoanOfficer(role)) {
+        if (officerLoanScoped(role)) {
             baseFilter = ` WHERE ${sqlOfficerVisibleLoanApps('', '$1')}`;
             values.push(user_id);
             if (!user_id) console.warn('[dashboard-stats] loan_officer missing JWT user id');
         }
 
-        const statsQuery = `
-            SELECT 
-                COUNT(*) as total_applications,
-                COUNT(*) FILTER (WHERE status IN ('pending', 'under_review')) as pending_applications,
-                COUNT(*) FILTER (WHERE status IN ('approved', 'disbursed', 'completed', 'settled')) as active_loans,
-                SUM(CASE WHEN status IN ('approved', 'disbursed', 'completed') THEN loan_amount ELSE 0 END) as total_disbursed
-            FROM loan_applications
+        const { rows: loanRows } = await db.query(
+            `
+            SELECT la.*, COALESCE(r.total_repaid, 0)::numeric AS total_repaid
+            FROM loan_applications la
+            LEFT JOIN (
+                SELECT loan_application_id, SUM(amount) AS total_repaid
+                FROM repayments
+                GROUP BY loan_application_id
+            ) r ON r.loan_application_id = la.id
             ${baseFilter}
-        `;
-        const { rows: statsRows } = await db.query(statsQuery, values);
-        const coreStats = statsRows[0];
+            `,
+            values,
+        );
 
-        // 2. Monthly Metrics (Current Month)
+        let totalApplications = 0;
+        let pendingApplications = 0;
+        let activeLoansOpen = 0;
+        let totalDisbursedPeriod = 0;
+        let outstandingPortfolio = 0;
+        let outstandingPrincipal = 0;
+        let outstandingInterest = 0;
+        let openPrincipalBook = 0;
+        let dueInPeriodAll = 0;
+        let dueInPeriodOpen = 0;
+        let nBook = 0;
+        let nFullyPaid = 0;
+        const openLoanIds = [];
+
+        for (const loan of loanRows) {
+            const createdInPeriod = inDateRange(loan.created_at, periodStart, periodEnd);
+            const approvedAt = loan.approved_at || loan.created_at;
+            const approvedInPeriod = inDateRange(approvedAt, periodStart, periodEnd);
+            const repaid = parseFloat(loan.total_repaid) || 0;
+            const { remaining, remainingPrincipal, remainingInterest } = remainingBalanceParts(loan, repaid);
+            const isBooked = BOOKED_LOAN_STATUSES.includes(loan.status);
+            const isOpen = OPEN_LOAN_STATUSES.includes(loan.status) && remaining > 0.01;
+
+            if (createdInPeriod) totalApplications += 1;
+            if (['pending', 'under_review'].includes(loan.status) && createdInPeriod) {
+                pendingApplications += 1;
+            }
+
+            if (isOpen) {
+                activeLoansOpen += 1;
+                openLoanIds.push(loan.id);
+                outstandingPortfolio += remaining;
+                outstandingPrincipal += remainingPrincipal;
+                outstandingInterest += remainingInterest;
+                openPrincipalBook += parseFloat(loan.loan_amount) || 0;
+                dueInPeriodOpen += expectedDueInPeriod(loan, periodStart, periodEnd);
+            }
+
+            if (approvedInPeriod && isBooked) {
+                totalDisbursedPeriod += parseFloat(loan.loan_amount) || 0;
+            }
+
+            if (isBooked) {
+                nBook += 1;
+                const expected = totalRepayableAmount(loan);
+                if (expected > 0 && repaid >= expected - 0.01) nFullyPaid += 1;
+                dueInPeriodAll += expectedDueInPeriod(loan, periodStart, periodEnd);
+            }
+        }
+
+        const par30 = openPrincipalBook * 0.045;
+
         const monthStart = new Date();
         monthStart.setDate(1);
         monthStart.setHours(0, 0, 0, 0);
@@ -317,98 +388,59 @@ router.get('/dashboard-stats', async (req, res) => {
                 COALESCE(SUM(loan_amount), 0) as monthly_disbursement,
                 COUNT(*) as monthly_count
             FROM loan_applications
-            WHERE status = 'disbursed'
+            WHERE status IN ('approved', 'disbursed', 'completed', 'settled')
             AND approved_at >= $1
-            ${isLoanOfficer(role) ? `AND ${sqlOfficerVisibleLoanApps('', '$2')}` : ''}
+            ${officerLoanScoped(role) ? `AND ${sqlOfficerVisibleLoanApps('', '$2')}` : ''}
         `;
-        const monthlyVals = [monthStart, ...(isLoanOfficer(role) ? [user_id] : [])];
+        const monthlyVals = [monthStart, ...(officerLoanScoped(role) ? [user_id] : [])];
         const { rows: monthlyRows } = await db.query(monthlyQuery, monthlyVals);
         const monthlyStats = monthlyRows[0];
 
-        // 3. Outstanding Portfolio & PAR 30
-        // Principal + 30% Interest - Repayments
-        const portfolioQuery = `
-            WITH disbursed_loans AS (
-                SELECT id, (loan_amount * 1.3) as expected_total, loan_amount
-                FROM loan_applications
-                WHERE status IN ('approved', 'disbursed', 'completed', 'settled')
-                ${isLoanOfficer(role) ? `AND ${sqlOfficerVisibleLoanApps('', '$1')}` : ''}
-            ),
-            total_repayments AS (
-                SELECT SUM(amount) as total_repaid
-                FROM repayments
-                ${isLoanOfficer(role) ? `WHERE loan_application_id IN (SELECT id FROM loan_applications la WHERE ${sqlOfficerVisibleLoanApps('la', '$1')})` : ''}
-            )
-            SELECT 
-                SUM(d.expected_total) as total_expected,
-                (SELECT COALESCE(total_repaid, 0) FROM total_repayments) as total_repaid,
-                SUM(d.loan_amount) as total_principal
-            FROM disbursed_loans d
-        `;
-        const { rows: portfolioRows } = await db.query(portfolioQuery, values);
-        const { total_expected, total_repaid, total_principal } = portfolioRows[0];
-        const outstandingPortfolio = Math.max(0, (total_expected || 0) - (total_repaid || 0));
-
-        // PAR 30 Heuristic: 4.5% of total principal for now (as seen in UI placeholder)
-        // In a real system we'd check due dates.
-        const par30 = (total_principal || 0) * 0.045;
-
-        // 4. Collection Efficiency (Last 30 days)
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-        const collectionQuery = `
-            SELECT COALESCE(SUM(amount), 0) as collected
+        const repScopeSql = officerLoanScoped(role)
+            ? `AND loan_application_id IN (SELECT id FROM loan_applications la WHERE ${sqlOfficerVisibleLoanApps('la', '$3')})`
+            : '';
+        const repPeriodVals = [
+            periodStart.toISOString().slice(0, 10),
+            periodEnd.toISOString().slice(0, 10),
+            ...(officerLoanScoped(role) ? [user_id] : []),
+        ];
+        const { rows: repPeriodRows } = await db.query(
+            `
+            SELECT COALESCE(SUM(amount), 0) AS collected
             FROM repayments
-            WHERE payment_date >= $1
-            ${isLoanOfficer(role) ? `AND loan_application_id IN (SELECT id FROM loan_applications la WHERE ${sqlOfficerVisibleLoanApps('la', '$2')})` : ''}
-        `;
-        const { rows: collectionRows } = await db.query(collectionQuery, [thirtyDaysAgo, ...(isLoanOfficer(role) ? [user_id] : [])]);
+            WHERE payment_date >= $1::date AND payment_date <= $2::date
+            ${repScopeSql}
+            `,
+            repPeriodVals,
+        );
+        const collectedInPeriod = parseFloat(repPeriodRows[0]?.collected) || 0;
 
-        const totalExpectedNum = parseFloat(total_expected) || 0;
-        const totalRepaidNum = parseFloat(total_repaid) || 0;
-        /** % of contractual amount (principal+interest) collected — 0 when no portfolio */
+        let collectedOnOpenInPeriod = 0;
+        if (openLoanIds.length > 0) {
+            const { rows: openRepRows } = await db.query(
+                `
+                SELECT COALESCE(SUM(amount), 0) AS collected
+                FROM repayments
+                WHERE payment_date >= $1::date AND payment_date <= $2::date
+                  AND loan_application_id = ANY($3::uuid[])
+                `,
+                [
+                    periodStart.toISOString().slice(0, 10),
+                    periodEnd.toISOString().slice(0, 10),
+                    openLoanIds,
+                ],
+            );
+            collectedOnOpenInPeriod = parseFloat(openRepRows[0]?.collected) || 0;
+        }
+
         const collectionRate =
-            totalExpectedNum > 0 ? Math.min(100, (totalRepaidNum / totalExpectedNum) * 100) : 0;
-
-        /** Recovery for loans still carrying balance (approved/disbursed, not fully paid) */
-        let recoveryOpenPct = 0;
-        const openRecSql = `
-            WITH lf AS (
-                SELECT (la.loan_amount * 1.3) AS exp,
-                    COALESCE((SELECT SUM(amount) FROM repayments r WHERE r.loan_application_id = la.id), 0) AS rep
-                FROM loan_applications la
-                WHERE la.status IN ('approved', 'disbursed')
-                ${isLoanOfficer(role) ? `AND ${sqlOfficerVisibleLoanApps('la', '$1')}` : ''}
-            )
-            SELECT COALESCE(SUM(exp), 0) AS sum_exp, COALESCE(SUM(rep), 0) AS sum_rep
-            FROM lf
-            WHERE rep < exp - 0.0001
-        `;
-        const { rows: openRecRows } = await db.query(openRecSql, values);
-        const openExp = parseFloat(openRecRows[0]?.sum_exp) || 0;
-        const openRep = parseFloat(openRecRows[0]?.sum_rep) || 0;
-        if (openExp > 0) recoveryOpenPct = Math.min(100, (openRep / openExp) * 100);
-
-        const roiBookSql = `
-            WITH lf AS (
-                SELECT (la.loan_amount * 1.3) AS exp,
-                    COALESCE((SELECT SUM(amount) FROM repayments r WHERE r.loan_application_id = la.id), 0) AS rep
-                FROM loan_applications la
-                WHERE la.status IN ('approved', 'disbursed', 'completed', 'settled')
-                ${isLoanOfficer(role) ? `AND ${sqlOfficerVisibleLoanApps('la', '$1')}` : ''}
-            )
-            SELECT
-                COUNT(*)::int AS n_book,
-                COUNT(*) FILTER (WHERE exp > 0 AND rep >= exp - 0.0001)::int AS n_fully_paid
-            FROM lf
-        `;
-        const { rows: roiBookRows } = await db.query(roiBookSql, values);
-        const nBook = parseInt(roiBookRows[0]?.n_book) || 0;
-        const nFullyPaid = parseInt(roiBookRows[0]?.n_fully_paid) || 0;
+            dueInPeriodAll > 0 ? Math.min(100, (collectedInPeriod / dueInPeriodAll) * 100) : 0;
+        const recoveryOpenPct =
+            dueInPeriodOpen > 0
+                ? Math.min(100, (collectedOnOpenInPeriod / dueInPeriodOpen) * 100)
+                : 0;
         const fullyPaidPct = nBook > 0 ? Math.min(100, (nFullyPaid / nBook) * 100) : 0;
 
-        /** Align UI with collection metrics; fullyPaid from book; defaulted requires explicit status in DB */
         const rateOfReturn = {
             all: collectionRate,
             open: recoveryOpenPct,
@@ -416,34 +448,95 @@ router.get('/dashboard-stats', async (req, res) => {
             defaulted: 0,
         };
 
-        // 5. Recent Activity
         const activityQuery = `
             SELECT full_name, status, updated_at, loan_amount
             FROM loan_applications
-            ${isLoanOfficer(role) ? `WHERE ${sqlOfficerVisibleLoanApps('', '$1')}` : ''}
+            ${officerLoanScoped(role) ? `WHERE ${sqlOfficerVisibleLoanApps('', '$1')}` : ''}
             ORDER BY updated_at DESC
             LIMIT 5
         `;
         const { rows: activityRows } = await db.query(activityQuery, values);
 
+        const feeIncomeCategories = [
+            'Processing Fees',
+            'Fee Income (Valuation/Tracking)',
+            'Commission Income',
+            'Late Payment Penalties',
+        ];
+        const feeVals = [
+            feeIncomeCategories,
+            periodStart.toISOString().slice(0, 10),
+            periodEnd.toISOString().slice(0, 10),
+        ];
+        const { rows: bookedFeeRows } = await db.query(
+            `
+            SELECT COALESCE(SUM(amount), 0) AS total
+            FROM accounting_entries
+            WHERE entry_type = 'revenue'
+              AND category = ANY($1::text[])
+              AND entry_date >= $2::date AND entry_date <= $3::date
+            `,
+            feeVals,
+        );
+        const otherIncomeBooked = parseFloat(bookedFeeRows[0]?.total || 0);
+
+        const expectedFeeScope = officerLoanScoped(role)
+            ? `AND ${sqlOfficerVisibleLoanApps('la', '$3')}`
+            : '';
+        const expectedFeeVals = [
+            periodStart.toISOString().slice(0, 10),
+            periodEnd.toISOString().slice(0, 10),
+            ...(officerLoanScoped(role) ? [user_id] : []),
+        ];
+        const { rows: expectedFeeRows } = await db.query(
+            `
+            SELECT COALESCE(SUM(fees), 0) AS total
+            FROM (
+                SELECT
+                    COALESCE(lp.application_fee, 0)
+                    + COALESCE(lp.processing_fee, 0)
+                    + CASE WHEN la.status IN ('approved', 'disbursed', 'completed', 'settled') THEN
+                        COALESCE(lp.admission_fee, 0)
+                        + COALESCE(lp.passbook_fee, 0)
+                        + COALESCE(la.loan_amount, 0) * COALESCE(lp.monitoring_fee_rate, 0) / 100.0
+                      ELSE 0 END AS fees
+                FROM loan_applications la
+                LEFT JOIN loan_products lp ON lp.name = la.loan_product
+                WHERE la.status NOT IN ('rejected', 'cancelled')
+                  AND la.created_at >= $1::timestamptz AND la.created_at <= $2::timestamptz
+                ${expectedFeeScope}
+            ) t
+            `,
+            expectedFeeVals,
+        );
+        const otherIncomeFromApplications = parseFloat(expectedFeeRows[0]?.total || 0);
+        const otherIncomeCombined = otherIncomeBooked + otherIncomeFromApplications;
+
         res.json({
             userName: req.user.full_name || 'Staff',
+            period,
+            periodLabel,
             stats: {
-                totalApplications: parseInt(coreStats.total_applications),
-                pendingApplications: parseInt(coreStats.pending_applications),
-                activeLoans: parseInt(coreStats.active_loans),
-                totalDisbursed: parseFloat(coreStats.total_disbursed || 0),
-                totalPaid: parseFloat(total_repaid || 0),
-                outstandingPortfolio: outstandingPortfolio,
+                totalApplications,
+                pendingApplications,
+                activeLoans: activeLoansOpen,
+                totalDisbursed: totalDisbursedPeriod,
+                totalPaid: collectedInPeriod,
+                outstandingPortfolio,
+                outstandingPrincipal,
+                outstandingInterest,
                 monthlyDisbursement: parseFloat(monthlyStats.monthly_disbursement),
-                monthlyCount: parseInt(monthlyStats.monthly_count),
-                par30: par30,
-                collectionRate: collectionRate,
-                recoveryOpenPct: recoveryOpenPct,
-                rateOfReturn: rateOfReturn,
-                avgGrowthRate: 0
+                monthlyCount: parseInt(monthlyStats.monthly_count, 10),
+                par30,
+                collectionRate,
+                recoveryOpenPct,
+                rateOfReturn,
+                avgGrowthRate: 0,
+                otherIncomeBooked,
+                otherIncomeFromApplications,
+                otherIncomeCombined,
             },
-            activities: activityRows
+            activities: activityRows,
         });
     } catch (err) {
         console.error(err);
@@ -473,11 +566,11 @@ router.get('/chart-data', async (req, res) => {
             let disQuery = `
                 SELECT SUM(loan_amount) as total
                 FROM loan_applications
-                WHERE status = 'disbursed'
+                WHERE status IN ('approved', 'disbursed', 'completed', 'settled')
                 AND approved_at >= $1 AND approved_at <= $2
             `;
             let disValues = [month.start, month.end];
-            if (isLoanOfficer(role)) {
+            if (officerLoanScoped(role)) {
                 disQuery += ` AND ${sqlOfficerVisibleLoanApps('', '$3')}`;
                 disValues.push(user_id);
             }
@@ -491,7 +584,7 @@ router.get('/chart-data', async (req, res) => {
                 WHERE payment_date >= $1 AND payment_date <= $2
             `;
             let repValues = [month.start, month.end];
-            if (isLoanOfficer(role)) {
+            if (officerLoanScoped(role)) {
                 repQuery += ` AND loan_application_id IN (SELECT id FROM loan_applications la WHERE ${sqlOfficerVisibleLoanApps('la', '$3')})`;
                 repValues.push(user_id);
             }
@@ -541,7 +634,7 @@ router.get('/growth-stats', async (req, res) => {
             // Disbursed in this month
             let disQuery = `SELECT SUM(loan_amount) as total FROM loan_applications WHERE status IN ('disbursed', 'active') AND approved_at <= $1`;
             let disValues = [month.end];
-            if (isLoanOfficer(role)) {
+            if (officerLoanScoped(role)) {
                 disQuery += ` AND ${sqlOfficerVisibleLoanApps('', '$2')}`;
                 disValues.push(user_id);
             }
@@ -554,7 +647,7 @@ router.get('/growth-stats', async (req, res) => {
             // Repayments in this month
             let repQuery = `SELECT SUM(amount) as total FROM repayments WHERE payment_date <= $1`;
             let repValues = [month.end];
-            if (isLoanOfficer(role)) {
+            if (officerLoanScoped(role)) {
                 repQuery += ` AND loan_application_id IN (SELECT id FROM loan_applications la WHERE ${sqlOfficerVisibleLoanApps('la', '$2')})`;
                 repValues.push(user_id);
             }
@@ -598,7 +691,7 @@ async function getAggregatedStats(user) {
         FROM loan_applications
     `;
     let values = [];
-    if (isLoanOfficer(role)) {
+    if (officerLoanScoped(role)) {
         loanQuery += ` WHERE ${sqlOfficerVisibleLoanApps('', '$1')}`;
         values.push(user_id);
     }
@@ -616,7 +709,7 @@ async function getAggregatedStats(user) {
             SUM(CASE WHEN status IN ('approved', 'disbursed') THEN loan_amount ELSE 0 END) as total_amount
         FROM loan_applications
     `;
-    if (isLoanOfficer(role)) productQuery += ` WHERE ${sqlOfficerVisibleLoanApps('', '$1')}`;
+    if (officerLoanScoped(role)) productQuery += ` WHERE ${sqlOfficerVisibleLoanApps('', '$1')}`;
     productQuery += ' GROUP BY loan_product';
     const { rows: productRows } = await db.query(productQuery, values);
 
@@ -625,7 +718,7 @@ async function getAggregatedStats(user) {
     let clientActiveQuery = `SELECT COUNT(DISTINCT borrower_id) as active_clients FROM loan_applications WHERE status IN ('approved', 'disbursed')`;
     let clientMonthQuery = "SELECT COUNT(*) as new_clients FROM borrowers WHERE created_at >= date_trunc('month', now())";
 
-    if (isLoanOfficer(role)) {
+    if (officerLoanScoped(role)) {
         clientQuery = 'SELECT id FROM borrowers WHERE assigned_officer_id = $1';
         clientMonthQuery += ' AND assigned_officer_id = $1';
         clientActiveQuery += ` AND ${sqlOfficerVisibleLoanApps('', '$1')}`;
@@ -653,12 +746,12 @@ async function getAggregatedStats(user) {
             COALESCE(SUM(loan_amount * 1.3), 0) as total_expected
         FROM loan_applications 
         WHERE status IN ('approved', 'disbursed', 'active', 'completed')
-        ${isLoanOfficer(role) ? `AND ${sqlOfficerVisibleLoanApps('', '$1')}` : ''}
+        ${officerLoanScoped(role) ? `AND ${sqlOfficerVisibleLoanApps('', '$1')}` : ''}
     `, values);
     const { rows: collRows } = await db.query(`
         SELECT COALESCE(SUM(amount), 0) as total_collected
         FROM repayments
-        ${isLoanOfficer(role) ? `WHERE loan_application_id IN (SELECT id FROM loan_applications la WHERE ${sqlOfficerVisibleLoanApps('la', '$1')})` : ''}
+        ${officerLoanScoped(role) ? `WHERE loan_application_id IN (SELECT id FROM loan_applications la WHERE ${sqlOfficerVisibleLoanApps('la', '$1')})` : ''}
     `, values);
 
     const outstandingPortfolio = Math.max(0, parseFloat(portRows[0].total_expected) - parseFloat(collRows[0].total_collected));
@@ -1191,7 +1284,7 @@ router.get('/roi-stats', async (req, res) => {
         `;
 
         const values = [];
-        if (isLoanOfficer(role)) {
+        if (officerLoanScoped(role)) {
             query += ` AND ${sqlOfficerVisibleLoanApps('', '$1')}`;
             values.push(user_id);
         }
@@ -1371,7 +1464,7 @@ router.get('/forecast', async (req, res) => {
                 AND approved_at <= $1
             `;
             const values = [endOfMonth];
-            if (isLoanOfficer(role)) {
+            if (officerLoanScoped(role)) {
                 query += ` AND ${sqlOfficerVisibleLoanApps('', '$2')}`;
                 values.push(user_id);
             }

@@ -288,10 +288,13 @@ export const api = {
             if (!r.ok) throw new Error('Failed to fetch report stats');
             return r.json();
         }),
-        getDashboardStats: () => fetch(`${API_URL}/reports/dashboard-stats`, { headers: getHeaders() }).then(r => {
-            if (!r.ok) throw new Error('Failed to fetch dashboard stats');
-            return r.json();
-        }),
+        getDashboardStats: (params?: { period?: string }) => {
+            const qs = params?.period ? `?period=${encodeURIComponent(params.period)}` : '';
+            return fetch(`${API_URL}/reports/dashboard-stats${qs}`, { headers: getHeaders() }).then(r => {
+                if (!r.ok) throw new Error('Failed to fetch dashboard stats');
+                return r.json();
+            });
+        },
         getChartData: (params?: { months?: number }) => {
             const qs = params?.months ? `?months=${params.months}` : '';
             return fetch(`${API_URL}/reports/chart-data${qs}`, { headers: getHeaders() }).then(r => {
@@ -516,6 +519,17 @@ export const api = {
             }
             return response.json();
         },
+        delete: async (id: string) => {
+            const response = await fetch(`${API_URL}/applications/${id}`, {
+                method: 'DELETE',
+                headers: getHeaders(),
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error((err as { error?: string }).error || 'Failed to delete application');
+            }
+            return response.json();
+        },
     },
     clients: {
         getAll: async (isGroup = false) => {
@@ -556,6 +570,11 @@ export const api = {
         get: async (id: string) => {
             const response = await fetch(`${API_URL}/borrowers/${id}`, { headers: getHeaders() });
             if (!response.ok) throw new Error('Failed to fetch borrower details');
+            return response.json();
+        },
+        nextUniqueNumber: async (): Promise<{ unique_number: string }> => {
+            const response = await fetch(`${API_URL}/borrowers/next-unique-number`, { headers: getHeaders() });
+            if (!response.ok) throw new Error('Failed to fetch next client ID');
             return response.json();
         },
         getAttachments: async (id: string) => {

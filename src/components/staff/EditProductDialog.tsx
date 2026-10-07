@@ -147,7 +147,7 @@ export function EditProductDialog({ open, onOpenChange, product, mode = "edit", 
                 base_interest_rate: "30",
                 monitoring_fee_rate: "3",
                 min_amount: "150000",
-                max_amount: "2000000",
+                max_amount: "50000000",
             });
             setCustomFees([]);
             return;

@@ -5,6 +5,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
+const { fetchPrimaryRoleForUser } = require('../lib/userRole.cjs');
 
 /** Host label for error messages (pg Pool may not set options.host when using connectionString). */
 function dbHostLabel() {
@@ -47,9 +48,7 @@ router.post('/login', async (req, res) => {
             return res.status(401).json({ error: `Invalid password for ${email} (DB: ${dbHost})` });
         }
 
-        // Fetch user role
-        const { rows: roleRows } = await db.query('SELECT role FROM user_roles WHERE user_id = $1', [user.id]);
-        const role = roleRows.length > 0 ? roleRows[0].role : 'client';
+        const role = await fetchPrimaryRoleForUser(db, user.id);
 
         // Fetch profile for full_name
         const { rows: profileRows } = await db.query('SELECT full_name, first_name FROM profiles WHERE id = $1', [user.id]);
@@ -92,9 +91,7 @@ router.get('/me', async (req, res) => {
 
         if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
 
-        // Fetch role
-        const { rows: roleRows } = await db.query('SELECT role FROM user_roles WHERE user_id = $1', [decoded.id]);
-        const role = roleRows.length > 0 ? roleRows[0].role : 'client';
+        const role = await fetchPrimaryRoleForUser(db, decoded.id);
 
         // Fetch profile
         const { rows: profileRows } = await db.query('SELECT full_name, first_name, last_name FROM profiles WHERE id = $1', [decoded.id]);

@@ -7,6 +7,7 @@ const {
   sqlMemberCountSubquery,
   sqlOfficerGroupLoanFilter,
 } = require('../lib/groupMembersSql.cjs');
+const { shouldApplyOfficerLoanScope } = require('../lib/officerLoanScope.cjs');
 
 // Get all groups
 router.get('/', async (req, res) => {
@@ -23,7 +24,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const { id } = req.params;
   const userId = req.user?.user_id || req.user?.id;
-  const officerScoped = isLoanOfficer(req.user?.role) && userId;
+  const officerScoped = shouldApplyOfficerLoanScope(req.user?.role) && userId;
 
   try {
     const groupParams = officerScoped ? [id, userId] : [id];

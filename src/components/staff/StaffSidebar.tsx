@@ -164,9 +164,9 @@ export function StaffSidebar() {
 
   const normalizedRole = (role || "").toString().toLowerCase().trim().replace(/[\s-]+/g, "_");
 
-  /** Admins-only: Ask AI assistant (after Dashboard). */
+  /** Staff Ask AI assistant (after Dashboard). */
   const menuWithAskAI =
-    normalizedRole === "admin"
+    normalizedRole === "admin" || normalizedRole === "loan_officer"
       ? [
           menuItems[0],
           {

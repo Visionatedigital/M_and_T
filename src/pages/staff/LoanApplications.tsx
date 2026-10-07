@@ -12,10 +12,11 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { FileText, Users, Plus, Search, CheckCircle, XCircle, Clock, Eye, DollarSign, Edit } from "lucide-react";
+import { FileText, Users, Plus, Search, CheckCircle, XCircle, Clock, Eye, DollarSign, Edit, Trash2, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { staffTabButtonClass, staffTabRowClass } from "@/lib/staffNavClasses";
 
@@ -68,6 +69,8 @@ const LoanApplications = () => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDisbursementDialogOpen, setIsDisbursementDialogOpen] = useState(false);
   const [pendingApprovalId, setPendingApprovalId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<LoanApplication | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [disbursementMethod, setDisbursementMethod] = useState("cash");
   const [approvalEffectiveDate, setApprovalEffectiveDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [userRole, setUserRole] = useState<string>("");
@@ -217,6 +220,28 @@ const LoanApplications = () => {
     );
     setIsDisbursementDialogOpen(false);
     setPendingApprovalId(null);
+  };
+
+  const handleDeleteApplication = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    try {
+      await api.applications.delete(deleteTarget.id);
+      toast({
+        title: "Application deleted",
+        description: "The loan application and related repayments were removed.",
+      });
+      setDeleteTarget(null);
+      loadApplications();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete application",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const calculateGroupLoanDetails = (application: LoanApplication) => {
@@ -560,6 +585,17 @@ const LoanApplications = () => {
                                     )}
                                   </>
                                 )}
+                                {userRole === "admin" && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="min-h-10 touch-manipulation text-destructive border-destructive/40 hover:bg-destructive/10"
+                                    onClick={() => setDeleteTarget(app)}
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Delete
+                                  </Button>
+                                )}
                               </div>
                             </CardContent>
                           </Card>
@@ -650,6 +686,16 @@ const LoanApplications = () => {
                                           </>
                                         )}
                                       </>
+                                    )}
+                                    {userRole === "admin" && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setDeleteTarget(app)}
+                                        title="Delete application"
+                                      >
+                                        <Trash2 className="h-4 w-4 text-destructive" />
+                                      </Button>
                                     )}
                                   </div>
                                 </TableCell>
@@ -876,6 +922,45 @@ const LoanApplications = () => {
                   </div>
                 </DialogContent>
               </Dialog>
+
+              <AlertDialog
+                open={!!deleteTarget}
+                onOpenChange={(open) => {
+                  if (!open && !isDeleting) setDeleteTarget(null);
+                }}
+              >
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this application?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This permanently removes the loan
+                      {deleteTarget ? ` for ${deleteTarget.full_name}` : ""}
+                      {deleteTarget?.status ? ` (status: ${deleteTarget.status})` : ""}
+                      , plus any repayments and related accounting entries. Use this to clear duplicate or double entries, including approved loans. This cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      disabled={isDeleting}
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        handleDeleteApplication();
+                      }}
+                    >
+                      {isDeleting ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Deleting…
+                        </>
+                      ) : (
+                        "Delete Application"
+                      )}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </div>
       </SidebarInset>

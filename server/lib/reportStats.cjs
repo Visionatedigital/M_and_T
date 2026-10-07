@@ -3,9 +3,8 @@
  * Kept in sync with GET /reports/stats responses.
  */
 const db = require('../db.cjs');
-const { isLoanOfficer } = require('./roles.cjs');
 const { loanApplicationColumns } = require('./loanApplicationSchema.cjs');
-const { officerUserId, sqlOfficerVisibleLoanApps } = require('./officerLoanScope.cjs');
+const { officerUserId, sqlOfficerVisibleLoanApps, shouldApplyOfficerLoanScope } = require('./officerLoanScope.cjs');
 
 /**
  * @param {import('express').Request} req authenticated request with req.user.role / user_id
@@ -25,7 +24,7 @@ async function fetchReportStats(req) {
             FROM loan_applications
         `;
     let values = [];
-    if (isLoanOfficer(role)) {
+    if (shouldApplyOfficerLoanScope(role)) {
         loanQuery += ` WHERE ${sqlOfficerVisibleLoanApps('', '$1')}`;
         values.push(user_id);
     }
@@ -45,7 +44,7 @@ async function fetchReportStats(req) {
                 SUM(CASE WHEN status IN ('approved', 'disbursed') THEN loan_amount ELSE 0 END) as total_amount
             FROM loan_applications
         `;
-    if (isLoanOfficer(role)) {
+    if (shouldApplyOfficerLoanScope(role)) {
         productQuery += ` WHERE ${sqlOfficerVisibleLoanApps('', '$1')}`;
     }
     productQuery += ' GROUP BY loan_product';
@@ -60,7 +59,7 @@ async function fetchReportStats(req) {
             WHERE status IN ('approved', 'disbursed')
         `;
 
-    if (isLoanOfficer(role)) {
+    if (shouldApplyOfficerLoanScope(role)) {
         const officerFilter = ' WHERE assigned_officer_id = $1';
         clientQuery += officerFilter;
         clientMonthQuery += ' AND assigned_officer_id = $1';
@@ -82,7 +81,7 @@ async function fetchReportStats(req) {
                 COALESCE(AVG(loan_duration_months) FILTER (WHERE status IN ('approved','disbursed','completed','settled')), 0)::float AS avg_duration_months
             FROM loan_applications
         `;
-    if (isLoanOfficer(role)) {
+    if (shouldApplyOfficerLoanScope(role)) {
         statusDetailQuery += ` WHERE ${sqlOfficerVisibleLoanApps('', '$1')}`;
     }
     const { rows: statusDetailRows } = await db.query(statusDetailQuery, values);
@@ -94,7 +93,7 @@ async function fetchReportStats(req) {
                     COALESCE((SELECT SUM(r.amount) FROM repayments r WHERE r.loan_application_id = la.id), 0)::numeric AS repaid
                 FROM loan_applications la
                 WHERE la.status IN ('approved','disbursed','completed','settled')
-                ${isLoanOfficer(role) ? `AND ${sqlOfficerVisibleLoanApps('la', '$1')}` : ''}
+                ${shouldApplyOfficerLoanScope(role) ? `AND ${sqlOfficerVisibleLoanApps('la', '$1')}` : ''}
             )
             SELECT COALESCE(SUM(GREATEST(0, expected_total - repaid)), 0)::numeric AS outstanding_estimate
             FROM per_loan
@@ -108,7 +107,7 @@ async function fetchReportStats(req) {
             FROM repayments WHERE payment_date >= $1
         `;
     const rep30Vals = [thirtyDaysAgo];
-    if (isLoanOfficer(role)) {
+    if (shouldApplyOfficerLoanScope(role)) {
         rep30Query +=
             ` AND loan_application_id IN (SELECT id FROM loan_applications la WHERE ${sqlOfficerVisibleLoanApps('la', '$2')})`;
         rep30Vals.push(user_id);
@@ -124,7 +123,7 @@ async function fetchReportStats(req) {
                 COUNT(*)::int AS applications,
                 COALESCE(SUM(CASE WHEN status IN ('approved','disbursed','completed','settled') THEN loan_amount ELSE 0 END), 0)::numeric AS principal_booked
             FROM loan_applications
-            ${isLoanOfficer(role) ? `WHERE ${sqlOfficerVisibleLoanApps('', '$1')}` : ''}
+            ${shouldApplyOfficerLoanScope(role) ? `WHERE ${sqlOfficerVisibleLoanApps('', '$1')}` : ''}
             GROUP BY 1 ORDER BY principal_booked DESC NULLS LAST
         `;
     const { rows: branchRows } = await db.query(branchQuery, values);
@@ -139,7 +138,7 @@ async function fetchReportStats(req) {
                 COUNT(*)::int AS applications,
                 COALESCE(SUM(loan_amount), 0)::numeric AS total_principal
             FROM loan_applications
-            ${isLoanOfficer(role) ? `WHERE ${sqlOfficerVisibleLoanApps('', '$1')}` : ''}
+            ${shouldApplyOfficerLoanScope(role) ? `WHERE ${sqlOfficerVisibleLoanApps('', '$1')}` : ''}
             GROUP BY 1 ORDER BY total_principal DESC NULLS LAST
         `;
     const { rows: categoryRows } = await db.query(categoryQuery, values);

@@ -57,7 +57,7 @@ const AskAI = () => {
           .toLowerCase()
           .trim()
           .replace(/[\s-]+/g, "_");
-        if (normalized !== "admin") {
+        if (normalized !== "admin" && normalized !== "loan_officer" && normalized !== "administrator" && normalized !== "super_admin") {
           navigate("/staff-dashboard", { replace: true });
           return;
         }

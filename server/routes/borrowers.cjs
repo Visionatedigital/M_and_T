@@ -2,12 +2,14 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db.cjs');
 const { isAdmin, isLoanOfficer } = require('../lib/roles.cjs');
+const { nextMtCode, resolveMtCode } = require('../lib/mtCode.cjs');
 
 const { calculateClientScore } = require('../services/scoreService');
 const {
   sqlMemberCountSubquery,
   sqlOfficerGroupLoanFilter,
 } = require('../lib/groupMembersSql.cjs');
+const { shouldApplyOfficerLoanScope } = require('../lib/officerLoanScope.cjs');
 
 /** Basic UUID v4 check for assigned_officer_id (avoids PG 22P02 invalid input syntax) */
 function isValidUuid(val) {
@@ -52,7 +54,7 @@ router.get('/', async (req, res) => {
   try {
     if (isGroup) {
       const userId = req.user?.user_id || req.user?.id;
-      const officerScoped = isLoanOfficer(req.user?.role) && userId;
+      const officerScoped = shouldApplyOfficerLoanScope(req.user?.role) && userId;
       const groupParams = officerScoped ? [userId] : [];
       const officerLoanFilter = officerScoped ? sqlOfficerGroupLoanFilter(1) : '';
       const memberCountSql = sqlMemberCountSubquery('g.id', officerScoped ? officerLoanFilter.replace(/\bla\./g, 'la_mc.') : '');
@@ -108,7 +110,7 @@ router.get('/', async (req, res) => {
                 WHERE ur.role::text IN ('admin', 'loan_officer')
             )`;
     const borrowerValues = [];
-    if (isLoanOfficer(req.user?.role) && userId) {
+    if (shouldApplyOfficerLoanScope(req.user?.role) && userId) {
       borrowerWhere = `b.assigned_officer_id = $1`;
       borrowerValues.push(userId);
     }
@@ -175,6 +177,17 @@ router.get('/', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch borrowers' });
+  }
+});
+
+/** Preview the next MT### code (MT001, MT002, …). Must stay before /:id routes. */
+router.get('/next-unique-number', async (_req, res) => {
+  try {
+    const unique_number = await nextMtCode(db);
+    res.json({ unique_number });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Failed to allocate next unique number' });
   }
 });
 
@@ -283,6 +296,13 @@ router.put('/:id', async (req, res) => {
       let v = body[key];
       if (v === '') v = null;
       if (key === 'email' && typeof v === 'string' && !v.trim()) v = null;
+      if (key === 'unique_number') {
+        try {
+          v = await resolveMtCode(db, v, { excludeBorrowerId: id });
+        } catch (err) {
+          return res.status(400).json({ error: err.message || 'Invalid unique number' });
+        }
+      }
       updates.push(`${key} = $${idx}`);
       values.push(v);
       idx += 1;
@@ -443,6 +463,8 @@ router.post('/', async (req, res) => {
   }
 
   try {
+    const assignedUnique = await resolveMtCode(db, unique_number);
+
     const query = `
             INSERT INTO borrowers (
                 full_name, email, phone_number, first_name, last_middle_name,
@@ -463,7 +485,7 @@ router.post('/', async (req, res) => {
 
     const values = [
       full_name, email, phone_number, first_name, last_middle_name,
-      business_name, unique_number, country || 'Uganda', address, city,
+      business_name, assignedUnique, country || 'Uganda', address, city,
       province_state, zipcode, gender, title, working_status, credit_score || 300,
       dob || null, landline_phone, description,
       borrower_photo, borrower_files ? [borrower_files] : null, assignedOfficerId,

@@ -180,7 +180,7 @@ const ProductManagement = () => {
                               UGX {limits?.min_amount?.toLocaleString() ?? "150,000"}
                             </TableCell>
                             <TableCell>
-                              UGX {limits?.max_amount?.toLocaleString() ?? "2,000,000"}
+                              UGX {limits?.max_amount?.toLocaleString() ?? "50,000,000"}
                             </TableCell>
                             <TableCell>{limits != null ? `${limits.base_interest_rate ?? 0}%` : "—"}</TableCell>
                             <TableCell>

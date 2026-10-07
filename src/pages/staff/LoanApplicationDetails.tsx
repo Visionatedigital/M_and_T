@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, CheckCircle, XCircle, Users, User, DollarSign, Calendar, MapPin, Briefcase, FileText, Eye, Sparkles, Loader2, Info } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, Users, User, DollarSign, Calendar, MapPin, Briefcase, FileText, Eye, Sparkles, Loader2, Info, Edit, Trash2 } from "lucide-react";
 import { resolveMediaUrl } from "@/lib/resolveMediaUrl";
 import {
     AlertDialog,
@@ -32,7 +32,6 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { Edit } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -86,6 +85,8 @@ const LoanApplicationDetails = () => {
     const [userRole, setUserRole] = useState<string>("");
     const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
     const [isDisbursementDialogOpen, setIsDisbursementDialogOpen] = useState(false);
     const [disbursementMethod, setDisbursementMethod] = useState("cash");
     /** Backdated approval / accounting date when approving or disbursing (migration) */
@@ -220,6 +221,28 @@ const LoanApplicationDetails = () => {
             disbursement_entry_date: approvalEffectiveDate,
         });
         setIsDisbursementDialogOpen(false);
+    };
+
+    const handleDeleteApplication = async () => {
+        if (!application) return;
+        setIsDeleting(true);
+        try {
+            await api.applications.delete(application.id);
+            toast({
+                title: "Application deleted",
+                description: "The loan application and related repayments were removed.",
+            });
+            setIsDeleteDialogOpen(false);
+            navigate("/staff-dashboard/applications");
+        } catch (error: any) {
+            toast({
+                title: "Error",
+                description: error.message || "Failed to delete application",
+                variant: "destructive",
+            });
+        } finally {
+            setIsDeleting(false);
+        }
     };
 
     const calculateLoanDetails = () => {
@@ -365,12 +388,21 @@ const LoanApplicationDetails = () => {
                                     </div>
                                 )}
 
-                                {/* Edit Action for Staff */}
-                                <div className="flex gap-3 mt-2 md:mt-0">
+                                {/* Edit / Delete Actions for Staff */}
+                                <div className="flex flex-wrap gap-3 mt-2 md:mt-0">
                                     <Button variant="outline" onClick={() => setIsEditDialogOpen(true)}>
                                         <Edit className="mr-2 h-4 w-4" />
                                         Edit Application
                                     </Button>
+                                    {userRole === "admin" && (
+                                        <Button
+                                            variant="destructive"
+                                            onClick={() => setIsDeleteDialogOpen(true)}
+                                        >
+                                            <Trash2 className="mr-2 h-4 w-4" />
+                                            Delete
+                                        </Button>
+                                    )}
                                 </div>
                             </div>
 
@@ -711,6 +743,40 @@ const LoanApplicationDetails = () => {
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                         >
                             Reject
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={isDeleteDialogOpen} onOpenChange={(open) => { if (!isDeleting) setIsDeleteDialogOpen(open); }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete this application?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This permanently removes the loan
+                            {application ? ` for ${application.full_name}` : ""}
+                            {application?.status ? ` (status: ${application.status})` : ""}
+                            , plus any repayments and related accounting entries. Use this to clear duplicate or double entries, including approved loans. This cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={isDeleting}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleDeleteApplication();
+                            }}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            {isDeleting ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Deleting…
+                                </>
+                            ) : (
+                                "Delete Application"
+                            )}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

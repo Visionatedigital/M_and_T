@@ -3,8 +3,7 @@
  */
 const db = require('../db.cjs');
 const { fetchReportStats } = require('../lib/reportStats.cjs');
-const { isLoanOfficer } = require('../lib/roles.cjs');
-const { officerUserId, sqlOfficerVisibleLoanApps } = require('../lib/officerLoanScope.cjs');
+const { officerUserId, sqlOfficerVisibleLoanApps, shouldApplyOfficerLoanScope } = require('../lib/officerLoanScope.cjs');
 
 const SYSTEM_USER_UUID = '00000000-0000-0000-0000-000000000000';
 
@@ -47,14 +46,14 @@ async function buildAssistantSnapshot(req) {
     const user_id = officerUserId(req);
     const values = [];
     let loanScoped = '';
-    if (isLoanOfficer(role)) {
+    if (shouldApplyOfficerLoanScope(role)) {
         loanScoped = sqlOfficerVisibleLoanApps('', '$1');
         values.push(user_id);
     }
 
     const reportBlock = await fetchReportStats(req);
 
-    const repayScope = isLoanOfficer(role)
+    const repayScope = shouldApplyOfficerLoanScope(role)
         ? `AND r.loan_application_id IN (SELECT id FROM loan_applications la WHERE ${sqlOfficerVisibleLoanApps('la', '$1')})`
         : '';
 
@@ -88,7 +87,7 @@ async function buildAssistantSnapshot(req) {
         safe('borrowerCredit', async () => {
             let q =
                 'SELECT ROUND(AVG(credit_score)::numeric, 1) AS avg_stored, COUNT(*) FILTER (WHERE credit_score IS NOT NULL)::int AS with_score FROM borrowers';
-            if (isLoanOfficer(role)) q += ' WHERE assigned_officer_id = $1';
+            if (shouldApplyOfficerLoanScope(role)) q += ' WHERE assigned_officer_id = $1';
             const { rows } = await db.query(q, values);
             return {
                 avg_stored_credit_score: rows[0]?.avg_stored != null ? parseFloat(rows[0].avg_stored) : null,
@@ -98,7 +97,7 @@ async function buildAssistantSnapshot(req) {
         safe('repaymentRows', async () => {
             const { rows } = await db.query(
                 `SELECT COUNT(*)::int AS cnt, COALESCE(SUM(amount), 0)::numeric AS total_ugx FROM repayments r WHERE 1=1 ${repayScope}`,
-                isLoanOfficer(role) ? [user_id] : []
+                shouldApplyOfficerLoanScope(role) ? [user_id] : []
             );
             return {
                 repayment_records_total: parseInt(rows[0]?.cnt || 0, 10),
@@ -115,7 +114,7 @@ async function buildAssistantSnapshot(req) {
                 WHERE 1=1 ${repayScope}
                 GROUP BY 1 ORDER BY total_ugx DESC NULLS LAST
                 `,
-                isLoanOfficer(role) ? [user_id] : []
+                shouldApplyOfficerLoanScope(role) ? [user_id] : []
             );
             return rows.map((r) => ({
                 method: r.method,
@@ -127,7 +126,7 @@ async function buildAssistantSnapshot(req) {
             const d = new Date();
             d.setDate(d.getDate() - 7);
             const from = d.toISOString().slice(0, 10);
-            if (isLoanOfficer(role)) {
+            if (shouldApplyOfficerLoanScope(role)) {
                 const { rows } = await db.query(
                     `
                     SELECT COALESCE(SUM(amount), 0)::numeric AS v
@@ -152,7 +151,7 @@ async function buildAssistantSnapshot(req) {
             const from = new Date();
             from.setDate(from.getDate() - 90);
             const dateFrom = from.toISOString().slice(0, 10);
-            if (isLoanOfficer(role)) {
+            if (shouldApplyOfficerLoanScope(role)) {
                 const { rows } = await db.query(
                     `
                     SELECT
@@ -217,7 +216,7 @@ async function buildAssistantSnapshot(req) {
                 SELECT full_name, loan_product, status, loan_amount, updated_at, approved_at
                 FROM loan_applications la
             `;
-            if (isLoanOfficer(role)) {
+            if (shouldApplyOfficerLoanScope(role)) {
                 q += ` WHERE ${sqlOfficerVisibleLoanApps('la', '$1')}`;
             }
             q += ' ORDER BY updated_at DESC NULLS LAST LIMIT 15';
@@ -246,7 +245,7 @@ async function buildAssistantSnapshot(req) {
                       AND approved_at >= $1 AND approved_at <= $2
                 `;
                 const disVals = [month.start, month.end];
-                if (isLoanOfficer(role)) {
+                if (shouldApplyOfficerLoanScope(role)) {
                     disQuery += ` AND ${sqlOfficerVisibleLoanApps('', '$3')}`;
                     disVals.push(user_id);
                 }
@@ -260,7 +259,7 @@ async function buildAssistantSnapshot(req) {
                     WHERE payment_date >= $1 AND payment_date <= $2
                 `;
                 const repVals = [month.start, month.end];
-                if (isLoanOfficer(role)) {
+                if (shouldApplyOfficerLoanScope(role)) {
                     repQuery += ` AND loan_application_id IN (
                         SELECT id FROM loan_applications la WHERE ${sqlOfficerVisibleLoanApps('la', '$3')}
                     )`;
@@ -280,10 +279,10 @@ async function buildAssistantSnapshot(req) {
             return series;
         }),
         safe('currentMonthOps', async () => {
-            const officerDisb = isLoanOfficer(role)
+            const officerDisb = shouldApplyOfficerLoanScope(role)
                 ? `AND ${sqlOfficerVisibleLoanApps('', '$2')}`
                 : '';
-            const disbVals = isLoanOfficer(role) ? [monthStartIso, user_id] : [monthStartIso];
+            const disbVals = shouldApplyOfficerLoanScope(role) ? [monthStartIso, user_id] : [monthStartIso];
             const { rows: disbRows } = await db.query(
                 `
                 SELECT
@@ -297,10 +296,10 @@ async function buildAssistantSnapshot(req) {
                 disbVals
             );
 
-            const officerRep = isLoanOfficer(role)
+            const officerRep = shouldApplyOfficerLoanScope(role)
                 ? `AND loan_application_id IN (SELECT id FROM loan_applications la WHERE ${sqlOfficerVisibleLoanApps('la', '$2')})`
                 : '';
-            const repVals = isLoanOfficer(role) ? [monthStartIso, user_id] : [monthStartIso];
+            const repVals = shouldApplyOfficerLoanScope(role) ? [monthStartIso, user_id] : [monthStartIso];
             const { rows: monthRepRows } = await db.query(
                 `
                 SELECT COALESCE(SUM(amount), 0)::numeric AS total, COUNT(*)::int AS cnt
@@ -311,7 +310,7 @@ async function buildAssistantSnapshot(req) {
                 repVals
             );
 
-            const todayVals = isLoanOfficer(role) ? [todayIso, user_id] : [todayIso];
+            const todayVals = shouldApplyOfficerLoanScope(role) ? [todayIso, user_id] : [todayIso];
             const { rows: todayRepRows } = await db.query(
                 `
                 SELECT COALESCE(SUM(amount), 0)::numeric AS total, COUNT(*)::int AS cnt
@@ -325,7 +324,7 @@ async function buildAssistantSnapshot(req) {
             const thirtyAgo = new Date();
             thirtyAgo.setDate(thirtyAgo.getDate() - 30);
             const thirtyIso = thirtyAgo.toISOString().slice(0, 10);
-            const last30Vals = isLoanOfficer(role) ? [thirtyIso, user_id] : [thirtyIso];
+            const last30Vals = shouldApplyOfficerLoanScope(role) ? [thirtyIso, user_id] : [thirtyIso];
             const { rows: last30Rows } = await db.query(
                 `
                 SELECT COALESCE(SUM(amount), 0)::numeric AS total
@@ -373,10 +372,10 @@ async function buildAssistantSnapshot(req) {
             }));
         }),
         safe('portfolioHealth', async () => {
-            const officerLoan = isLoanOfficer(role)
+            const officerLoan = shouldApplyOfficerLoanScope(role)
                 ? `AND ${sqlOfficerVisibleLoanApps('la', '$1')}`
                 : '';
-            const vals = isLoanOfficer(role) ? [user_id] : [];
+            const vals = shouldApplyOfficerLoanScope(role) ? [user_id] : [];
 
             const { rows: bookRows } = await db.query(
                 `
@@ -472,7 +471,7 @@ async function buildAssistantSnapshot(req) {
         }),
         safe('accountingKpis', async () => {
             // Ledger KPIs are institution-wide (not officer-scoped); skip noise for officers
-            if (isLoanOfficer(role)) {
+            if (shouldApplyOfficerLoanScope(role)) {
                 return {
                     scoped: false,
                     note: 'Accounting ledger KPIs are admin/institution-wide; not included for loan-officer views.',
@@ -516,7 +515,7 @@ async function buildAssistantSnapshot(req) {
                 FROM loan_applications la
                 WHERE status IN ('pending', 'under_review')
             `;
-            if (isLoanOfficer(role)) {
+            if (shouldApplyOfficerLoanScope(role)) {
                 q += ` AND ${sqlOfficerVisibleLoanApps('la', '$1')}`;
             }
             q += ' ORDER BY updated_at DESC NULLS LAST LIMIT 12';
